@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <utility>
 
 extern "C" {
@@ -14,7 +15,7 @@ struct Point {
   y=-1;
 
   bool valid () {
-    return (x > 0 && y > 0);
+    return (x >= 0 && y >= 0);
   }
 };
 // pipe syntax
@@ -33,5 +34,7 @@ Point set_cell (Point p, uint32_t ch, tb_attr fg=0, tb_attr bg=0);
 int mod_cell (Point p, bool opor, tb_attr fg, tb_attr bg);
 
 Point dim (Point p);
+
+void write_string (Point start, std::string s, size_t nchar, tb_attr fg=0, tb_attr bg=0);
 
 }

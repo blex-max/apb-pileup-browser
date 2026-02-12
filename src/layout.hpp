@@ -1,6 +1,8 @@
 #pragma once
 
-namespace lo {
+#include "tb.hpp"
+
+namespace lay {
 
   struct ClosedBox {
     // closed coordinates
@@ -23,6 +25,27 @@ namespace lo {
     int ysz () const noexcept {
       return y2 - y1 + 1;
     }
+
+    extb::Point
+    set_local
+    (extb::Point plocal, uint32_t ch, extb::tb_attr fg=0, extb::tb_attr bg=0);
+
+    extb::Point
+    get_global
+    (extb::Point plocal);
+
+    extb::Point
+    get_local
+    (extb::Point pglobal);
+
+    bool
+    is_in
+    (extb::Point pglobal);
+
+    // nchar=0 == print as much of string as possible
+    void
+    write_string
+    (extb::Point start, std::string_view s, size_t nchar=0, extb::tb_attr fg=0, extb::tb_attr bg=0);
   };
 
 }
