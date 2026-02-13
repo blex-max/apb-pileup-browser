@@ -105,7 +105,7 @@ int main(int, char **) {
     extb::set_cell({cmd_box.x1, input_box.y2 + 1}, 0x251C);
     extb::set_cell({cmd_box.x2, input_box.y2 + 1}, 0x2524);
     for (auto x = cmd_box.x1 + 1; x < cmd_box.x2; ++x) {
-      extb::set_cell({x, input_box.y2 + 1}, 0x2500) | extb::dim;
+      extb::set_cell({x, input_box.y2 + 1}, 0x2500, TB_DIM);
     }
     lay::ClosedBox return_box{
       cmd_box.x1 + 1,

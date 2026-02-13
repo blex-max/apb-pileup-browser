@@ -1,7 +1,7 @@
 #pragma once
 
-#include <string>
-#include <utility>
+#include <limits>
+#include <string_view>
 
 extern "C" {
   #include <termbox2.h>
@@ -19,22 +19,24 @@ struct Point {
   }
 };
 // pipe syntax
-template<typename F>
-requires requires(F&& f, Point p) { std::forward<F>(f)(p); }
-auto operator|(Point p, F&& f)
-  -> decltype(std::forward<F>(f)(p))
-{
-  return std::forward<F>(f)(p);
-}
+// template<typename F>
+// requires requires(F&& f, Point p) { std::forward<F>(f)(p); }
+// auto operator|(Point p, F&& f)
+//   -> decltype(std::forward<F>(f)(p))
+// {
+//   return std::forward<F>(f)(p);
+// }
 
 using tb_attr = unsigned short;
+constexpr tb_attr AS_FG = std::numeric_limits<tb_attr>::max();
 
-Point set_cell (Point p, uint32_t ch, tb_attr fg=0, tb_attr bg=0);
+int set_cell
+(Point p, uint32_t ch, tb_attr fg=0, tb_attr bg=AS_FG);
 
-int mod_cell (Point p, bool opor, tb_attr fg, tb_attr bg);
+int mod_cell
+(Point p, bool opor, tb_attr fg, tb_attr bg=AS_FG);
 
-Point dim (Point p);
-
-void write_string (Point start, std::string s, size_t nchar, tb_attr fg=0, tb_attr bg=0);
+int write_string
+(Point start, std::string_view s, size_t nchar, tb_attr fg=0, tb_attr bg=AS_FG);
 
 }
