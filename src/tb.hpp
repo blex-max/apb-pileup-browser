@@ -33,8 +33,10 @@ constexpr tb_attr AS_FG = std::numeric_limits<tb_attr>::max();
 int set_cell
 (Point p, uint32_t ch, tb_attr fg=0, tb_attr bg=AS_FG);
 
-int mod_cell
-(Point p, bool opor, tb_attr fg, tb_attr bg=AS_FG);
+int set_attr (Point p, tb_attr attr, bool fg, bool bg);
+int add_attr (Point p, tb_attr attr, bool fg, bool bg);
+int rm_attr (Point p, tb_attr attr, bool fg, bool bg);
+bool check_attr (Point p, tb_attr attr, bool fg, bool bg);
 
 int write_string
 (Point start, std::string_view s, size_t nchar, tb_attr fg=0, tb_attr bg=AS_FG);

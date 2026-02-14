@@ -30,10 +30,21 @@ bool ClosedBox::is_in
   return get_local(pglobal).valid();
 }
 
-int ClosedBox::set_local
+int ClosedBox::set_cell
 (extb::Point plocal, uint32_t ch, extb::tb_attr fg, extb::tb_attr bg) {
   const auto pglobal = get_global(plocal);
-  return set_cell(pglobal, ch, fg, bg);
+  return extb::set_cell(pglobal, ch, fg, bg);
+}
+
+int ClosedBox::add_attr
+(extb::Point plocal, extb::tb_attr attr, bool fg, bool bg) {
+  const auto pglobal = get_global(plocal);
+  return extb::add_attr(pglobal, attr, fg, bg);
+}
+int ClosedBox::rm_attr
+(extb::Point plocal, extb::tb_attr attr, bool fg, bool bg) {
+  const auto pglobal = get_global(plocal);
+  return extb::rm_attr(pglobal, attr, fg, bg);
 }
 
 // returns nchars written

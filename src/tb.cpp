@@ -11,21 +11,53 @@ int set_cell (Point p, uint32_t ch, tb_attr fg, tb_attr bg) {
   return tb_set_cell(p.x, p.y, ch, fg, bg);
 };
 
-int mod_cell (Point p, bool opor, tb_attr fg, tb_attr bg) {
-  if (bg == AS_FG) {
-    bg = fg;
-  }
+// TODO the above is a bit clunky and it would be nice to
+// have something more flexible and intuitive
+// so: ops to modify attribute bits for a given cell
+int set_attr (Point p, tb_attr attr, bool fg, bool bg) {
   tb_cell *c;
-  int rc;
-  rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
   if (rc != 0) {
     return rc;
   }
-  const auto fg_attr = (opor) ? c->fg | fg : c->fg & fg;
-  const auto bg_attr = (opor) ? c->bg | bg : c-> bg & bg;
-  const auto ch = c->ch;
-  return tb_set_cell(p.x, p.y, ch, fg_attr, bg_attr);
-}
+  const tb_attr fg_attr = fg ? attr : c->fg;
+  const tb_attr bg_attr = bg ? attr : c->bg;
+  return tb_set_cell(p.x, p.y, c->ch, fg_attr, bg_attr);
+};
+
+int add_attr (Point p, tb_attr attr, bool fg, bool bg) {
+  tb_cell *c;
+  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  if (rc != 0) {
+    return rc;
+  }
+  const tb_attr fg_attr = fg ? (c->fg | attr) : c->fg;
+  const tb_attr bg_attr = bg ? (c->bg | attr) : c->bg;
+  return tb_set_cell(p.x, p.y, c->ch, fg_attr, bg_attr);
+};
+
+int rm_attr (Point p, tb_attr attr, bool fg, bool bg) {
+  tb_cell *c;
+  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  if (rc != 0) {
+    return rc;
+  }
+  const tb_attr fg_attr = fg ? (c->fg & ~attr) : c->fg;
+  const tb_attr bg_attr = bg ? (c->bg & ~attr) : c->bg;
+  return tb_set_cell(p.x, p.y, c->ch, fg_attr, bg_attr);
+};
+
+bool check_attr (Point p, tb_attr attr, bool fg, bool bg) {
+  tb_cell *c;
+  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  if (rc != 0) {
+    return rc;
+  }
+  bool has_fg = fg ? (c->fg & attr) : true;
+  bool has_bg = bg ? (c->bg & attr) : true;
+  return has_fg & has_bg;
+};
+
 
 // returns nchars written
 int write_string

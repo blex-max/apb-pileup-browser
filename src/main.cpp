@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdlib>
 #include <locale.h>
 #include <stdlib.h>
@@ -9,7 +10,8 @@
 #include "hts/boundary-types.hpp"
 
 
-constexpr auto CMD_H = 6;  // inc. borders
+constexpr auto CMD_H = 3;  // inc. borders
+constexpr auto STATUS_H = 3;
 
 enum class states : uint8_t {
   cmd,
@@ -38,7 +40,7 @@ int main(int, char **) {
       screen.x1,
       screen.x2,
       screen.y1,
-      screen.y2 - CMD_H
+      screen.y2 - CMD_H - STATUS_H
     };
     lay::ClosedBox cmd_box{
       screen.x1,
@@ -46,23 +48,26 @@ int main(int, char **) {
       browse_box.y2 + 1,
       browse_box.y2 + CMD_H  // last inclusive y
     };
+    lay::ClosedBox status_box{
+      screen.x1,
+      screen.x2,
+      cmd_box.y2 + 1,
+      cmd_box.y2 + STATUS_H // last inclusive y
+    };
 
     // draw fixed elements (carets, borders)
     // seq display
     // corners
     extb::set_cell({browse_box.x1, browse_box.y1}, 0x256D);
     extb::set_cell({browse_box.x2, browse_box.y1}, 0x256E);
-    extb::set_cell({browse_box.x1, browse_box.y2}, 0x2570);
-    extb::set_cell({browse_box.x2, browse_box.y2}, 0x256F);
 
     // top, bottom
     for (auto x = browse_box.x1 + 1; x < browse_box.x2; ++x) {
       extb::set_cell({x, browse_box.y1}, 0x2500);
-      extb::set_cell({x, browse_box.y2}, 0x2500);
     }
 
     // sides
-    for (auto y = browse_box.y1 + 1; y < browse_box.y2; ++y) {
+    for (auto y = browse_box.y1 + 1; y < browse_box.y2 + 1; ++y) {
       extb::set_cell({browse_box.x1, y}, 0x2502);
       extb::set_cell({browse_box.x2, y}, 0x2502);
     }
@@ -86,34 +91,42 @@ int main(int, char **) {
       extb::set_cell({cmd_box.x2, y}, 0x2502);
     }
 
-    // cmd sub areas
-    lay::ClosedBox history_box {
-      cmd_box.x1 + 1,
-      cmd_box.x2 - 1,
-      cmd_box.y1 + 1,
-      cmd_box.y1 + 1       // single row
-    };
-    // input line
-    auto caret = extb::set_cell({cmd_box.x1 + 1, cmd_box.y1 + 2}, ':');
-    lay::ClosedBox input_box{
-      cmd_box.x1 + 2,      // exclude caret :
-      cmd_box.x2 - 1,      // exclude border
-      history_box.y2 + 1,  // line after history
-      history_box.y2 + 1   // single row
-    };
-    // return sep
-    extb::set_cell({cmd_box.x1, input_box.y2 + 1}, 0x251C);
-    extb::set_cell({cmd_box.x2, input_box.y2 + 1}, 0x2524);
-    for (auto x = cmd_box.x1 + 1; x < cmd_box.x2; ++x) {
-      extb::set_cell({x, input_box.y2 + 1}, 0x2500, TB_DIM);
-    }
-    lay::ClosedBox return_box{
-      cmd_box.x1 + 1,
-      cmd_box.x2 - 1,
-      input_box.y2 + 2,    // line after input, skip sep
-      input_box.y2 + 2     // single row
-    };
+    // status display
+    extb::set_cell({status_box.x1, status_box.y1}, 0x256D);
+    extb::set_cell({status_box.x2, status_box.y1}, 0x256E);
+    extb::set_cell({status_box.x1, status_box.y2}, 0x2570);
+    extb::set_cell({status_box.x2, status_box.y2}, 0x256F);
 
+    // top, bottom
+    for (auto x = status_box.x1 + 1; x < status_box.x2; ++x) {
+      extb::set_cell({x, status_box.y1}, 0x2500);
+      extb::set_cell({x, status_box.y2}, 0x2500);
+    }
+
+    // sides
+    for (auto y = status_box.y1 + 1; y < status_box.y2; ++y) {
+      extb::set_cell({status_box.x1, y}, 0x2502);
+      extb::set_cell({status_box.x2, y}, 0x2502);
+    }
+
+    // cmd input
+    std::string input_buf;
+    lay::ClosedBox input_line{
+      cmd_box.x1 + 2,      // leave space for caret :
+      cmd_box.x2 - 1,      // exclude border
+      cmd_box.y1 + 1,
+      cmd_box.y1 + 1
+    };
+    extb::Point caret{cmd_box.x1 + 1, cmd_box.y1 + 1};
+    extb::set_cell(caret, ':', TB_DIM);
+
+    std::string status_buf;
+    lay::ClosedBox status_line{
+      status_box.x1 + 1,
+      status_box.x2 - 1,
+      status_box.y1 + 1,
+      status_box.y1 + 1
+    };
 
     // writeable area
     lay::ClosedBox seq_box{
@@ -123,18 +136,21 @@ int main(int, char **) {
       browse_box.y2 - 1
     };
 
+    int row_sel = 0;
     const auto &queries = std::get<Queries> (dd);
     for (size_t i = 0; i < queries.size(); ++i) {
       seq_box.write_string({0, static_cast<int>(i)}, queries[i].q);
-      // seq_box.set_local({0, static_cast<int>(i)}, 'a');
     }
+    seq_box.add_attr({0, row_sel}, TB_REVERSE);
+
+    status_line.write_string({0, 0}, "Hello!", 0, TB_DIM);
 
     tb_present();
 
     // input struct
     tb_event ev{};
     // modal state machine
-    auto state = states::global;
+    auto state = states::browse;
     bool run = true;
     bool debug = true;
     uint32_t frame = 0;
@@ -142,17 +158,40 @@ int main(int, char **) {
       tb_poll_event(&ev);  // blocking
       switch (state) {
         case (states::browse):
-          break;
-        case (states::cmd):
+          // check ctrl first
+          switch (ev.key) {
+            // N.B. selection not really important
+            // for mvp - only scrolling really needed
+            case TB_KEY_ARROW_DOWN:
+              seq_box.rm_attr({0, row_sel}, TB_REVERSE);
+              ++row_sel;
+              row_sel = std::clamp(row_sel, 0, seq_box.ylast());
+              seq_box.add_attr({0, row_sel}, TB_REVERSE);
+              break;
+            case TB_KEY_ARROW_UP:
+              seq_box.rm_attr({0, row_sel}, TB_REVERSE);
+              --row_sel;
+              row_sel = std::clamp(row_sel, 0, seq_box.ylast());
+              seq_box.add_attr({0, row_sel}, TB_REVERSE);
+              break;
+            default:
+              break;
+          }
+
+          // type input
+          if (ev.ch) {
+            input_buf.append(1, ev.ch);
+            input_line.write_string({0, 0}, input_buf);
+          }
           break;
         default:  // global
           break;
       }
       if (debug) {
         // test
-        browse_box.set_local({0, 0}, 't');
+        // browse_box.set_cell({0, 0}, 't');
       }
-      if (ev.ch == 'q') {
+      if (ev.key == TB_KEY_CTRL_Q) {
         run = false;
       }
       tb_present();
