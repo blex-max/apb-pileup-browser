@@ -60,4 +60,18 @@ int ClosedBox::write_string
   return extb::write_string(global_start, s, lim, fg, bg);
 }
 
+int ClosedBox::clear
+(extb::Point plocal) {
+  return set_cell (plocal, ' ');
+}
+
+void ClosedBox::clear
+() {
+  for (int x = 0; x <= xlast(); ++x) {
+    for (int y = 0; y <= ylast(); ++y) {
+      set_cell ({x, y}, ' ');
+    }
+  }
+}
+
 } // end namespace

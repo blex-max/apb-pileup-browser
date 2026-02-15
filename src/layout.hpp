@@ -34,14 +34,20 @@ struct ClosedBox {
   (extb::Point plocal, uint32_t ch, extb::tb_attr fg=0, extb::tb_attr bg=0);
 
   int add_attr
-  (extb::Point p, extb::tb_attr attr, bool fg=true, bool bg=true);
+  (extb::Point plocal, extb::tb_attr attr, bool fg=true, bool bg=true);
   int rm_attr
-  (extb::Point p, extb::tb_attr attr, bool fg=true, bool bg=true);
+  (extb::Point plocal, extb::tb_attr attr, bool fg=true, bool bg=true);
 
   // nchar=0 == print as much of string as possible
   int write_string
   (extb::Point start, std::string_view s, size_t nchar=0, extb::tb_attr fg=0, extb::tb_attr bg=0);
+
+  int clear
+  (extb::Point plocal);
+  void clear
+  ();
+
 };
 
-}
+}  // end namespace
 

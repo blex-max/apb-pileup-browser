@@ -161,7 +161,8 @@ int main(int, char **) {
           // check ctrl first
           switch (ev.key) {
             // N.B. selection not really important
-            // for mvp - only scrolling really needed
+            // for mvp - only scrolling of queries really needed
+            // (might use > instead, or just no selector for now)
             case TB_KEY_ARROW_DOWN:
               seq_box.rm_attr({0, row_sel}, TB_REVERSE);
               ++row_sel;
@@ -174,6 +175,10 @@ int main(int, char **) {
               row_sel = std::clamp(row_sel, 0, seq_box.ylast());
               seq_box.add_attr({0, row_sel}, TB_REVERSE);
               break;
+            case TB_KEY_ENTER:
+              // cmd.submit(input_buf);
+              input_buf.clear();
+              input_line.clear();
             default:
               break;
           }
