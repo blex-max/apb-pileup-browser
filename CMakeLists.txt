@@ -16,7 +16,7 @@ set(FETCHCONTENT_QUIET OFF)
 
 FetchContent_Declare(termbox2
   GIT_REPOSITORY https://github.com/termbox/termbox2.git
-  GIT_TAG        918369f
+  GIT_TAG        605398fa79108412976191e062ea14bd4bd30213
   GIT_PROGRESS   TRUE
   GIT_SHALLOW    TRUE
   EXCLUDE_FROM_ALL
@@ -29,7 +29,7 @@ target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
 add_executable(t2-proto
   src/main.cpp
   src/tb.cpp
-  src/layout.cpp
+  src/app.cpp
 )
 target_include_directories(t2-proto
   PRIVATE src
