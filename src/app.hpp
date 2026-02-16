@@ -1,8 +1,8 @@
 #pragma once
 
-#include "tb.hpp"
 #include <string>
-#include <utility>
+
+#include "extb.hpp"
 
 namespace app {
 
@@ -14,22 +14,23 @@ enum class app_state : uint8_t {
 
 struct Context {
     struct {
+        app_state state = app_state::browse;
+        bool run = true;
+        bool debug = true;
+        size_t frame = 0;
+    } global;
+    struct {
         extb::Box display;
         extb::Box input_line;
-        extb::Box return_line;
-    } ui_elem;
-    app_state state = app_state::browse;
-    bool run = true;
-    bool debug = true;
-    size_t frame = 0;
+        extb::Box status_line;
+        std::string cmd_buf;
+    } ui;
+    struct {
+        int row_sel = 0;
+    } browse_ctx;
 };
 
-using CmdResult = std::pair<bool, std::string>;
-using Cmd = CmdResult(*)(Context&);
-
-CmdResult cmd_quit (Context& ctx);
-
-CmdResult exec_cmd (std::string_view cmd_name, Context& ctx);
+void loop (Context& ctx);
 
 } // end namespace
 

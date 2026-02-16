@@ -1,11 +1,7 @@
 #include <cassert>
 #include <cstdint>
 
-#include "tb.hpp"
-
-extern "C" {
-  #include <termbox2.h>
-}
+#include "extb.hpp"
 
 namespace extb {
 

@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <string_view>
 
+extern "C" {
+    #include "termbox2.h"
+}
+
 namespace extb {
 
 struct Point {

@@ -28,7 +28,7 @@ target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
 
 add_executable(t2-proto
   src/main.cpp
-  src/tb.cpp
+  src/extb.cpp
   src/app.cpp
 )
 target_include_directories(t2-proto
