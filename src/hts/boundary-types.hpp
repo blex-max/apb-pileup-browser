@@ -27,7 +27,8 @@ inline auto random_base_seq(size_t len) {
 }
 
 using Queries = std::vector<QueryRep>;
-inline auto make_test_display_data (size_t n_query, size_t width) {
+using PileupDisplayBundle = std::tuple<RefRep, Queries>;
+inline PileupDisplayBundle make_test_display_data (size_t n_query, size_t width) {
   std::tuple<RefRep, Queries> d{};
 
   std::get<RefRep>(d).r = random_base_seq(width);
