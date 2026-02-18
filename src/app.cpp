@@ -151,7 +151,7 @@ void draw_global (Context& ctx) {
     // seq display
     // top corners
     extb::set_cell ({main_box.iglobal().first, main_box.jglobal().first}, 0x256D);
-    extb::set_cell ({main_box.iglobal().first, main_box.jglobal().first}, 0x256E);
+    extb::set_cell ({main_box.iglobal().first, main_box.jglobal().last}, 0x256E);
 
     // sides
     for (auto i = main_box.iglobal().first + 1; i <= main_box.iglobal().last; ++i) {
@@ -168,7 +168,7 @@ void draw_global (Context& ctx) {
     // corners
     extb::set_cell ({cmd_box.iglobal().first, cmd_box.jglobal().first}, 0x256D);
     extb::set_cell ({cmd_box.iglobal().first, cmd_box.jglobal().last}, 0x256E);
-    extb::set_cell ({cmd_box.jglobal().last, cmd_box.jglobal().last}, 0x256F);
+    extb::set_cell ({cmd_box.iglobal().last, cmd_box.jglobal().last}, 0x256F);
     extb::set_cell ({cmd_box.iglobal().last, cmd_box.jglobal().first}, 0x2570);
 
     // sides
@@ -206,7 +206,7 @@ void draw_global (Context& ctx) {
         extb::Box::make_row (
             cmd_box.iglobal().first + 1,
             {
-                cmd_box.iglobal().first + 2,      // skip border, leave space for caret :
+                cmd_box.jglobal().first + 2,      // skip border, leave space for caret :
                 cmd_box.jlocal().last - 1      // exclude border
             }
         );
@@ -231,18 +231,10 @@ void draw_global (Context& ctx) {
             {1, main_box.jlocal().last - 1}
         );
 
-    // NOTE
-    // this wasn't working
-    // as the box class was not copy assignable
-    // due to const members
-    // I've changed the approach in Box
-    // such that this is no longer a problem
-    // but this needs to be propagated through extb.cpp
-    // still.
-    // The reason for doing this at all was that
-    // I need to handle resize events, which means
-    // recalculating the global boxes
     ctx.ui.main = display_box;
+    ctx.ui.cmd = input_row;
+    ctx.ui.cmd_caret = caret;
+    ctx.ui.status = status_row;
 }
 
 
@@ -253,6 +245,7 @@ Context& init () {
     tb_clear();
 
     auto& ctx = Context::create();
+    draw_global(ctx);
 
     // TODO call global draw
 
