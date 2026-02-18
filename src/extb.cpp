@@ -2,76 +2,45 @@
 #include <cstdint>
 
 #include "extb.hpp"
+#include "util.hpp"
 
 namespace extb {
 
-Box Box::make_box(Span i, Span j) {
+int last_local_i (Box b) noexcept {
+  return b.gi2 - b.gi1;
+}
+int last_local_j (Box b) noexcept {
+  return b.gj2 - b.gj1;
+}
+
+Box make_box(Span i, Span j) {
   assert (i.valid());
   assert (j.valid());
-  return {i.first, i.last, j.first, j.last};
+  return Box{i.first, i.last, j.first, j.last};
 }
-Box Box::make_row (int i, Span j) {
+Box make_row (int i, Span j) {
   return make_box ({i, i}, j);
 }
-Box Box::make_col (int j, Span i) {
+Box make_col (int j, Span i) {
   return make_box (i, {j, j});
 }
 
-Box make_sub_box(Box b, Span i, Span j) {
-  assert (i.valid());
-  assert (j.valid());
-  assert (b.ilocal().contains(i));
-  assert (b.jlocal().contains(j));
-  auto iglobal = i + b.iglobal();
-  auto jglobal = j + b.jglobal();
-  return Box::make_box (iglobal, jglobal);
-}
-Box make_sub_row (Box b, int i, Span j) {
-  return make_sub_box (b, {i, i}, j);
-}
-Box make_sub_row (Box b, int i) {
-  return make_sub_row (b, i, {0, b.ilocal().last});
-}
-Box make_sub_col (Box b, int j, Span i) {
-  return make_sub_box (b, i, {j, j});
-}
-Box make_sub_col (Box b, int j) {
-  return make_sub_col (b, j, {0, b.jlocal().last});
+
+Cell translate_cell
+(Box b, Cell local) {
+  return { local.i + b.i().first, local.j + b.j().first};
 }
 
 
 int set_cell
-(Cell p, uint32_t ch, tb_attr fg, tb_attr bg) {
-  return tb_set_cell(p.j, p.i, ch, fg, bg);
+(Cell c, uint32_t ch, Style style) {
+  return tb_set_cell(c.j, c.i, ch, style.fg() ? *style.fg() : 0., style.bg() ? *style.bg() : 0);
 };
 int set_cell
-(Cell p, uint32_t ch, tb_attr attr) {
-  return set_cell(p, ch, attr, attr);
-};
-int set_cell
-(Cell p, uint32_t ch) {
-  return set_cell(p, ch, 0, 0);
-};
-int set_cell
-(Box b, Cell plocal, uint32_t ch, tb_attr fg, tb_attr bg) {
-  const auto pglobal = local2global (b, plocal);
-  return set_cell (pglobal, ch, fg, bg);
-}
-int set_cell
-(Box b, Cell plocal, uint32_t ch, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return set_cell (pglobal, ch, attr, attr);
-}
-int set_cell
-(Box b, Cell plocal, uint32_t ch) {
-  const auto pglobal = local2global (b, plocal);
-  return set_cell (pglobal, ch, 0, 0);
-}
-int set_cell
-(Box b, uint32_t ch, tb_attr fg, tb_attr bg) {
-  for (int i = 0; i <= b.ilocal().last; ++i) {
-    for (int j = 0; j <= b.jlocal().last; ++j) {
-      const auto rc = set_cell (b, {i, j}, ch, fg, bg);
+(Box b, uint32_t ch, Style style) {
+  for (int i = b.i().first; i <= b.i().last; ++i) {
+    for (int j = b.j().first; j <= b.j().last; ++j) {
+      const auto rc = set_cell ({i, j}, ch, style);
       if (rc != TB_OK) {
         return rc;
       };
@@ -79,172 +48,98 @@ int set_cell
   }
   return TB_OK;
 }
-int set_cell
-(Box b, uint32_t ch, tb_attr attr) {
-  return set_cell (b, ch, attr, attr);
+
+
+int clear
+(Cell c) {
+  return set_cell (c, ' ');
 }
-int set_cell
-(Box b, uint32_t ch) {
-  return set_cell (b, ch, 0, 0);
+int clear
+(Box b) {
+  for (int i = b.i().first; i <= b.i().last; ++i) {
+    for (int j = b.j().first; j <= b.j().last; ++j) {
+      const auto rc = set_cell ({i, j}, ' ');
+      if (rc != TB_OK) {
+        return rc;
+      };
+    }
+  }
+  return TB_OK;
 }
 
 
 int set_attr
-(Cell p, tb_attr attr, bool fg, bool bg) {
+(Cell p, Style style) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
-  if (rc != TB_OK) {
+  // get from back buffer
+  if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
   }
-  const tb_attr fg_attr = fg ? attr : c->fg;
-  const tb_attr bg_attr = bg ? attr : c->bg;
+  const auto fg_attr = style.fg() ? *style.fg() : c->fg;
+  const auto bg_attr = style.bg() ? *style.bg() : c->bg;
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
-int set_attr
-(Cell p, tb_attr attr) {
-  return set_attr (p, attr, true, true);
-}
-int set_attr_fg
-(Cell p, tb_attr attr) {
-  return set_attr (p, attr, true, false);
-}
-int set_attr_bg
-(Cell p, tb_attr attr) {
-  return set_attr (p, attr, false, true);
-}
-int set_attr
-(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = local2global (b, plocal);
-  return set_attr (pglobal, attr, fg, bg);
-}
-int set_attr
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return set_attr (pglobal, attr, true, true);
-}
-int set_attr_fg
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return set_attr (pglobal, attr, true, false);
-}
-int set_attr_bg
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return set_attr (pglobal, attr, false, true);
-}
+// int set_attr
+// (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+//   const auto pglobal = local2global (b, plocal);
+//   return set_attr (pglobal, attr, fg, bg);
+// }
 
 
 
-int add_attr (Cell p, tb_attr attr, bool fg, bool bg) {
+int add_attr
+(Cell p, Style style) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
-  if (rc != TB_OK) {
+  if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
   }
-  const tb_attr fg_attr = fg ? (c->fg | attr) : c->fg;
-  const tb_attr bg_attr = bg ? (c->bg | attr) : c->bg;
+  const tb_attr fg_attr = style.fg() ? (c->fg | *style.fg()) : c->fg;
+  const tb_attr bg_attr = style.bg() ? (c->bg | *style.bg()) : c->bg;
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 int add_attr
-(Cell p, tb_attr attr) {
-  return add_attr (p, attr, true, true);
-}
-int add_attr_fg
-(Cell p, tb_attr attr) {
-  return add_attr (p, attr, true, false);
-}
-int add_attr_bg
-(Cell p, tb_attr attr) {
-  return add_attr (p, attr, false, true);
-}
-int add_attr
-(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = local2global (b, plocal);
-  return add_attr (pglobal, attr, fg, bg);
-}
-int add_attr
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return add_attr (pglobal, attr, true, true);
-}
-int add_attr_fg
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return add_attr (pglobal, attr, true, false);
-}
-int add_attr_bg
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return add_attr (pglobal, attr, false, true);
+(Box b, Cell clocal, Style style) {
+  return add_attr (translate_cell(b, clocal), style);
 }
 
 
 
-int rm_attr (Cell p, tb_attr attr, bool fg, bool bg) {
-  tb_cell *c;
-  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
-  if (rc != TB_OK) {
+int rm_attr
+(Cell c, Style style) {
+  tb_cell *cbuf;
+  if (const auto rc = tb_get_cell(c.j, c.i, 1, &cbuf); rc != TB_OK) {
     return rc;
   }
-  const tb_attr fg_attr = fg ? (c->fg & ~attr) : c->fg;
-  const tb_attr bg_attr = bg ? (c->bg & ~attr) : c->bg;
-  return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
+  const tb_attr fg_attr = style.fg() ? (cbuf->fg & ~*style.fg()) : cbuf->fg;
+  const tb_attr bg_attr = style.bg() ? (cbuf->bg & ~*style.bg()) : cbuf->bg;
+  return tb_set_cell(c.j, c.i, cbuf->ch, fg_attr, bg_attr);
 };
 int rm_attr
-(Cell p, tb_attr attr) {
-  return rm_attr (p, attr, true, true);
-}
-int rm_attr_fg
-(Cell p, tb_attr attr) {
-  return rm_attr (p, attr, true, false);
-}
-int rm_attr_bg
-(Cell p, tb_attr attr) {
-  return rm_attr (p, attr, false, true);
-}
-int rm_attr
-(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = local2global (b, plocal);
-  return rm_attr (pglobal, attr, fg, bg);
-}
-int rm_attr
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return rm_attr (pglobal, attr, true, true);
-}
-int rm_attr_fg
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return rm_attr (pglobal, attr, true, false);
-}
-int rm_attr_bg
-(Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = local2global (b, plocal);
-  return rm_attr (pglobal, attr, false, true);
+(Box b, Cell clocal, Style style) {
+  return rm_attr (translate_cell(b, clocal), style);
 }
 
 
 bool check_attr
-(Cell p, tb_attr attr, bool fg, bool bg) {
+(Cell p, Style style) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
-  if (rc != TB_OK) {
+  if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
   }
-  bool has_fg = fg ? (c->fg & attr) : true;
-  bool has_bg = bg ? (c->bg & attr) : true;
+  bool has_fg = style.fg() ? (c->fg & *style.fg()) : true;
+  bool has_bg = style.bg() ? (c->bg & *style.bg()) : true;
   return has_fg & has_bg;
 };
-bool check_attr
-(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = local2global (b, plocal);
-  return check_attr (pglobal, attr, fg, bg);
-}
+// bool check_attr
+// (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+//   const auto pglobal = local2global (b, plocal);
+//   return check_attr (pglobal, attr, fg, bg);
+// }
 
 
 // returns nchars written
 int write_string
-(Cell start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg) {
+(Cell start, size_t nchar, std::string_view s, Style style) {
   // TODO bounds checking
   assert (start.j >= 0);
   const size_t lim = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
@@ -253,8 +148,7 @@ int write_string
     const auto rc = set_cell (
       {start.i, static_cast<int> (start.j + j)},
       s[j],
-      fg,
-      bg
+      style
     );
     if (rc != TB_OK) {
       return rc;
@@ -265,107 +159,67 @@ int write_string
   return nout;
 }
 int write_string
-(Cell start, size_t nchar, std::string_view s, tb_attr attr) {
-  return write_string (start, nchar, s, attr, attr);
-}
-int write_string
-(Cell start, size_t nchar, std::string_view s) {
-  return write_string (start, nchar, s, 0, 0);
-}
-int write_string
-(Box b, Cell local_start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg) {
-  assert (local_within (b, local_start));
-  const size_t j_avail = b.jglobal().last - local_start.j;
+(Box b, Cell local_start, size_t nchar, std::string_view s, Style style) {
+  // log_err ("local cell: {}, {}", local_start.i, local_start.j);
+  auto cglobal = translate_cell(b, local_start);
+  // log_err ("global cell: {}, {}", cglobal.i, cglobal.j);
+  if (!b.contains(cglobal)) {
+    return EXTB_ERR_OOB;
+  }
+  const size_t j_avail = b.j().last - cglobal.j + 1;
   const size_t req_chars = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
   const auto char_lim = std::min({j_avail, req_chars});
-  const auto global_start = local2global (b, local_start);
-  return write_string(global_start, char_lim, s, fg, bg);
+  return write_string (cglobal, char_lim, s, style);
 }
 int write_string
-(Box b, Cell local_start, size_t nchar, std::string_view s, tb_attr attr) {
-  return write_string (b, local_start, nchar, s, attr, attr);
-}
-int write_string
-(Box b, Cell local_start, size_t nchar, std::string_view s) {
-  return write_string (b, local_start, nchar, s, 0, 0);
-}
-int write_string
-(Box b, Cell local_start, std::string_view s, tb_attr fg, tb_attr bg) {
-  return write_string (b, local_start, 0, s, fg, bg);
-}
-int write_string
-(Box b, Cell local_start, std::string_view s, tb_attr attr) {
-  return write_string (b, local_start, 0, s, attr);
-}
-int write_string
-(Box b, Cell local_start, std::string_view s) {
-  return write_string (b, local_start, 0, s);
+(Box b, Cell local_start, std::string_view s, Style style) {
+  return write_string (b, local_start, 0, s, style);
 }
 
 
-Cell local2global
-(Box b, Cell c) {
-  // TODO bounds checking
-  return { c.i + b.iglobal().first, c.j + b.jglobal().first };
-}
-Cell global2local
-(Box b, Cell c) {
-  Cell clocal;
-  const auto bi = b.iglobal();
-  if (bi.contains(c.i)) {
-    clocal.i = -1;
-  } else {
-    clocal.i = c.i - bi.first;
-  }
-  const auto bj = b.jglobal();
-  if (bj.contains(c.j)) {
-    clocal.j = -1;
-  } else {
-    clocal.j = c.j - bj.first;
-  }
-  return clocal;
-}
-Span local2global
-(Box b, Span s, Axis ax) {
-  const auto bspan = (ax == Axis::i) ? b.iglobal() : b.jglobal();
-  return s + bspan;
-}
-Span global2local
-(Box b, Span s, Axis ax) {
-  const auto bspan = (ax == Axis::i) ? b.iglobal() : b.jglobal();
-  return s - bspan;
-}
+// Cell local2global
+// (Box b, Cell c) {
+//   // TODO bounds checking
+//   return { c.i + b.iglobal().first, c.j + b.jglobal().first };
+// }
+// Cell global2local
+// (Box b, Cell c) {
+//   Cell clocal;
+//   const auto bi = b.iglobal();
+//   if (bi.contains(c.i)) {
+//     clocal.i = -1;
+//   } else {
+//     clocal.i = c.i - bi.first;
+//   }
+//   const auto bj = b.jglobal();
+//   if (bj.contains(c.j)) {
+//     clocal.j = -1;
+//   } else {
+//     clocal.j = c.j - bj.first;
+//   }
+//   return clocal;
+// }
+// Span local2global
+// (Box b, Span s, Axis ax) {
+//   const auto bspan = (ax == Axis::i) ? b.iglobal() : b.jglobal();
+//   return s + bspan;
+// }
+// Span global2local
+// (Box b, Span s, Axis ax) {
+//   const auto bspan = (ax == Axis::i) ? b.iglobal() : b.jglobal();
+//   return s - bspan;
+// }
 
-bool global_within
-(Box b, Cell c) {
-  const auto plocal = global2local (b, c);
-  return (c.valid() && local_within (b, plocal));
-}
-bool local_within
-(Box b, Cell c) {
-  return (c.i <= b.ilocal().last && c.j <= b.jlocal().last);
-}
+// bool global_within
+// (Box b, Cell c) {
+//   const auto plocal = global2local (b, c);
+//   return (c.valid() && local_within (b, plocal));
+// }
+// bool local_within
+// (Box b, Cell c) {
+//   return (c.i <= b.ilocal().last && c.j <= b.jlocal().last);
+// }
 
 
-int clear
-(Cell c) {
-  return set_cell (c, ' ');
-}
-int clear
-(Box b, Cell clocal) {
-  return set_cell (b, clocal, ' ');
-}
-int clear
-(Box b) {
-  for (int i = 0; i <= b.ilocal().last; ++i) {
-    for (int j = 0; j <= b.jlocal().last; ++j) {
-      const auto rc = set_cell (b, {i, j}, ' ');
-      if (rc != TB_OK) {
-        return rc;
-      };
-    }
-  }
-  return TB_OK;
-}
 
 }  // end namespace
