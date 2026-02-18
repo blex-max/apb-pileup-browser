@@ -156,6 +156,16 @@ struct Style {
 Cell translate_cell (Box b, Cell local);
 Span translate_span (Box b, Span local);
 
+// take as optional output param
+// or return. May not be needed
+// struct DrawErr {
+//     Cell c;
+//     uint32_t ch;
+//     Style s;
+//     int tb_err;
+//     // extb_err
+// };
+
 int set_cell
 (Cell cglobal, uint32_t ch, Style style={0});
 int set_cell
