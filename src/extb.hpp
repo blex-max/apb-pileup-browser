@@ -10,12 +10,17 @@ extern "C" {
 
 namespace extb {
 
+enum class Axis : size_t {
+    i,
+    j
+};
+
 struct Cell {
     int
     i=-1,
     j=-1;
 
-    bool valid () {
+    bool valid () const noexcept {
         return (i >= 0 && j >= 0);
     }
 };
@@ -31,12 +36,25 @@ struct Span {
     }
 
     size_t size () const noexcept {
-        return valid() ? last + 1 : 0;
+        return valid() ? last - first + 1 : 0;
     }
 
-    bool is_in (int q) const noexcept {
-        return valid() ? (q >= first && q <= last) : false;
+    bool contains (int p) const noexcept {
+        return valid() && (p >= first && p <= last);
     }
+    bool contains (Span s) const noexcept {
+        return valid() && (first <= s.first && last >= s.last);
+    }
+
+    Span operator+(const Span& other) const noexcept {
+        return { first + other.first, last + other.last };
+    }
+    Span operator-(const Span& other) const noexcept {
+        return { first - other.first, last - other.last };
+    }
+
+    
+
 };
 
 struct Box {
@@ -186,33 +204,33 @@ int write_string
 (Box b, Cell local_start, std::string_view s);
 
 // box funcs
-Cell shift_global
+Cell global2local
 (Box b, Cell c);
-Span shift_global
-(Box b, Span s);
-Cell shift_local
+Cell local2global
 (Box b, Cell c);
-Span shift_local
-(Box b, Span s);
 
 bool global_within
-(Box b, Cell c);
-bool global_within
-(Box b, Span s);
+(Box b, Cell cglobal);
 bool local_within
-(Box b, Cell c);
-bool local_within
-(Box b, Span s);
+(Box b, Cell clocal);
 
 int clear
-(Box b, Cell plocal);
+(Cell c);
+int clear
+(Box b, Cell c);
 int clear
 (Box b);
 
-// make from local coordinates of other Box
+// make within local coordinates of other Box
 Box make_sub_box (Box b, Span i, Span j);
 Box make_sub_row (Box b, int i, Span j);
 Box make_sub_row (Box b, int i);
 Box make_sub_col (Box b, int j, Span i);
 Box make_sub_col (Box b, int j);
+
+// span funcs
+Span local2global
+(Box b, Span s, Axis ax);
+Span global2local
+(Box b, Span s, Axis ax);
 }

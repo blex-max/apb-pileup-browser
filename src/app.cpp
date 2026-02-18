@@ -203,12 +203,11 @@ void draw_global (Context& ctx) {
 
     // cmd input
     auto input_row =
-        extb::make_sub_row (
-            cmd_box,
-            1,
+        extb::Box::make_row (
+            cmd_box.iglobal().first + 1,
             {
-                cmd_box.jglobal().first + 2,      // leave space for caret :
-                cmd_box.jglobal().last - 1      // exclude border
+                cmd_box.iglobal().first + 2,      // skip border, leave space for caret :
+                cmd_box.jlocal().last - 1      // exclude border
             }
         );
     extb::Cell caret{cmd_box.iglobal().first + 1, cmd_box.jglobal().first + 1};
@@ -218,8 +217,8 @@ void draw_global (Context& ctx) {
             status_box,
             1,
             {
-                status_box.jglobal().first + 1,
-                status_box.jglobal().last - 1
+                1,
+                status_box.jlocal().last - 1
             }
         );
     write_string(status_row, {0, 0}, "Hello!", TB_DIM);
@@ -229,7 +228,7 @@ void draw_global (Context& ctx) {
         extb::make_sub_box (
             main_box,
             {1, main_box.ilocal().last - 1},
-            {1, main_box.jglobal().last - 1}
+            {1, main_box.jlocal().last - 1}
         );
 
     // NOTE

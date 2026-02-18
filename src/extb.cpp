@@ -20,9 +20,11 @@ Box Box::make_col (int j, Span i) {
 Box make_sub_box(Box b, Span i, Span j) {
   assert (i.valid());
   assert (j.valid());
-  assert (local_within (b, i));
-  assert (local_within (b, j));
-  return Box::make_box (shift_global (b, i), shift_global (b, j));
+  assert (b.ilocal().contains(i));
+  assert (b.jlocal().contains(j));
+  auto iglobal = i + b.iglobal();
+  auto jglobal = j + b.jglobal();
+  return Box::make_box (iglobal, jglobal);
 }
 Box make_sub_row (Box b, int i, Span j) {
   return make_sub_box (b, {i, i}, j);
@@ -52,17 +54,17 @@ int set_cell
 };
 int set_cell
 (Box b, Cell plocal, uint32_t ch, tb_attr fg, tb_attr bg) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_cell (pglobal, ch, fg, bg);
 }
 int set_cell
 (Box b, Cell plocal, uint32_t ch, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_cell (pglobal, ch, attr, attr);
 }
 int set_cell
 (Box b, Cell plocal, uint32_t ch) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_cell (pglobal, ch, 0, 0);
 }
 int set_cell
@@ -112,22 +114,22 @@ int set_attr_bg
 }
 int set_attr
 (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_attr (pglobal, attr, fg, bg);
 }
 int set_attr
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_attr (pglobal, attr, true, true);
 }
 int set_attr_fg
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_attr (pglobal, attr, true, false);
 }
 int set_attr_bg
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return set_attr (pglobal, attr, false, true);
 }
 
@@ -157,22 +159,22 @@ int add_attr_bg
 }
 int add_attr
 (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return add_attr (pglobal, attr, fg, bg);
 }
 int add_attr
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return add_attr (pglobal, attr, true, true);
 }
 int add_attr_fg
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return add_attr (pglobal, attr, true, false);
 }
 int add_attr_bg
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return add_attr (pglobal, attr, false, true);
 }
 
@@ -202,22 +204,22 @@ int rm_attr_bg
 }
 int rm_attr
 (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return rm_attr (pglobal, attr, fg, bg);
 }
 int rm_attr
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return rm_attr (pglobal, attr, true, true);
 }
 int rm_attr_fg
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return rm_attr (pglobal, attr, true, false);
 }
 int rm_attr_bg
 (Box b, Cell plocal, tb_attr attr) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return rm_attr (pglobal, attr, false, true);
 }
 
@@ -235,7 +237,7 @@ bool check_attr
 };
 bool check_attr
 (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = shift_global (b, plocal);
+  const auto pglobal = local2global (b, plocal);
   return check_attr (pglobal, attr, fg, bg);
 }
 
@@ -276,7 +278,7 @@ int write_string
   const size_t j_avail = b.jglobal().last - local_start.j;
   const size_t req_chars = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
   const auto char_lim = std::min({j_avail, req_chars});
-  const auto global_start = shift_global (b, local_start);
+  const auto global_start = local2global (b, local_start);
   return write_string(global_start, char_lim, s, fg, bg);
 }
 int write_string
@@ -301,44 +303,57 @@ int write_string
 }
 
 
-Cell shift_global
-(Box b, Cell plocal) {
+Cell local2global
+(Box b, Cell c) {
   // TODO bounds checking
-  return { plocal.i + b.iglobal().first, plocal.j + b.jglobal().first };
+  return { c.i + b.iglobal().first, c.j + b.jglobal().first };
 }
-
-Cell shift_local
-(Box b, Cell pglobal) {
-  Cell plocal;
+Cell global2local
+(Box b, Cell c) {
+  Cell clocal;
   const auto bi = b.iglobal();
-  if (bi.is_in(pglobal.i)) {
-    plocal.i = -1;
+  if (bi.contains(c.i)) {
+    clocal.i = -1;
   } else {
-    plocal.i = pglobal.i - bi.first;
+    clocal.i = c.i - bi.first;
   }
   const auto bj = b.jglobal();
-  if (bj.is_in(pglobal.j)) {
-    plocal.j = -1;
+  if (bj.contains(c.j)) {
+    clocal.j = -1;
   } else {
-    plocal.j = pglobal.j - bj.first;
+    clocal.j = c.j - bj.first;
   }
-  return plocal;
+  return clocal;
+}
+Span local2global
+(Box b, Span s, Axis ax) {
+  const auto bspan = (ax == Axis::i) ? b.iglobal() : b.jglobal();
+  return s + bspan;
+}
+Span global2local
+(Box b, Span s, Axis ax) {
+  const auto bspan = (ax == Axis::i) ? b.iglobal() : b.jglobal();
+  return s - bspan;
 }
 
 bool global_within
-(Box b, Cell pglobal) {
-  const auto plocal = shift_local (b, pglobal);
-  return local_within (b, plocal);
+(Box b, Cell c) {
+  const auto plocal = global2local (b, c);
+  return (c.valid() && local_within (b, plocal));
+}
+bool local_within
+(Box b, Cell c) {
+  return (c.i <= b.ilocal().last && c.j <= b.jlocal().last);
 }
 
-bool local_within
-(Box b, Cell plocal) {
-  return (plocal.valid() && plocal.i <= b.ilocal().last && plocal.j <= b.jlocal().last);
-}
 
 int clear
-(Box b, Cell plocal) {
-  return set_cell (plocal, ' ');
+(Cell c) {
+  return set_cell (c, ' ');
+}
+int clear
+(Box b, Cell clocal) {
+  return set_cell (b, clocal, ' ');
 }
 int clear
 (Box b) {
