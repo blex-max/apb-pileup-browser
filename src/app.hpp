@@ -2,6 +2,7 @@
 
 #include <string>
 
+#define TB_IMPL
 #include "extb.hpp"
 #include "hts/boundary-types.hpp"
 
@@ -24,11 +25,12 @@ struct Context {
         size_t frame = 0;
     } global;
     struct {
-        extb::Box display;
-        extb::Point input_caret;
-        extb::Box input_line;
-        extb::Box status_line;
+        extb::Box main;
+        extb::Cell cmd_caret;
+        extb::Box cmd;
+        extb::Box status;
         std::string cmd_buf;
+        std::string status_buf;
     } ui;
     struct {
         int row_sel = 0;
@@ -41,16 +43,13 @@ struct Context {
     Context(Context&&) = delete;
     Context& operator=(Context&&) = delete;
 
-    static Context& create
-    (extb::Box display_, extb::Point input_caret_, extb::Box input_line_, extb::Box status_line_) {
-        static Context ctx(display_, input_caret_, input_line_, status_line_);
+    static Context& create () {
+        static Context ctx;
         return ctx;
     }
 
     private:
-    explicit Context
-    (extb::Box display_, extb::Point input_caret_, extb::Box input_line_, extb::Box status_line_)
-    : ui{display_, input_caret_, input_line_, status_line_} {}
+    explicit Context () = default;
 };
 
 Context& init ();

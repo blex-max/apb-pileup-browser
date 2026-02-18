@@ -5,174 +5,227 @@
 
 namespace extb {
 
+Box Box::make_box(Span i, Span j) {
+  assert (i.valid());
+  assert (j.valid());
+  return {i.first, i.last, j.first, j.last};
+}
+Box Box::make_row (int i, Span j) {
+  return make_box ({i, i}, j);
+}
+Box Box::make_col (int j, Span i) {
+  return make_box (i, {j, j});
+}
+
+Box make_sub_box(Box b, Span i, Span j) {
+  assert (i.valid());
+  assert (j.valid());
+  assert (local_within (b, i));
+  assert (local_within (b, j));
+  return Box::make_box (shift_global (b, i), shift_global (b, j));
+}
+Box make_sub_row (Box b, int i, Span j) {
+  return make_sub_box (b, {i, i}, j);
+}
+Box make_sub_row (Box b, int i) {
+  return make_sub_row (b, i, {0, b.ilocal().last});
+}
+Box make_sub_col (Box b, int j, Span i) {
+  return make_sub_box (b, i, {j, j});
+}
+Box make_sub_col (Box b, int j) {
+  return make_sub_col (b, j, {0, b.jlocal().last});
+}
+
+
 int set_cell
-(Point p, uint32_t ch, tb_attr fg, tb_attr bg) {
-  return tb_set_cell(p.x, p.y, ch, fg, bg);
+(Cell p, uint32_t ch, tb_attr fg, tb_attr bg) {
+  return tb_set_cell(p.j, p.i, ch, fg, bg);
 };
 int set_cell
-(Point p, uint32_t ch, tb_attr attr) {
+(Cell p, uint32_t ch, tb_attr attr) {
   return set_cell(p, ch, attr, attr);
 };
 int set_cell
-(Point p, uint32_t ch) {
+(Cell p, uint32_t ch) {
   return set_cell(p, ch, 0, 0);
 };
 int set_cell
-(Box b, Point plocal, uint32_t ch, tb_attr fg, tb_attr bg) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, uint32_t ch, tb_attr fg, tb_attr bg) {
+  const auto pglobal = shift_global (b, plocal);
   return set_cell (pglobal, ch, fg, bg);
 }
 int set_cell
-(Box b, Point plocal, uint32_t ch, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, uint32_t ch, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return set_cell (pglobal, ch, attr, attr);
 }
 int set_cell
-(Box b, Point plocal, uint32_t ch) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, uint32_t ch) {
+  const auto pglobal = shift_global (b, plocal);
   return set_cell (pglobal, ch, 0, 0);
+}
+int set_cell
+(Box b, uint32_t ch, tb_attr fg, tb_attr bg) {
+  for (int i = 0; i <= b.ilocal().last; ++i) {
+    for (int j = 0; j <= b.jlocal().last; ++j) {
+      const auto rc = set_cell (b, {i, j}, ch, fg, bg);
+      if (rc != TB_OK) {
+        return rc;
+      };
+    }
+  }
+  return TB_OK;
+}
+int set_cell
+(Box b, uint32_t ch, tb_attr attr) {
+  return set_cell (b, ch, attr, attr);
+}
+int set_cell
+(Box b, uint32_t ch) {
+  return set_cell (b, ch, 0, 0);
 }
 
 
 int set_attr
-(Point p, tb_attr attr, bool fg, bool bg) {
+(Cell p, tb_attr attr, bool fg, bool bg) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
   if (rc != TB_OK) {
     return rc;
   }
   const tb_attr fg_attr = fg ? attr : c->fg;
   const tb_attr bg_attr = bg ? attr : c->bg;
-  return tb_set_cell(p.x, p.y, c->ch, fg_attr, bg_attr);
+  return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 int set_attr
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return set_attr (p, attr, true, true);
 }
 int set_attr_fg
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return set_attr (p, attr, true, false);
 }
 int set_attr_bg
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return set_attr (p, attr, false, true);
 }
 int set_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+  const auto pglobal = shift_global (b, plocal);
   return set_attr (pglobal, attr, fg, bg);
 }
 int set_attr
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return set_attr (pglobal, attr, true, true);
 }
 int set_attr_fg
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return set_attr (pglobal, attr, true, false);
 }
 int set_attr_bg
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return set_attr (pglobal, attr, false, true);
 }
 
 
 
-int add_attr (Point p, tb_attr attr, bool fg, bool bg) {
+int add_attr (Cell p, tb_attr attr, bool fg, bool bg) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
   if (rc != TB_OK) {
     return rc;
   }
   const tb_attr fg_attr = fg ? (c->fg | attr) : c->fg;
   const tb_attr bg_attr = bg ? (c->bg | attr) : c->bg;
-  return tb_set_cell(p.x, p.y, c->ch, fg_attr, bg_attr);
+  return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 int add_attr
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return add_attr (p, attr, true, true);
 }
 int add_attr_fg
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return add_attr (p, attr, true, false);
 }
 int add_attr_bg
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return add_attr (p, attr, false, true);
 }
 int add_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+  const auto pglobal = shift_global (b, plocal);
   return add_attr (pglobal, attr, fg, bg);
 }
 int add_attr
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return add_attr (pglobal, attr, true, true);
 }
 int add_attr_fg
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return add_attr (pglobal, attr, true, false);
 }
 int add_attr_bg
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return add_attr (pglobal, attr, false, true);
 }
 
 
 
-int rm_attr (Point p, tb_attr attr, bool fg, bool bg) {
+int rm_attr (Cell p, tb_attr attr, bool fg, bool bg) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
   if (rc != TB_OK) {
     return rc;
   }
   const tb_attr fg_attr = fg ? (c->fg & ~attr) : c->fg;
   const tb_attr bg_attr = bg ? (c->bg & ~attr) : c->bg;
-  return tb_set_cell(p.x, p.y, c->ch, fg_attr, bg_attr);
+  return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 int rm_attr
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return rm_attr (p, attr, true, true);
 }
 int rm_attr_fg
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return rm_attr (p, attr, true, false);
 }
 int rm_attr_bg
-(Point p, tb_attr attr) {
+(Cell p, tb_attr attr) {
   return rm_attr (p, attr, false, true);
 }
 int rm_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+  const auto pglobal = shift_global (b, plocal);
   return rm_attr (pglobal, attr, fg, bg);
 }
 int rm_attr
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return rm_attr (pglobal, attr, true, true);
 }
 int rm_attr_fg
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return rm_attr (pglobal, attr, true, false);
 }
 int rm_attr_bg
-(Box b, Point plocal, tb_attr attr) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr) {
+  const auto pglobal = shift_global (b, plocal);
   return rm_attr (pglobal, attr, false, true);
 }
 
 
 bool check_attr
-(Point p, tb_attr attr, bool fg, bool bg) {
+(Cell p, tb_attr attr, bool fg, bool bg) {
   tb_cell *c;
-  const auto rc = tb_get_cell(p.x, p.y, 1, &c);  // get from back buffer
+  const auto rc = tb_get_cell(p.j, p.i, 1, &c);  // get from back buffer
   if (rc != TB_OK) {
     return rc;
   }
@@ -181,22 +234,23 @@ bool check_attr
   return has_fg & has_bg;
 };
 bool check_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg) {
-  const auto pglobal = get_global (b, plocal);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+  const auto pglobal = shift_global (b, plocal);
   return check_attr (pglobal, attr, fg, bg);
 }
 
 
 // returns nchars written
 int write_string
-(Point start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg) {
-  assert (start.x >= 0);
+(Cell start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg) {
+  // TODO bounds checking
+  assert (start.j >= 0);
   const size_t lim = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
   int nout = 0;
-  for (size_t i = 0; i < lim; ++i) {
+  for (size_t j = 0; j < lim; ++j) {
     const auto rc = set_cell (
-      {static_cast<int> (start.x + i), start.y},
-      s[i],
+      {start.i, static_cast<int> (start.j + j)},
+      s[j],
       fg,
       bg
     );
@@ -209,85 +263,88 @@ int write_string
   return nout;
 }
 int write_string
-(Point start, size_t nchar, std::string_view s, tb_attr attr) {
+(Cell start, size_t nchar, std::string_view s, tb_attr attr) {
   return write_string (start, nchar, s, attr, attr);
 }
 int write_string
-(Point start, size_t nchar, std::string_view s) {
+(Cell start, size_t nchar, std::string_view s) {
   return write_string (start, nchar, s, 0, 0);
 }
 int write_string
-(Box b, Point local_start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg) {
-  assert (in_bounds(b, local_start));
-  const size_t x_avail = b.gx2 - local_start.x;
+(Box b, Cell local_start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg) {
+  assert (local_within (b, local_start));
+  const size_t j_avail = b.jglobal().last - local_start.j;
   const size_t req_chars = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
-  const auto char_lim = std::min({x_avail, req_chars});
-  const auto global_start = get_global(b, local_start);
+  const auto char_lim = std::min({j_avail, req_chars});
+  const auto global_start = shift_global (b, local_start);
   return write_string(global_start, char_lim, s, fg, bg);
 }
 int write_string
-(Box b, Point local_start, size_t nchar, std::string_view s, tb_attr attr) {
+(Box b, Cell local_start, size_t nchar, std::string_view s, tb_attr attr) {
   return write_string (b, local_start, nchar, s, attr, attr);
 }
 int write_string
-(Box b, Point local_start, size_t nchar, std::string_view s) {
+(Box b, Cell local_start, size_t nchar, std::string_view s) {
   return write_string (b, local_start, nchar, s, 0, 0);
 }
 int write_string
-(Box b, Point local_start, std::string_view s, tb_attr fg, tb_attr bg) {
+(Box b, Cell local_start, std::string_view s, tb_attr fg, tb_attr bg) {
   return write_string (b, local_start, 0, s, fg, bg);
 }
 int write_string
-(Box b, Point local_start, std::string_view s, tb_attr attr) {
+(Box b, Cell local_start, std::string_view s, tb_attr attr) {
   return write_string (b, local_start, 0, s, attr);
 }
 int write_string
-(Box b, Point local_start, std::string_view s) {
+(Box b, Cell local_start, std::string_view s) {
   return write_string (b, local_start, 0, s);
 }
 
 
-Point get_global
-(Box b, Point plocal) {
-  return { plocal.x + b.gx1, plocal.y + b.gy1 };
+Cell shift_global
+(Box b, Cell plocal) {
+  // TODO bounds checking
+  return { plocal.i + b.iglobal().first, plocal.j + b.jglobal().first };
 }
 
-Point get_local
-(Box b, Point pglobal) {
-  Point plocal;
-  if (pglobal.x < b.gx1 || pglobal.x > b.gx2) {
-    plocal.x = -1;
+Cell shift_local
+(Box b, Cell pglobal) {
+  Cell plocal;
+  const auto bi = b.iglobal();
+  if (bi.is_in(pglobal.i)) {
+    plocal.i = -1;
   } else {
-    plocal.x = pglobal.x - b.gx1;
+    plocal.i = pglobal.i - bi.first;
   }
-  if (pglobal.y < b.gy1 || pglobal.y > b.gy2) {
-    plocal.y = -1;
+  const auto bj = b.jglobal();
+  if (bj.is_in(pglobal.j)) {
+    plocal.j = -1;
   } else {
-    plocal.y = pglobal.y - b.gy1;
+    plocal.j = pglobal.j - bj.first;
   }
   return plocal;
 }
 
-bool is_in
-(Box b, Point pglobal) {
-  const auto plocal = get_local(b, pglobal);
-  return in_bounds (b, plocal);
+bool global_within
+(Box b, Cell pglobal) {
+  const auto plocal = shift_local (b, pglobal);
+  return local_within (b, plocal);
 }
 
-bool in_bounds
-(Box b, Point plocal) {
-  return (plocal.valid() && plocal.x <= b.xlast && plocal.y <= b.ylast);
+bool local_within
+(Box b, Cell plocal) {
+  return (plocal.valid() && plocal.i <= b.ilocal().last && plocal.j <= b.jlocal().last);
 }
 
 int clear
-(Box b, Point plocal) {
+(Box b, Cell plocal) {
   return set_cell (plocal, ' ');
 }
 int clear
 (Box b) {
-  for (int x = 0; x <= b.xlast; ++x) {
-    for (int y = 0; y <= b.ylast; ++y) {
-      const auto rc = set_cell (b, {x, y}, ' ');
+  for (int i = 0; i <= b.ilocal().last; ++i) {
+    for (int j = 0; j <= b.jlocal().last; ++j) {
+      const auto rc = set_cell (b, {i, j}, ' ');
       if (rc != TB_OK) {
         return rc;
       };

@@ -10,157 +10,209 @@ extern "C" {
 
 namespace extb {
 
-struct Point {
+struct Cell {
     int
-    x=-1,
-    y=-1;
+    i=-1,
+    j=-1;
 
     bool valid () {
-        return (x >= 0 && y >= 0);
+        return (i >= 0 && j >= 0);
     }
 };
+
+struct Span {
+    // inclusive coordinates
+    const int
+    first=-1,
+    last=-1;
+
+    bool valid () const noexcept {
+        return (first >= 0 && last >= 0 && last >= first);
+    }
+
+    size_t size () const noexcept {
+        return valid() ? last + 1 : 0;
+    }
+
+    bool is_in (int q) const noexcept {
+        return valid() ? (q >= first && q <= last) : false;
+    }
+};
+
 struct Box {
     private:
-    Box (int x1, int x2, int y1, int y2)
-    : gx1 (x1),
-      gx2 (x2),
-      gy1 (y1),
-      gy2 (y2),
-      xlast (x2 - x1),
-      ylast (y2 - y1),
-      xsz (xlast + 1),
-      ysz (ylast + 1)
+    // closed global coordinates
+    int gi1=-1, gi2=-1, gj1=-1, gj2=-1;
+    Box (int i1, int i2, int j1, int j2)
+    : gi1 (i1),
+      gi2 (i2),
+      gj1 (j1),
+      gj2 (j2)
       {};
 
     public:
-    // closed global coordinates
-    const int gx1, gx2, gy1, gy2;
-    const int xlast, ylast;
-    const size_t xsz, ysz;
+    explicit Box () = default;  // default-construct invalid
+    // bool valid ();
 
-    static Box make_box (int x1, int x2, int y1, int y2) {
-        assert (x2 >= x1);
-        assert (y2 >= y1);
-        Box b(x1, x2, y1, y2);
-        return b;
+    Span iglobal () const noexcept {
+        return {gi1, gi2};
     }
-    static Box make_row (int x, int y1, int y2) {
-        return make_box (x, x, y1, y2);
+    Span jglobal () const noexcept {
+        return {gj1, gj2};
     }
-    static Box make_col (int x1, int x2, int y) {
-        return make_box (x1, x2, y, y);
+    Span ilocal () const noexcept {
+        const auto ilast = gi2 - gi1;
+        return (ilast < 0) ? Span{-1, -1} : Span{0, ilast};
     }
+    Span jlocal () const noexcept {
+        const auto jlast = gj2 - gj1;
+        return (jlast < 0) ? Span{-1, -1} : Span{0, jlast};
+    }
+    // int ilast () const noexcept {
+    //     const auto ilast = gi2 - gi1;
+    //     return (ilast < 0) ? -1 : ilast;
+    // }
+    // int jlast () const noexcept {
+    //     const auto ilast = gi2 - gi1;
+    //     return (ilast < 0) ? -1 : ilast;
+    // }
+
+    static Box make_box (Span i, Span j);
+    static Box make_row (int i, Span j);
+    static Box make_col (int j, Span i);
 };
+
+
+// TODO handle grouped disjoint cells
+// for writing, dimming, setting attrs, etc
+// using CellGroup = std::vector<Cell>;
 
 
 using tb_attr = unsigned short;
 
 int set_cell
-(Point p, uint32_t ch, tb_attr fg, tb_attr bg);
+(Cell p, uint32_t ch, tb_attr fg, tb_attr bg);
 int set_cell
-(Point p, uint32_t ch, tb_attr attr);
+(Cell p, uint32_t ch, tb_attr attr);
 int set_cell
-(Point p, uint32_t ch);
+(Cell p, uint32_t ch);
 int set_cell
-(Box b, Point plocal, uint32_t ch, tb_attr fg, tb_attr bg);
+(Box b, Cell plocal, uint32_t ch, tb_attr fg, tb_attr bg);
 int set_cell
-(Box b, Point plocal, uint32_t ch, tb_attr attr);
+(Box b, Cell plocal, uint32_t ch, tb_attr attr);
 int set_cell
-(Box b, Point plocal, uint32_t ch);
+(Box b, Cell plocal, uint32_t ch);
 int set_cell
-(Box b, uint32_t ch);  // set all
+(Box b, uint32_t ch, tb_attr fg, tb_attr bg);  // set all
+int set_cell
+(Box b, uint32_t ch, tb_attr attr);
+int set_cell
+(Box b, uint32_t ch);
 
 
 int set_attr
-(Point p, tb_attr attr, bool fg, bool bg);
+(Cell p, tb_attr attr, bool fg, bool bg);
 int set_attr
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int set_attr_fg
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int set_attr_bg
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int set_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg);
 int set_attr
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 int set_attr_fg
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 int set_attr_bg
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 
 int add_attr
-(Point p, tb_attr attr, bool fg, bool bg);
+(Cell p, tb_attr attr, bool fg, bool bg);
 int add_attr
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int add_attr_fg
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int add_attr_bg
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int add_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg);
 int add_attr
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 int add_attr_fg
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 int add_attr_bg
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 
 int rm_attr
-(Point p, tb_attr attr, bool fg, bool bg);
+(Cell p, tb_attr attr, bool fg, bool bg);
 int rm_attr
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int rm_attr_fg
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int rm_attr_bg
-(Point p, tb_attr attr);
+(Cell p, tb_attr attr);
 int rm_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg);
 int rm_attr
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 int rm_attr_fg
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 int rm_attr_bg
-(Box b, Point plocal, tb_attr attr);
+(Box b, Cell plocal, tb_attr attr);
 
 bool check_attr
-(Point p, tb_attr attr, bool fg, bool bg);
+(Cell p, tb_attr attr, bool fg, bool bg);
 bool check_attr
-(Box b, Point plocal, tb_attr attr, bool fg, bool bg);
+(Box b, Cell plocal, tb_attr attr, bool fg, bool bg);
 
 int write_string
-(Point start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg);
+(Cell start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg);
 int write_string
-(Point start, size_t nchar, std::string_view s, tb_attr attr);
+(Cell start, size_t nchar, std::string_view s, tb_attr attr);
 int write_string
-(Point start, size_t nchar, std::string_view s);
+(Cell start, size_t nchar, std::string_view s);
 int write_string
-(Box b, Point local_start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg);
+(Box b, Cell local_start, size_t nchar, std::string_view s, tb_attr fg, tb_attr bg);
 int write_string
-(Box b, Point local_start, size_t nchar, std::string_view s, tb_attr attr);
+(Box b, Cell local_start, size_t nchar, std::string_view s, tb_attr attr);
 int write_string
-(Box b, Point local_start, size_t nchar, std::string_view s);
+(Box b, Cell local_start, size_t nchar, std::string_view s);
 int write_string
-(Box b, Point local_start, std::string_view s, tb_attr fg, tb_attr bg);
+(Box b, Cell local_start, std::string_view s, tb_attr fg, tb_attr bg);
 int write_string
-(Box b, Point local_start, std::string_view s, tb_attr attr);
+(Box b, Cell local_start, std::string_view s, tb_attr attr);
 int write_string
-(Box b, Point local_start, std::string_view s);
+(Box b, Cell local_start, std::string_view s);
 
 // box funcs
-Point get_global
-(Box b, Point plocal);
+Cell shift_global
+(Box b, Cell c);
+Span shift_global
+(Box b, Span s);
+Cell shift_local
+(Box b, Cell c);
+Span shift_local
+(Box b, Span s);
 
-Point get_local
-(Box b, Point pglobal);
-
-bool is_in
-(Box b, Point pglobal);
-
-bool in_bounds
-(Box b, Point plocal);
+bool global_within
+(Box b, Cell c);
+bool global_within
+(Box b, Span s);
+bool local_within
+(Box b, Cell c);
+bool local_within
+(Box b, Span s);
 
 int clear
-(Box b, Point plocal);
+(Box b, Cell plocal);
 int clear
 (Box b);
+
+// make from local coordinates of other Box
+Box make_sub_box (Box b, Span i, Span j);
+Box make_sub_row (Box b, int i, Span j);
+Box make_sub_row (Box b, int i);
+Box make_sub_col (Box b, int j, Span i);
+Box make_sub_col (Box b, int j);
 }
