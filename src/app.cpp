@@ -1,4 +1,5 @@
 #include <format>
+#include <stdexcept>
 #include <unordered_map>
 
 #include "app.hpp"
@@ -53,7 +54,7 @@ bool nav_global (tb_event& ev, Context& ctx) {
 
 }
 
-bool nav_browser (tb_event& ev, Context& ctx) {
+int nav_browser (tb_event& ev, Context& ctx) {
     assert (ev.key);
 
     auto& ui = ctx.ui;
@@ -95,25 +96,31 @@ void handle_input (tb_event& ev, Context& ctx) {
 }
 
 
-void draw_global (Context& ctx) {
-    // BOXES WITH CLOSED COORDINATES
-    // TODO must figure out resize immediately!
-    auto screen = extb::make_box ({0, tb_height() - 1}, {0, tb_width() - 1});
-    auto main_box = extb::make_box (
+void set_global_ui (Context& ctx) {
+    tb_clear();
+    // boxes with closed coordinates
+    extb::Box screen {
+        {0, tb_height() - 1},
+        {0, tb_width() - 1}
+    };
+    extb::Box main_box {
         {screen.i().first, screen.i().last - CMD_H - STATUS_H},
         screen.j()
-    );
-    auto cmd_box = extb::make_box (
+    };
+    extb::Box cmd_box {
         {main_box.i().last + 1, main_box.i().last + CMD_H},
         screen.j()
-    );
-    auto status_box = extb::make_box (
+    };
+    extb::Box status_box {
         {cmd_box.i().last + 1, cmd_box.i().last + STATUS_H},  // last inclusive row
         screen.j()
-    );
+    };
+    if (!screen.valid() || !main_box.valid() || !cmd_box.valid() || !status_box.valid()) {
+        throw std::runtime_error ("failed to draw global ui");
+    }
 
     // draw fixed elements (carets, borders)
-    // seq display
+    // main display
     // top corners
     extb::set_cell ({main_box.i().first, main_box.j().first}, 0x256D);
     extb::set_cell ({main_box.i().first, main_box.j().last}, 0x256E);
@@ -167,41 +174,35 @@ void draw_global (Context& ctx) {
     }
 
     // cmd input
-    auto input_row =
-        extb::make_row (
-            cmd_box.i().first + 1,
-            {
-                cmd_box.j().first + 2,      // skip border, leave space for caret :
-                cmd_box.j().last - 1        // exclude border
-            }
-        );
+    extb::Box input_row {
+        cmd_box.i().first + 1,
+        {
+            cmd_box.j().first + 2,      // skip border, leave space for caret :
+            cmd_box.j().last - 1        // exclude border
+        }
+    };
     extb::Cell caret{cmd_box.i().first + 1, cmd_box.j().first + 1};
     extb::set_cell(caret, ':', TB_DIM);
-    auto status_row =
-        extb::make_row (
-            status_box.i().first + 1,
-            {
-                status_box.j().first + 1,
-                status_box.j().last - 1
-            }
-        );
-    write_string(status_row, {0, 0}, "Hello!", TB_DIM);
-    // extb::write_string ({status_row.i().first, status_row.j().first}, 6, "Hello!", TB_DIM);
+
+    extb::Box status_row {
+        status_box.i().first + 1,
+        {
+            status_box.j().first + 1,
+            status_box.j().last - 1
+        }
+    };
 
     // for data display
-    auto display_box =
-        extb::make_box (
-            {main_box.i().first + 1, main_box.i().last - 1},
-            {main_box.j().first + 1, main_box.j().last - 1}
-        );
+    extb::Box display_box {
+        {main_box.i().first + 1, main_box.i().last - 1},
+        {main_box.j().first + 1, main_box.j().last - 1}
+    };
 
     ctx.ui.main = display_box;
     ctx.ui.cmd = input_row;
     ctx.ui.cmd_caret = caret;
     ctx.ui.status = status_row;
 }
-
-
 
 
 Context& init () {
@@ -211,7 +212,12 @@ Context& init () {
     tb_clear();
 
     auto& ctx = Context::create();
-    draw_global(ctx);
+    try {
+        set_global_ui(ctx);
+    } catch (const std::exception &e) {
+        throw;
+    }
+    write_string(ctx.ui.status, {0, 0}, "Hello!", TB_DIM);
 
     // TODO call global draw
 
@@ -228,17 +234,23 @@ void loop (Context& ctx) {
     auto& ui = ctx.ui;
 
     while (global.run) {
-        log_err("looped");
         tb_poll_event (&ev);
-        switch (global.state) {
+        if (ev.type == TB_EVENT_RESIZE)
+        {
+            try {
+                set_global_ui(ctx);
+            } catch (const std::exception &e) {
+                throw;
+            }
+        }
+        // should rerender each frame to account for resize changes
+        switch (global.state)
+        {
             case (app::app_state::browse):
+            // render_pileup (ctx);  // TODO
             if (ev.key)
             {
                 nav_browser (ev, ctx);
-            }
-            else if (ev.ch)
-            {
-                handle_input (ev, ctx);
             }
             // if (global.state != app::app_state::browse) {
             //     // transition
@@ -249,9 +261,16 @@ void loop (Context& ctx) {
             break;
         }
 
-        if (global.debug) {
+        if (ev.ch)
+        {
+            handle_input (ev, ctx);
+        }
+
+        if (global.debug)
+        {
           // pass
         }
+
         ++global.frame;
         tb_present();
     }

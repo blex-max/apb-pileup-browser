@@ -1,5 +1,6 @@
 #include "extb.hpp"
 #include <cstdlib>
+#include <iostream>
 #include <stdlib.h>
 
 #include "app.hpp"
@@ -53,9 +54,15 @@ int main(int, char **) {
     // int row_sel = 0;
     // add_attr(ctx.ui.display, {0, row_sel}, TB_REVERSE);
 
-    tb_present();
+    // tb_present();
 
-    app::loop(ctx);
+    try {
+        app::loop(ctx);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        tb_shutdown();
+        return EXIT_FAILURE;
+    }
 
     tb_shutdown();
     return EXIT_SUCCESS;

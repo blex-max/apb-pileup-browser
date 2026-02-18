@@ -9,11 +9,35 @@ extern "C" {
     #include "termbox2.h"
 }
 
-constexpr int EXTB_ERR_OOB = -50;
 
 namespace extb {
 
-enum class Axis : size_t {
+// class extb_err : public std::runtime_error {
+// public:
+//     explicit extb_err (const std::string& msg)
+//         : std::runtime_error (msg) {}
+// };
+// template<typename... Args>
+// constexpr extb_err make_extb_err (std::format_string<Args...> fmt, Args&&... args) {
+//     return extb_err (std::format(fmt, std::forward<Args> (args)...));
+// }
+
+// enum class err_code : int {
+//     ok,
+//     oob,
+//     invalid_span
+// };
+// struct Err {
+//     int tb2_err=TB_OK;
+//     err_code extb_err=err_code::ok;
+//     bool ok () const noexcept {
+//         return tb2_err == TB_OK && extb_err == err_code::ok;
+//     }
+// };
+
+
+enum class Axis {
+    NONE,
     i,
     j
 };
@@ -61,16 +85,12 @@ struct Box {
     private:
     // closed global coordinates
     int gi1=-1, gi2=-1, gj1=-1, gj2=-1;
-    explicit Box (int global_i1, int global_i2, int global_j1, int global_j2)
-    : gi1 (global_i1),
-      gi2 (global_i2),
-      gj1 (global_j1),
-      gj2 (global_j2)
-      {};
-
     public:
     Box () = default;  // default-construct invalid
-    // bool valid ();
+
+    bool valid () const noexcept {
+        return Span{gi1, gi2}.valid() && Span{gj1, gj2}.valid();
+    }
 
     Span i () const noexcept {
         return {gi1, gi2};
@@ -86,15 +106,33 @@ struct Box {
     friend int last_local_i (Box b) noexcept;
     friend int last_local_j (Box b) noexcept;
 
-    friend Box make_box (Span i, Span j);
-    friend Box make_row (int i, Span j);
-    friend Box make_col (int j, Span i);
+    // Box (int i1, int i2, int j1, int j2)
+    // : gi1 (i1),
+    //   gi2 (i2),
+    //   gj1 (j1),
+    //   gj2 (j2)
+    //   {};
+    Box (Span i, Span j)
+    : gi1 (i.first),
+      gi2 (i.last),
+      gj1 (j.first),
+      gj2 (j.last)
+      {};
+    Box (int i, Span j)
+    : gi1 (i),
+      gi2 (i),
+      gj1 (j.first),
+      gj2 (j.last)
+      {};  // row shorthand
+    Box (Span i, int j)
+    : gi1 (i.first),
+      gi2 (i.last),
+      gj1 (j),
+      gj2 (j)
+      {};  // col shorthand
 };
 int last_local_i (Box b) noexcept;
 int last_local_j (Box b) noexcept;
-Box make_box (Span i, Span j);
-Box make_row (int i, Span j);
-Box make_col (int j, Span i);
 
 // NOTE handle grouped disjoint cells
 // for writing, dimming, setting attrs, etc
@@ -136,26 +174,33 @@ int set_attr
 (Cell cglobal, Style style);
 int set_attr
 (Box b, Cell clocal, Style style);
+int set_attr
+(Box b, Style style);  // all
 
 int add_attr
 (Cell cglobal, Style style);
 int add_attr
 (Box b, Cell clocal, Style style);
+int add_attr
+(Box b, Style style);  // all
 
 int rm_attr
 (Cell cglobal, Style style);
 int rm_attr
 (Box b, Cell clocal, Style style);
+int rm_attr
+(Box b, Style style);  // all
 
 bool check_attr
 (Cell cglobal, Style style);
 bool check_attr
 (Box b, Cell clocal, Style style);
 
-int write_string
+size_t write_string
 (Cell start, size_t nchar, std::string_view s, Style style={0});
-int write_string
+size_t write_string
 (Box b, Cell local_start, size_t nchar, std::string_view s, Style style = {0});
-int write_string
+size_t write_string
 (Box b, Cell local_start, std::string_view s, Style style = {0});
-}
+
+} // end namespace
