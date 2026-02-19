@@ -156,12 +156,14 @@ struct Style {
 Cell translate_cell (Box b, Cell local);
 Span translate_span (Box b, Span local);
 
+
 // take as optional output param
-// or return. May not be needed
+// a pointer (i.e. nullable) to a
+// vector of DrawErr. Append only
+// on failure
 // struct DrawErr {
 //     Cell c;
 //     uint32_t ch;
-//     Style s;
 //     int tb_err;
 //     // extb_err
 // };

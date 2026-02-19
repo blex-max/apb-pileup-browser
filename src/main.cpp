@@ -1,13 +1,19 @@
-#include "extb.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <stdlib.h>
 
+#include <plog/Log.h>
+#include <plog/Initializers/ConsoleInitializer.h>
+#include <plog/Formatters/TxtFormatter.h>
+
+#include "extb.hpp"
 #include "app.hpp"
 #include "hts/boundary-types.hpp"
 
 
 int main(int, char **) {
+
+    plog::init<plog::TxtFormatter>(plog::debug, plog::streamStdErr);
 
     auto& ctx = app::init ();
 
@@ -59,7 +65,7 @@ int main(int, char **) {
     try {
         app::loop(ctx);
     } catch (const std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        PLOGF << e.what();
         tb_shutdown();
         return EXIT_FAILURE;
     }

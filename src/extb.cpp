@@ -2,7 +2,6 @@
 #include <cstdint>
 
 #include "extb.hpp"
-#include "util.hpp"
 
 namespace extb {
 

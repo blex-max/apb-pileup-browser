@@ -4,6 +4,7 @@
 
 #include "app.hpp"
 #include "extb.hpp"
+#include "plog/Log.h"
 #include "util.hpp"
 
 namespace app {
@@ -103,6 +104,10 @@ void set_global_ui (Context& ctx) {
         {0, tb_height() - 1},
         {0, tb_width() - 1}
     };
+    if (!screen.valid()) {
+        // TODO this should probably warn and allow user to correct
+        throw std::runtime_error ("Invalid screen area, terminal likely too small");
+    }
     extb::Box main_box {
         {screen.i().first, screen.i().last - CMD_H - STATUS_H},
         screen.j()
@@ -116,7 +121,7 @@ void set_global_ui (Context& ctx) {
         screen.j()
     };
     if (!screen.valid() || !main_box.valid() || !cmd_box.valid() || !status_box.valid()) {
-        throw std::runtime_error ("failed to draw global ui");
+        throw std::runtime_error ("Could not calculate valid screen area");
     }
 
     // draw fixed elements (carets, borders)
@@ -215,11 +220,9 @@ Context& init () {
     try {
         set_global_ui(ctx);
     } catch (const std::exception &e) {
-        throw;
+        throw make_runtime_error("Error initialising view: {}", e.what());
     }
     write_string(ctx.ui.status, {0, 0}, "Hello!", TB_DIM);
-
-    // TODO call global draw
 
     tb_present();
 
@@ -240,7 +243,7 @@ void loop (Context& ctx) {
             try {
                 set_global_ui(ctx);
             } catch (const std::exception &e) {
-                throw;
+                throw make_runtime_error ("Error while attempting to resize view: {}", e.what());
             }
         }
         // should rerender each frame to account for resize changes
@@ -271,6 +274,7 @@ void loop (Context& ctx) {
           // pass
         }
 
+        PLOGD << std::format ("Processed frame {}", global.frame);
         ++global.frame;
         tb_present();
     }

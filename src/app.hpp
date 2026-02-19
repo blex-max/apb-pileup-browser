@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <plog/Log.h>
+
 #define TB_IMPL
 #include "extb.hpp"
 #include "hts/boundary-types.hpp"

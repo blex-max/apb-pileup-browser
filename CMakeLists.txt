@@ -21,7 +21,14 @@ FetchContent_Declare(termbox2
   GIT_SHALLOW    TRUE
   EXCLUDE_FROM_ALL
 )
+FetchContent_Declare(
+    plog
+    GIT_REPOSITORY https://github.com/SergiusTheBest/plog
+    GIT_TAG        1.1.10
+    GIT_SHALLOW    true
+)
 
+FetchContent_MakeAvailable(plog)
 FetchContent_MakeAvailable(termbox2)
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
@@ -35,5 +42,7 @@ target_include_directories(t2-proto
   PRIVATE src
 )
 target_link_libraries(t2-proto
-  PRIVATE termbox2
+  PRIVATE
+  termbox2
+  plog::plog
 )
