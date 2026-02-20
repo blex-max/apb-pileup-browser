@@ -55,6 +55,29 @@ bool nav_global (tb_event& ev, Context& ctx) {
 
 }
 
+void set_pileup_display (Context& ctx) {
+    auto& view = ctx.ui.main;
+    extb::clear(view);
+
+    // TODO consider how to split view into primary (sequence) area and secondary (read info) area
+    // "flex box style"
+
+    extb::Box ref_row {view.i().first, view.j()};
+    // set separator
+    extb::set_cell (extb::Box{view.i().first + 1, view.j()}, 0x2500, TB_DIM);
+
+    extb::Box query_box {{view.i().first + 2, view.i().last - 1}, view.j()};
+    extb::Box info_row {view.i().last, view.j()};  // show e.g. coordinates
+
+    // TODO add these elements to pileup ui sub struct (consider: as optionals?)
+}
+
+
+// void draw_sequence_data () {
+    
+// }
+
+
 int nav_browser (tb_event& ev, Context& ctx) {
     assert (ev.key);
 
