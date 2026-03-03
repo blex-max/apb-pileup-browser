@@ -40,10 +40,10 @@ struct PileupContext : singleton::Singleton {
     struct {
         int row_sel = 0;
         PileupDisplayBundle pd;
-    } state;
+    } data;
     struct {
         extb::Box seq;
-        extb::Box data;
+        extb::Box info;
     } ui;
 };
 

@@ -61,9 +61,11 @@ void init_pileup_display () {
     auto& main_view = singleton::get<GlobalContext>().ui.main;
     extb::clear(main_view);
 
-    // TODO consider how to split view into primary (sequence) area and secondary (read info) area
+    // TODO split view into primary (sequence) area and secondary (read info) area
     // "flex box style"
     // use pc.ui struct
+    // and use data elements describing fraction of layout for each 0-1
+    // e.g 0.7 seq, 0.3 info
 
     extb::Box ref_row {main_view.i().first, main_view.j()};
     // set separator
@@ -85,7 +87,7 @@ int nav_browser (tb_event& ev) {
     assert (ev.key);
 
     auto& pc = singleton::get<PileupContext>();
-    auto& pstate = pc.state;
+    auto& pstate = pc.data;
     auto& pui = pc.ui;
 
     switch (ev.key) {
@@ -240,6 +242,7 @@ void init_global_ui () {
 
 
 void init () {
+    PLOGD << "Begin global init";
     setlocale(LC_ALL, "");
 
     tb_init();
@@ -255,7 +258,11 @@ void init () {
     auto& gui = singleton::get<GlobalContext>().ui;
     write_string(gui.status, {0, 0}, "Hello!", TB_DIM);
 
+    // default mode for now
+    singleton::init<PileupContext>();
+
     tb_present();
+    PLOGD << "Global init complete";
 }
 
 
