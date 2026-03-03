@@ -8,14 +8,13 @@
 
 #include "extb.hpp"
 #include "app.hpp"
-#include "hts/boundary-types.hpp"
 
 
 int main(int, char **) {
 
     plog::init<plog::TxtFormatter>(plog::debug, plog::streamStdErr);
 
-    auto& ctx = app::init ();
+    app::init ();
 
     // --- DEMO --- //
     // n.b. probaby good to keep a demo mode in the final product!
@@ -63,7 +62,7 @@ int main(int, char **) {
     // tb_present();
 
     try {
-        app::loop(ctx);
+        app::loop();
     } catch (const std::exception &e) {
         PLOGF << e.what();
         tb_shutdown();

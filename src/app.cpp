@@ -5,15 +5,17 @@
 #include "app.hpp"
 #include "extb.hpp"
 #include "plog/Log.h"
+#include "singleton.hpp"
 #include "util.hpp"
 
 namespace app {
 
 using CmdResult = std::pair<bool, std::string>;
-using Cmd = CmdResult(*)(Context&);
+using Cmd = CmdResult(*)();
 
-CmdResult cmd_quit (Context& ctx) {
-    ctx.global.run = false;
+CmdResult cmd_quit () {
+    auto& gdata= singleton::get<GlobalContext>().data;
+    gdata.run = false;
     return {true, "Bye!"};
 }
 
@@ -21,31 +23,31 @@ static std::unordered_map <std::string_view, Cmd> CMD_REGISTRY{
     {"q", &cmd_quit},
     {"quit", &cmd_quit}
 };
-CmdResult exec_cmd (std::string_view cmd_name, Context& ctx) {
+CmdResult exec_cmd (std::string_view cmd_name) {
     if (auto it = CMD_REGISTRY.find(cmd_name); it != CMD_REGISTRY.end()) {
-        return it->second(ctx);
+        return it->second();
     } else {
         return {false, std::format("Command \"{}\" not found!", cmd_name)};
     }
 }
 
 
-bool nav_global (tb_event& ev, Context& ctx) {
+bool nav_global (tb_event& ev) {
     assert (ev.key);
 
-    auto& ui = ctx.ui;
+    auto& gui = singleton::get<GlobalContext>().ui;
 
     switch (ev.key) {
         case TB_KEY_ENTER:
-        extb::clear(ui.cmd);
-        extb::clear(ui.status);
+        extb::clear(gui.cmd);
+        extb::clear(gui.status);
         extb::write_string (
-            ui.status,
+            gui.status,
             {0, 0},
-            app::exec_cmd(ui.cmd_buf, ctx).second,
+            app::exec_cmd(gui.cmd_buf).second,
             TB_DIM
         );
-        ui.cmd_buf.clear();
+        gui.cmd_buf.clear();
         break;
 
         default:
@@ -55,19 +57,20 @@ bool nav_global (tb_event& ev, Context& ctx) {
 
 }
 
-void set_pileup_display (Context& ctx) {
-    auto& view = ctx.ui.main;
-    extb::clear(view);
+void init_pileup_display () {
+    auto& main_view = singleton::get<GlobalContext>().ui.main;
+    extb::clear(main_view);
 
     // TODO consider how to split view into primary (sequence) area and secondary (read info) area
     // "flex box style"
+    // use pc.ui struct
 
-    extb::Box ref_row {view.i().first, view.j()};
+    extb::Box ref_row {main_view.i().first, main_view.j()};
     // set separator
-    extb::set_cell (extb::Box{view.i().first + 1, view.j()}, 0x2500, TB_DIM);
+    extb::set_cell (extb::Box{main_view.i().first + 1, main_view.j()}, 0x2500, TB_DIM);
 
-    extb::Box query_box {{view.i().first + 2, view.i().last - 1}, view.j()};
-    extb::Box info_row {view.i().last, view.j()};  // show e.g. coordinates
+    extb::Box query_box {{main_view.i().first + 2, main_view.i().last - 1}, main_view.j()};
+    extb::Box info_row {main_view.i().last, main_view.j()};  // show e.g. coordinates
 
     // TODO add these elements to pileup ui sub struct (consider: as optionals?)
 }
@@ -78,49 +81,52 @@ void set_pileup_display (Context& ctx) {
 // }
 
 
-int nav_browser (tb_event& ev, Context& ctx) {
+int nav_browser (tb_event& ev) {
     assert (ev.key);
 
-    auto& ui = ctx.ui;
-    auto& mode_ctx = ctx.browse_ctx;
+    auto& pc = singleton::get<PileupContext>();
+    auto& pstate = pc.state;
+    auto& pui = pc.ui;
 
     switch (ev.key) {
         // N.B. selection not really important
         // for mvp - only scrolling of queries really needed
         // (might use > instead, or just no selector for now)
         case TB_KEY_ARROW_DOWN:
-        rm_attr(ui.main, {0, mode_ctx.row_sel}, TB_REVERSE);
-        ++mode_ctx.row_sel;
-        mode_ctx.row_sel = std::clamp(mode_ctx.row_sel, 0, last_local_i(ui.main));
-        add_attr(ui.main, {0, mode_ctx.row_sel}, TB_REVERSE);
+        rm_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
+        ++pstate.row_sel;
+        pstate.row_sel = std::clamp(pstate.row_sel, 0, last_local_i(pui.seq));
+        add_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
         break;
 
         case TB_KEY_ARROW_UP:
-        rm_attr(ui.main, {0, mode_ctx.row_sel}, TB_REVERSE);
-        --mode_ctx.row_sel;
-        mode_ctx.row_sel = std::clamp(mode_ctx.row_sel, 0, last_local_i(ui.main));
-        add_attr(ui.main, {0, mode_ctx.row_sel}, TB_REVERSE);
+        rm_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
+        --pstate.row_sel;
+        pstate.row_sel = std::clamp(pstate.row_sel, 0, last_local_i(pui.seq));
+        add_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
         break;
 
         default:
-        return nav_global (ev, ctx);
+        return false;
     }
     return true;
 }
 
 
-void handle_input (tb_event& ev, Context& ctx) {
+void handle_input (tb_event& ev) {
     assert (ev.ch);
 
-    auto& ui = ctx.ui;
+    auto& gui = singleton::get<GlobalContext>().ui;
 
-    extb::clear(ui.cmd);
-    ui.cmd_buf.append(1, ev.ch);
-    extb::write_string(ui.cmd, {0, 0}, ui.cmd_buf);
+    extb::clear(gui.cmd);
+    gui.cmd_buf.append(1, ev.ch);
+    extb::write_string(gui.cmd, {0, 0}, gui.cmd_buf);
 }
 
 
-void set_global_ui (Context& ctx) {
+void init_global_ui () {
+    auto& gui = singleton::get<GlobalContext>().ui;
+
     tb_clear();
     // boxes with closed coordinates
     extb::Box screen {
@@ -226,57 +232,62 @@ void set_global_ui (Context& ctx) {
         {main_box.j().first + 1, main_box.j().last - 1}
     };
 
-    ctx.ui.main = display_box;
-    ctx.ui.cmd = input_row;
-    ctx.ui.cmd_caret = caret;
-    ctx.ui.status = status_row;
+    gui.main = display_box;
+    gui.cmd = input_row;
+    gui.cmd_caret = caret;
+    gui.status = status_row;
 }
 
 
-Context& init () {
+void init () {
     setlocale(LC_ALL, "");
 
     tb_init();
     tb_clear();
 
-    auto& ctx = Context::create();
+    singleton::init<GlobalContext>();
     try {
-        set_global_ui(ctx);
+        init_global_ui();
     } catch (const std::exception &e) {
         throw make_runtime_error("Error initialising view: {}", e.what());
     }
-    write_string(ctx.ui.status, {0, 0}, "Hello!", TB_DIM);
+
+    auto& gui = singleton::get<GlobalContext>().ui;
+    write_string(gui.status, {0, 0}, "Hello!", TB_DIM);
 
     tb_present();
-
-    return ctx;
 }
 
 
-void loop (Context& ctx) {
+void loop () {
     tb_event ev{};
 
-    auto& global = ctx.global;
-    auto& ui = ctx.ui;
+    auto& gdata = singleton::get<GlobalContext>().data;
 
-    while (global.run) {
+    while (gdata.run) {
         tb_poll_event (&ev);
         if (ev.type == TB_EVENT_RESIZE)
         {
             try {
-                set_global_ui(ctx);
+                init_global_ui();
             } catch (const std::exception &e) {
-                throw make_runtime_error ("Error while attempting to resize view: {}", e.what());
+                throw make_runtime_error (
+                    "Error while attempting to resize view: {}", e.what()
+                );
             }
         }
-        // should rerender each frame to account for resize changes
-        switch (global.state)
+        switch (gdata.state)
         {
             case (app::app_state::browse):
             // render_pileup (ctx);  // TODO
             if (ev.key)
             {
-                nav_browser (ev, ctx);
+                // fallthrough until true with short circuit
+                // NOTE: this may be fine - an alternative:
+                // bool handled = nav_1() || nav_2()...
+                // if (!handled) { nav global }
+                nav_browser (ev) ||
+                nav_global (ev);
             }
             // if (global.state != app::app_state::browse) {
             //     // transition
@@ -289,16 +300,16 @@ void loop (Context& ctx) {
 
         if (ev.ch)
         {
-            handle_input (ev, ctx);
+            handle_input (ev);
         }
 
-        if (global.debug)
+        if (gdata.debug)
         {
           // pass
         }
 
-        PLOGD << std::format ("Processed frame {}", global.frame);
-        ++global.frame;
+        PLOGD << std::format ("Processed frame {}", gdata.frame);
+        ++gdata.frame;
         tb_present();
     }
 }

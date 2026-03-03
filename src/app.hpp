@@ -1,5 +1,6 @@
 #pragma once
 
+#include "singleton.hpp"
 #include <string>
 
 #include <plog/Log.h>
@@ -17,15 +18,14 @@ enum class app_state : uint8_t {
   browse
 };
 
-
-// singleton global context
-struct Context {
+struct GlobalContext : singleton::Singleton {
+    public:
     struct {
         app_state state = app_state::browse;
         bool run = true;
         bool debug = true;
         size_t frame = 0;
-    } global;
+    } data;
     struct {
         extb::Box main;
         extb::Cell cmd_caret;
@@ -34,28 +34,21 @@ struct Context {
         std::string cmd_buf;
         std::string status_buf;
     } ui;
+};
+
+struct PileupContext : singleton::Singleton {
     struct {
         int row_sel = 0;
         PileupDisplayBundle pd;
-    } browse_ctx;
-
-    // no copies or moves
-    Context(const Context&) = delete;
-    Context& operator=(const Context&) = delete;
-    Context(Context&&) = delete;
-    Context& operator=(Context&&) = delete;
-
-    static Context& create () {
-        static Context ctx;
-        return ctx;
-    }
-
-    private:
-    explicit Context () = default;
+    } state;
+    struct {
+        extb::Box seq;
+        extb::Box data;
+    } ui;
 };
 
-Context& init ();
-void loop (Context& ctx);
+void init ();
+void loop ();
 
 } // end namespace
 
