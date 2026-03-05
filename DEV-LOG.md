@@ -11,3 +11,11 @@ was a bit of a pain and would require std::variant or similar,
 at least as far as I could see. The transition to the singleton pattern
 was pleasantly easy and though it's not battle-tested at this point
 it feels good so far.
+
+## 05-03-26
+singleton pattern continues to feel nice. I am focusing on trying to set
+up as much as possible before even touching htslib, i.e. real data. Today
+I've implemented basic drawing functions for the main pileup browser mode.
+I'm pleased with the appearance so far. Next I want to introduce a debug
+display which I'm sure will come in useful. Not much else to report really,
+development today has felt gratifyingly smooth.

@@ -7,11 +7,11 @@
 // to display sequence
 struct QueryRep {
   uint64_t id, start;
-  std::string q;
+  std::string s;
 };
 
 struct RefRep {
-  std::string r;
+  std::string s;
 };
 
 
@@ -31,7 +31,7 @@ using PileupDisplayBundle = std::tuple<RefRep, Queries>;
 inline PileupDisplayBundle make_test_display_data (size_t n_query, size_t width) {
   std::tuple<RefRep, Queries> d{};
 
-  std::get<RefRep>(d).r = random_base_seq(width);
+  std::get<RefRep>(d).s = random_base_seq(width);
 
   auto &qv = std::get<std::vector<QueryRep>>(d);
   for (size_t i = 0; i < n_query; ++i) {

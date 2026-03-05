@@ -4,6 +4,7 @@
 
 #include "app.hpp"
 #include "extb.hpp"
+#include "hts/boundary-types.hpp"
 #include "plog/Log.h"
 #include "singleton.hpp"
 #include "util.hpp"
@@ -57,30 +58,55 @@ bool nav_global (tb_event& ev) {
 
 }
 
-void init_pileup_display () {
-    auto& main_view = singleton::get<GlobalContext>().ui.main;
-    extb::clear(main_view);
 
-    // TODO split view into primary (sequence) area and secondary (read info) area
-    // "flex box style"
-    // use pc.ui struct
-    // and use data elements describing fraction of layout for each 0-1
-    // e.g 0.7 seq, 0.3 info
+void draw_sequence_data () {
+    auto& pctx = singleton::get<PileupContext>();
+    const auto& pdat = pctx.data;  // TODO
+    auto& pui = pctx.ui;
+    const auto& query_box = pui.base_display.query_box;
+    const auto& ref_line = pui.base_display.ref_line;
+    const auto& status_line = pui.base_display.status_line;
 
-    extb::Box ref_row {main_view.i().first, main_view.j()};
-    // set separator
-    extb::set_cell (extb::Box{main_view.i().first + 1, main_view.j()}, 0x2500, TB_DIM);
+    const auto& pd = pdat.pd; // pileup display data
 
-    extb::Box query_box {{main_view.i().first + 2, main_view.i().last - 1}, main_view.j()};
-    extb::Box info_row {main_view.i().last, main_view.j()};  // show e.g. coordinates
+    extb::write_string(ref_line, {0, 0}, std::get<RefRep> (pd).s, 0);
 
-    // TODO add these elements to pileup ui sub struct (consider: as optionals?)
+    const auto &queries = std::get<Queries> (pd);
+    for (size_t i = 0; i < queries.size(); ++i) {
+        const auto q = queries[i];
+        write_string (
+            query_box,
+            {static_cast<int> (i), static_cast<int>(q.start)},
+            q.s
+        );
+    }
+
+    add_attr(query_box, {0, pdat.row_sel}, TB_REVERSE);
 }
 
 
-// void draw_sequence_data () {
-    
-// }
+void init_pileup_display () {
+    auto& pctx = singleton::get<PileupContext>();
+    auto& pui = pctx.ui;
+    auto& global_ui_main = singleton::get<GlobalContext>().ui.main;
+    extb::clear(global_ui_main);
+
+    const auto display_i = global_ui_main.i();
+    const extb::Span display_j{global_ui_main.j().first, static_cast<int>(ceil (global_ui_main.j().last * pui.ui_frac_display))};
+
+    pui.base_display.ref_line = {display_i.first, display_j};
+    // set ref separator
+    extb::set_cell (extb::Box {display_i.first + 1, display_j}, 0x2500, TB_DIM);
+    // set vertical separator
+    extb::set_cell (extb::Box {display_i, display_j.last + 1}, 0x2502, TB_DIM);
+
+    pui.base_display.query_box = {{display_i.first + 2, display_i.last - 2}, display_j};
+    // set status separator
+    extb::set_cell (extb::Box {display_i.last - 1, display_j}, 0x2500, TB_DIM);
+    pui.base_display.status_line = {display_i.last, display_j};  // show e.g. coordinates
+
+    draw_sequence_data(); // TODO
+}
 
 
 int nav_browser (tb_event& ev) {
@@ -89,23 +115,24 @@ int nav_browser (tb_event& ev) {
     auto& pc = singleton::get<PileupContext>();
     auto& pstate = pc.data;
     auto& pui = pc.ui;
+    auto& query_box = pui.base_display.query_box;
 
     switch (ev.key) {
         // N.B. selection not really important
         // for mvp - only scrolling of queries really needed
         // (might use > instead, or just no selector for now)
         case TB_KEY_ARROW_DOWN:
-        rm_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
+        rm_attr(query_box, {pstate.row_sel, 0}, TB_REVERSE);
         ++pstate.row_sel;
-        pstate.row_sel = std::clamp(pstate.row_sel, 0, last_local_i(pui.seq));
-        add_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
+        pstate.row_sel = std::clamp(pstate.row_sel, 0, last_local_i(query_box));
+        add_attr(query_box, {pstate.row_sel, 0}, TB_REVERSE);
         break;
 
         case TB_KEY_ARROW_UP:
-        rm_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
+        rm_attr(query_box, {pstate.row_sel, 0}, TB_REVERSE);
         --pstate.row_sel;
-        pstate.row_sel = std::clamp(pstate.row_sel, 0, last_local_i(pui.seq));
-        add_attr(pui.seq, {0, pstate.row_sel}, TB_REVERSE);
+        pstate.row_sel = std::clamp(pstate.row_sel, 0, last_local_i(query_box));
+        add_attr(query_box, {pstate.row_sel, 0}, TB_REVERSE);
         break;
 
         default:
@@ -230,7 +257,7 @@ void init_global_ui () {
 
     // for data display
     extb::Box display_box {
-        {main_box.i().first + 1, main_box.i().last - 1},
+        {main_box.i().first + 1, main_box.i().last},
         {main_box.j().first + 1, main_box.j().last - 1}
     };
 
@@ -238,6 +265,28 @@ void init_global_ui () {
     gui.cmd = input_row;
     gui.cmd_caret = caret;
     gui.status = status_row;
+}
+
+void enter_pileup_mode () {
+    auto& pctx = singleton::get<PileupContext>();
+
+    // TODO if (gctx.demo) ... {
+    pctx.data.pd = make_test_display_data(10, 20);
+    // }
+
+    init_pileup_display();
+}
+
+void enter_state () {
+    const auto& state = singleton::get<GlobalContext>().data.state;
+    switch (state) {
+        case app_state::browse:
+        enter_pileup_mode();
+        break;
+
+        default:
+        return;
+    }
 }
 
 
@@ -249,6 +298,7 @@ void init () {
     tb_clear();
 
     singleton::init<GlobalContext>();
+
     try {
         init_global_ui();
     } catch (const std::exception &e) {
@@ -258,8 +308,10 @@ void init () {
     auto& gui = singleton::get<GlobalContext>().ui;
     write_string(gui.status, {0, 0}, "Hello!", TB_DIM);
 
-    // default mode for now
+    // init modal contexts
     singleton::init<PileupContext>();
+
+    enter_state();
 
     tb_present();
     PLOGD << "Global init complete";
@@ -310,9 +362,15 @@ void loop () {
             handle_input (ev);
         }
 
+        // TODO NEXT DEBUG
         if (gdata.debug)
         {
-          // pass
+          // TODO:
+          // -> draw extra box on top with debug info
+          // e.g. current location of mouse (useful for reasoning).
+          // -> debug commands for returing context data from singletons
+          // (will also give me a good sense of the command system before moving to
+          // real data).
         }
 
         PLOGD << std::format ("Processed frame {}", gdata.frame);
@@ -323,7 +381,6 @@ void loop () {
 
 
 // TODO
-// void state_transition (from, to, Context& ctx);
 // void init_browse_state (Context& ctx);
 
 

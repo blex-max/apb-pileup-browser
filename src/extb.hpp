@@ -141,14 +141,14 @@ int last_local_j (Box b) noexcept;
 using tb_attr = unsigned short;
 struct Style {
     private:
-    std::optional<tb_attr> fg_attr;
-    std::optional<tb_attr> bg_attr;
+    tb_attr fg_attr;
+    tb_attr bg_attr;
 
     public:
-    std::optional<tb_attr> fg () const noexcept { return fg_attr; }
-    std::optional<tb_attr> bg () const noexcept { return bg_attr; }
+    tb_attr fg () const noexcept { return fg_attr; }
+    tb_attr bg () const noexcept { return bg_attr; }
 
-    Style (std::optional<tb_attr> fg, std::optional<tb_attr> bg) : fg_attr(fg), bg_attr(bg) {}
+    Style (tb_attr fg, tb_attr bg) : fg_attr(fg), bg_attr(bg) {}
     Style (tb_attr attr) : fg_attr(attr), bg_attr(attr) {}
     Style () = delete;
 };

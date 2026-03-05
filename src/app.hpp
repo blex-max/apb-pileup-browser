@@ -42,8 +42,13 @@ struct PileupContext : singleton::Singleton {
         PileupDisplayBundle pd;
     } data;
     struct {
-        extb::Box seq;
-        extb::Box info;
+        struct {
+            extb::Box ref_line;
+            extb::Box query_box;
+            extb::Box status_line;
+        } base_display;
+        // extb::Box base_props;  // TODO
+        double ui_frac_display = 0.7; // the fraction for the rest is implicit (for now)
     } ui;
 };
 

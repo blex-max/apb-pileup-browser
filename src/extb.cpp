@@ -19,7 +19,7 @@ Cell translate_cell
 
 int set_cell
 (Cell c, uint32_t ch, Style style) {
-  return tb_set_cell(c.j, c.i, ch, style.fg() ? *style.fg() : 0., style.bg() ? *style.bg() : 0);
+  return tb_set_cell(c.j, c.i, ch, style.fg(), style.bg());
 };
 int set_cell
 (Box b, Cell clocal, uint32_t ch, Style style) {
@@ -68,8 +68,8 @@ int set_attr
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
   }
-  const auto fg_attr = style.fg() ? *style.fg() : c->fg;
-  const auto bg_attr = style.bg() ? *style.bg() : c->bg;
+  const auto fg_attr = style.fg() ? style.fg() : c->fg;
+  const auto bg_attr = style.bg() ? style.bg() : c->bg;
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 // int set_attr
@@ -86,8 +86,8 @@ int add_attr
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
   }
-  const tb_attr fg_attr = style.fg() ? (c->fg | *style.fg()) : c->fg;
-  const tb_attr bg_attr = style.bg() ? (c->bg | *style.bg()) : c->bg;
+  const tb_attr fg_attr = c->fg | style.fg();
+  const tb_attr bg_attr = c->bg | style.bg();
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 int add_attr
@@ -107,8 +107,8 @@ int rm_attr
   if (const auto rc = tb_get_cell(c.j, c.i, 1, &cbuf); rc != TB_OK) {
     return rc;
   }
-  const tb_attr fg_attr = style.fg() ? (cbuf->fg & ~*style.fg()) : cbuf->fg;
-  const tb_attr bg_attr = style.bg() ? (cbuf->bg & ~*style.bg()) : cbuf->bg;
+  const tb_attr fg_attr = cbuf->fg & ~style.fg();
+  const tb_attr bg_attr = cbuf->bg & ~style.bg();
   return tb_set_cell(c.j, c.i, cbuf->ch, fg_attr, bg_attr);
 };
 int rm_attr
@@ -127,8 +127,8 @@ bool check_attr
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
   }
-  bool has_fg = style.fg() ? (c->fg & *style.fg()) : true;
-  bool has_bg = style.bg() ? (c->bg & *style.bg()) : true;
+  bool has_fg = style.fg() ? (c->fg & style.fg()) : true;
+  bool has_bg = style.bg() ? (c->bg & style.bg()) : true;
   return has_fg & has_bg;
 };
 // bool check_attr
