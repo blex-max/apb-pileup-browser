@@ -7,41 +7,41 @@
 
 #include "plog/Log.h"
 
-namespace singleton {
+namespace ctx {
 
 // base class from which
 // singletons may inherit
-struct Singleton {
+struct Context {
     protected:
     // prevent raw construction
-    Singleton () = default;
-    ~Singleton () = default;
+    Context () = default;
+    ~Context () = default;
 
     private:
     bool initialised = false;
-    friend void set_init (Singleton& s);
-    friend bool check_init (Singleton& s);
+    friend void set_init (Context& s);
+    friend bool check_init (Context& s);
 
     public:
     // no copies or moves
-    Singleton(const Singleton&) = delete;
-    Singleton& operator=(const Singleton&) = delete;
-    Singleton(Singleton&&) = delete;
-    Singleton& operator=(Singleton&&) = delete;
+    Context(const Context&) = delete;
+    Context& operator=(const Context&) = delete;
+    Context(Context&&) = delete;
+    Context& operator=(Context&&) = delete;
 };
-inline void set_init (Singleton& s) {
+inline void set_init (Context& s) {
     s.initialised = true;
 }
-inline bool check_init (Singleton& s) {
+inline bool check_init (Context& s) {
     return s.initialised;
 }
 
 template <typename ChildClassT> 
-constexpr bool IsSingletonT = std::is_base_of_v<Singleton, ChildClassT>;
+constexpr bool IsContextT = std::is_base_of_v<Context, ChildClassT>;
 
 namespace singleton_internal {
 template <typename S>
-requires IsSingletonT<S>
+requires IsContextT<S>
 inline S& create () {
     static S ctx;
     return ctx;
@@ -49,7 +49,7 @@ inline S& create () {
 } // end namespace
 
 template <typename S>
-requires IsSingletonT<S>
+requires IsContextT<S>
 inline void init () {
     auto& s = singleton_internal::create<S>();
     set_init(s);
@@ -57,7 +57,7 @@ inline void init () {
 }
 
 template <typename S>
-requires IsSingletonT<S>
+requires IsContextT<S>
 inline S& get () {
     auto& s = singleton_internal::create<S>();
     if (!check_init(s)) {

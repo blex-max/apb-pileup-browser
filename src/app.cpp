@@ -1,42 +1,36 @@
 #include <format>
 #include <stdexcept>
-#include <unordered_map>
+
+#include "plog/Log.h"
+
+extern "C" {
+    #include "termbox2.h"
+}
+#include "extb.hpp"
 
 #include "app.hpp"
-#include "extb.hpp"
+#include "ctx.hpp"
 #include "hts/boundary-types.hpp"
-#include "plog/Log.h"
-#include "singleton.hpp"
 #include "util.hpp"
+#include "GlobalContext.hpp"
+#include "PileupContext.hpp"
+#include "cmd.hpp"
 
-namespace app {
-
-using CmdResult = std::pair<bool, std::string>;
-using Cmd = CmdResult(*)();
-
-CmdResult cmd_quit () {
-    auto& gdata= singleton::get<GlobalContext>().data;
-    gdata.run = false;
-    return {true, "Bye!"};
+void shutdown () {
+    tb_shutdown();
 }
 
-static std::unordered_map <std::string_view, Cmd> CMD_REGISTRY{
-    {"q", &cmd_quit},
-    {"quit", &cmd_quit}
-};
-CmdResult exec_cmd (std::string_view cmd_name) {
-    if (auto it = CMD_REGISTRY.find(cmd_name); it != CMD_REGISTRY.end()) {
-        return it->second();
-    } else {
-        return {false, std::format("Command \"{}\" not found!", cmd_name)};
-    }
+void render_input_text () {
+    auto& gui = ctx::get<GlobalContext>().ui;
+    extb::clear(gui.cmd);
+    extb::write_string(gui.cmd, {0, 0}, gui.cmd_buf.text);
 }
 
 
 bool nav_global (tb_event& ev) {
     assert (ev.key);
 
-    auto& gui = singleton::get<GlobalContext>().ui;
+    auto& gui = ctx::get<GlobalContext>().ui;
 
     switch (ev.key) {
         case TB_KEY_ENTER:
@@ -45,10 +39,16 @@ bool nav_global (tb_event& ev) {
         extb::write_string (
             gui.status,
             {0, 0},
-            app::exec_cmd(gui.cmd_buf).second,
+            cmd::exec_cmd(gui.cmd_buf.text).msg,
             TB_DIM
         );
-        gui.cmd_buf.clear();
+        input::clear(gui.cmd_buf);
+        break;
+
+        case TB_KEY_BACKSPACE:
+        case TB_KEY_BACKSPACE2:
+        input::del_back(gui.cmd_buf);
+        render_input_text();
         break;
 
         default:
@@ -60,7 +60,7 @@ bool nav_global (tb_event& ev) {
 
 
 void draw_sequence_data () {
-    auto& pctx = singleton::get<PileupContext>();
+    auto& pctx = ctx::get<PileupContext>();
     const auto& pdat = pctx.data;  // TODO
     auto& pui = pctx.ui;
     const auto& query_box = pui.base_display.query_box;
@@ -86,9 +86,9 @@ void draw_sequence_data () {
 
 
 void init_pileup_display () {
-    auto& pctx = singleton::get<PileupContext>();
+    auto& pctx = ctx::get<PileupContext>();
     auto& pui = pctx.ui;
-    auto& global_ui_main = singleton::get<GlobalContext>().ui.main;
+    auto& global_ui_main = ctx::get<GlobalContext>().ui.main;
     extb::clear(global_ui_main);
 
     const auto display_i = global_ui_main.i();
@@ -112,7 +112,7 @@ void init_pileup_display () {
 int nav_browser (tb_event& ev) {
     assert (ev.key);
 
-    auto& pc = singleton::get<PileupContext>();
+    auto& pc = ctx::get<PileupContext>();
     auto& pstate = pc.data;
     auto& pui = pc.ui;
     auto& query_box = pui.base_display.query_box;
@@ -142,19 +142,9 @@ int nav_browser (tb_event& ev) {
 }
 
 
-void handle_input (tb_event& ev) {
-    assert (ev.ch);
-
-    auto& gui = singleton::get<GlobalContext>().ui;
-
-    extb::clear(gui.cmd);
-    gui.cmd_buf.append(1, ev.ch);
-    extb::write_string(gui.cmd, {0, 0}, gui.cmd_buf);
-}
-
 
 void init_global_ui () {
-    auto& gui = singleton::get<GlobalContext>().ui;
+    auto& gui = ctx::get<GlobalContext>().ui;
 
     tb_clear();
     // boxes with closed coordinates
@@ -268,7 +258,7 @@ void init_global_ui () {
 }
 
 void enter_pileup_mode () {
-    auto& pctx = singleton::get<PileupContext>();
+    auto& pctx = ctx::get<PileupContext>();
 
     // TODO if (gctx.demo) ... {
     pctx.data.pd = make_test_display_data(10, 20);
@@ -278,7 +268,7 @@ void enter_pileup_mode () {
 }
 
 void enter_state () {
-    const auto& state = singleton::get<GlobalContext>().data.state;
+    const auto& state = ctx::get<GlobalContext>().data.state;
     switch (state) {
         case app_state::browse:
         enter_pileup_mode();
@@ -295,9 +285,10 @@ void init () {
     setlocale(LC_ALL, "");
 
     tb_init();
+    tb_set_input_mode(TB_INPUT_ESC); // | TB_INPUT_MOUSE for mouse ev
     tb_clear();
 
-    singleton::init<GlobalContext>();
+    ctx::init<GlobalContext>();
 
     try {
         init_global_ui();
@@ -305,11 +296,11 @@ void init () {
         throw make_runtime_error("Error initialising view: {}", e.what());
     }
 
-    auto& gui = singleton::get<GlobalContext>().ui;
+    auto& gui = ctx::get<GlobalContext>().ui;
     write_string(gui.status, {0, 0}, "Hello!", TB_DIM);
 
     // init modal contexts
-    singleton::init<PileupContext>();
+    ctx::init<PileupContext>();
 
     enter_state();
 
@@ -321,7 +312,9 @@ void init () {
 void loop () {
     tb_event ev{};
 
-    auto& gdata = singleton::get<GlobalContext>().data;
+    auto& gctx = ctx::get<GlobalContext>();
+    auto& gui = gctx.ui;
+    auto& gdata = gctx.data;
 
     while (gdata.run) {
         tb_poll_event (&ev);
@@ -337,7 +330,7 @@ void loop () {
         }
         switch (gdata.state)
         {
-            case (app::app_state::browse):
+            case (app_state::browse):
             // render_pileup (ctx);  // TODO
             if (ev.key)
             {
@@ -357,20 +350,17 @@ void loop () {
             break;
         }
 
+        // global
         if (ev.ch)
         {
-            handle_input (ev);
+            input::insert(gui.cmd_buf, ev.ch);
+            render_input_text();
         }
 
-        // TODO NEXT DEBUG
-        if (gdata.debug)
-        {
-          // TODO:
-          // -> draw extra box on top with debug info
-          // e.g. current location of mouse (useful for reasoning).
-          // -> debug commands for returing context data from singletons
-          // (will also give me a good sense of the command system before moving to
-          // real data).
+        // print requested debug info
+        for (const auto& pair : gdata.debug) {
+            const auto msg = pair.second();
+            extb::write_string({0, 0}, 0, msg);
         }
 
         PLOGD << std::format ("Processed frame {}", gdata.frame);
@@ -382,6 +372,3 @@ void loop () {
 
 // TODO
 // void init_browse_state (Context& ctx);
-
-
-}

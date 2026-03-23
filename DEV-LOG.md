@@ -19,3 +19,11 @@ I've implemented basic drawing functions for the main pileup browser mode.
 I'm pleased with the appearance so far. Next I want to introduce a debug
 display which I'm sure will come in useful. Not much else to report really,
 development today has felt gratifyingly smooth.
+
+## 23-03-26
+Implelemented slightly more featureful command input (backspace, really).
+Implemented rendering of arbitrary debug info to display, which involved
+road-testing the commands implementation a bit. All went reasonably well.
+I think it is now time to move on to displaying pileup data.
+Also did various restructing/reorg.
+

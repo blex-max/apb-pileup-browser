@@ -1,20 +1,22 @@
 #include <cstdlib>
-#include <iostream>
 #include <stdlib.h>
+
+#include <argparse/argparse.hpp>
 
 #include <plog/Log.h>
 #include <plog/Initializers/ConsoleInitializer.h>
 #include <plog/Formatters/TxtFormatter.h>
 
-#include "extb.hpp"
 #include "app.hpp"
 
 
 int main(int, char **) {
 
-    plog::init<plog::TxtFormatter>(plog::debug, plog::streamStdErr);
+    argparse::ArgumentParser cli ("apb", "0.0.0");
 
-    app::init ();
+    plog::init<plog::TxtFormatter> (plog::debug, plog::streamStdErr);
+
+    init ();
 
     // --- DEMO --- //
     // n.b. probaby good to keep a demo mode in the final product!
@@ -62,13 +64,13 @@ int main(int, char **) {
     // tb_present();
 
     try {
-        app::loop();
+        loop();
     } catch (const std::exception &e) {
         PLOGF << e.what();
-        tb_shutdown();
+        shutdown();
         return EXIT_FAILURE;
     }
 
-    tb_shutdown();
+    shutdown();
     return EXIT_SUCCESS;
 }

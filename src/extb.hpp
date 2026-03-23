@@ -1,14 +1,20 @@
 #pragma once
 
-#include <cassert>
-#include <cstdint>
-#include <optional>
 #include <string_view>
 
-extern "C" {
-    #include "termbox2.h"
-}
+// NOTE: on API design
+// free functions favoured where a concept applies over more than one type
+// and to minimise hassle with access to private data.
+// Data types fixed on creation because they're small and I think
+// it pays in terms of ease of reasoning to simply create a new one
+// when one is needed, rather than modifying the existing one
 
+// TODO:
+// valid should probably be a free function for consistency
+
+// NOTE:
+// might eventually make this a C lib,
+// when I can be bothered to deal with c strings
 
 namespace extb {
 
@@ -37,7 +43,7 @@ namespace extb {
 
 
 enum class Axis {
-    NONE,
+    none,
     i,
     j
 };
@@ -81,6 +87,11 @@ struct Span {
     }
 };
 
+// NOTE:
+// Box intentionally has restricted constructors and accessors, with private internal coordinates
+// A relatively limited set of approaches to interacting with a Box encourages consistency,
+// and makes it harder to mess up the coordinate space.
+// TODO last_local_* should be member functions
 struct Box {
     private:
     // closed global coordinates
