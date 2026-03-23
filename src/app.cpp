@@ -358,9 +358,15 @@ void loop () {
         }
 
         // print requested debug info
+        // NOTE: doesn't clear
+        int j = 0;
         for (const auto& pair : gdata.debug) {
             const auto msg = pair.second();
-            extb::write_string({0, 0}, 0, msg);
+            const auto ncharw = extb::write_string({0, j}, 0, msg);
+            if (ncharw < msg.size()) {
+                break;
+            }
+            j += ncharw;
         }
 
         PLOGD << std::format ("Processed frame {}", gdata.frame);
