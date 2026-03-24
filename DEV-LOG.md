@@ -27,3 +27,8 @@ road-testing the commands implementation a bit. All went reasonably well.
 I think it is now time to move on to displaying pileup data.
 Also did various restructing/reorg.
 
+## 24-03-26
+I realised that before displaying real data, there's further to go
+with fake data! For one, I hadn't yet figured out a modular and
+configurable table display system yet, for displaying properties
+of the pileup base. It is perhaps imperfect but quite functional!

@@ -47,6 +47,7 @@ add_executable(t2-proto
   src/cmd.cpp
   src/input.cpp
   src/tb2_impl.cpp
+  src/table.cpp
 )
 target_include_directories(t2-proto
   PRIVATE src

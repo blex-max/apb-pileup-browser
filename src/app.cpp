@@ -8,6 +8,7 @@ extern "C" {
 }
 #include "extb.hpp"
 
+#include "table.hpp"
 #include "app.hpp"
 #include "ctx.hpp"
 #include "hts/boundary-types.hpp"
@@ -61,51 +62,96 @@ bool nav_global (tb_event& ev) {
 
 void draw_sequence_data () {
     auto& pctx = ctx::get<PileupContext>();
+    const auto& pconf = pctx.config;
     const auto& pdat = pctx.data;  // TODO
-    auto& pui = pctx.ui;
-    const auto& query_box = pui.base_display.query_box;
-    const auto& ref_line = pui.base_display.ref_line;
-    const auto& status_line = pui.base_display.status_line;
+    const auto& pui = pctx.ui;
+    const auto& query_box = pui.query_box;
+    const auto& ref_line = pui.ref_line;
+    const auto& status_line = pui.status_line;
 
     const auto& pd = pdat.pd; // pileup display data
 
     extb::write_string(ref_line, {0, 0}, std::get<RefRep> (pd).s, 0);
 
+    /* extracting user requested display fields for tabular display */
+
+    const auto nprop = pconf.bam_props_request.size();
+
+    std::vector<std::vector<std::string>> prop_cols;  // TODO flat vector with stride rather than nested vectors
+    std::vector<std::string> prop_headers;
+    std::vector<StringifyFn> prop_callbacks;
+
+    prop_cols.reserve(nprop);
+    prop_headers.reserve(nprop);
+    prop_callbacks.reserve(nprop);
+
+    for (const auto& head : pconf.bam_props_request) {
+        const auto& it = BAM_RENDER_CALLBACKS.find(head); 
+        if (it == BAM_RENDER_CALLBACKS.end()) {
+            PLOGW << std::format("Unknown property callback {}", head);
+            continue;
+        }
+
+        prop_callbacks.push_back(it->second);
+        prop_headers.push_back(head);
+        prop_cols.emplace_back();
+    }
+
+    assert (prop_callbacks.size() == prop_cols.size());
+    assert (prop_cols.size() == prop_headers.size());
+
+    PLOGD << "drawing queries";
     const auto &queries = std::get<Queries> (pd);
     for (size_t i = 0; i < queries.size(); ++i) {
-        const auto q = queries[i];
+        const auto& q = queries[i];
         write_string (
             query_box,
             {static_cast<int> (i), static_cast<int>(q.start)},
             q.s
         );
-    }
 
-    add_attr(query_box, {0, pdat.row_sel}, TB_REVERSE);
+        // extracting and formatting properties to string
+        // for display
+        for (size_t x = 0; x < prop_callbacks.size(); ++x) {
+            prop_cols[x].push_back(prop_callbacks[x](q));
+        }
+    }
+    PLOGD << "drawing property table";
+    table::draw_table(pui.data_box, prop_cols, prop_headers);
+
+    PLOGD << "drawing query row selector";
+    add_attr(query_box, {pdat.row_sel, 0}, TB_REVERSE);
+
 }
 
 
 void init_pileup_display () {
     auto& pctx = ctx::get<PileupContext>();
+    auto& pconf = pctx.config;
     auto& pui = pctx.ui;
-    auto& global_ui_main = ctx::get<GlobalContext>().ui.main;
-    extb::clear(global_ui_main);
+    auto& main_pane = ctx::get<GlobalContext>().ui.main;
+    extb::clear(main_pane);
 
-    const auto display_i = global_ui_main.i();
-    const extb::Span display_j{global_ui_main.j().first, static_cast<int>(ceil (global_ui_main.j().last * pui.ui_frac_display))};
+    const auto span_total_i = main_pane.i();
+    const auto midsplit = main_pane.j().first + static_cast<int> (ceil (main_pane.j().size() * pconf.query_box_frac));
 
-    pui.base_display.ref_line = {display_i.first, display_j};
+    const extb::Span span_query_j {main_pane.j().first, midsplit - 1};
+    const extb::Span span_data_j {midsplit + 1, main_pane.j().last};
+
+    pui.data_box = {span_total_i, span_data_j};
+
+    pui.ref_line = {span_total_i.first, span_query_j};
     // set ref separator
-    extb::set_cell (extb::Box {display_i.first + 1, display_j}, 0x2500, TB_DIM);
+    extb::set_cell (extb::Box {span_total_i.first + 1, span_query_j}, 0x2500, TB_DIM);
     // set vertical separator
-    extb::set_cell (extb::Box {display_i, display_j.last + 1}, 0x2502, TB_DIM);
+    extb::set_cell (extb::Box {span_total_i, midsplit}, 0x2502);
 
-    pui.base_display.query_box = {{display_i.first + 2, display_i.last - 2}, display_j};
+    pui.query_box = {{span_total_i.first + 2, span_total_i.last - 2}, span_query_j};
     // set status separator
-    extb::set_cell (extb::Box {display_i.last - 1, display_j}, 0x2500, TB_DIM);
-    pui.base_display.status_line = {display_i.last, display_j};  // show e.g. coordinates
+    extb::set_cell (extb::Box {span_total_i.last - 1, span_query_j}, 0x2500, TB_DIM);
+    pui.status_line = {span_total_i.last, span_query_j};  // show e.g. coordinates
 
-    draw_sequence_data(); // TODO
+    draw_sequence_data();
 }
 
 
@@ -115,7 +161,7 @@ int nav_browser (tb_event& ev) {
     auto& pc = ctx::get<PileupContext>();
     auto& pstate = pc.data;
     auto& pui = pc.ui;
-    auto& query_box = pui.base_display.query_box;
+    auto& query_box = pui.query_box;
 
     switch (ev.key) {
         // N.B. selection not really important
@@ -261,7 +307,7 @@ void enter_pileup_mode () {
     auto& pctx = ctx::get<PileupContext>();
 
     // TODO if (gctx.demo) ... {
-    pctx.data.pd = make_test_display_data(10, 20);
+    pctx.data.pd = make_test_display_data(21);
     // }
 
     init_pileup_display();
