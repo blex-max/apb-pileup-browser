@@ -21,11 +21,11 @@ Cell translate_cell
 }
 
 int set_cell
-(Cell c, uint32_t ch, Style style) {
+(const Cell& c, uint32_t ch, Style style) {
   return tb_set_cell(c.j, c.i, ch, style.fg(), style.bg());
 };
 int set_cell
-(Box b, Cell clocal, uint32_t ch, Style style) {
+(const Box& b, const Cell& clocal, uint32_t ch, Style style) {
   auto cglobal = translate_cell(b, clocal);
   if (!b.contains(cglobal)) {
     return TB_ERR;
@@ -33,7 +33,7 @@ int set_cell
   return set_cell (cglobal, ch, style);
 }
 int set_cell
-(Box b, uint32_t ch, Style style) {
+(const Box& b, uint32_t ch, Style style) {
   for (int i = b.i().first; i <= b.i().last; ++i) {
     for (int j = b.j().first; j <= b.j().last; ++j) {
       const auto rc = set_cell ({i, j}, ch, style);
@@ -47,11 +47,11 @@ int set_cell
 
 
 int clear
-(Cell c) {
+(const Cell& c) {
   return set_cell (c, ' ');
 }
 int clear
-(Box b) {
+(const Box& b) {
   for (int i = b.i().first; i <= b.i().last; ++i) {
     for (int j = b.j().first; j <= b.j().last; ++j) {
       const auto rc = set_cell ({i, j}, ' ');
@@ -65,7 +65,7 @@ int clear
 
 
 int set_attr
-(Cell p, Style style) {
+(const Cell& p, Style style) {
   tb_cell *c;
   // get from back buffer
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
@@ -76,7 +76,7 @@ int set_attr
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 // int set_attr
-// (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+// (const Box& b, const Cell& plocal, tb_attr attr, bool fg, bool bg) {
 //   const auto pglobal = local2global (b, plocal);
 //   return set_attr (pglobal, attr, fg, bg);
 // }
@@ -84,7 +84,7 @@ int set_attr
 
 
 int add_attr
-(Cell p, Style style) {
+(const Cell& p, Style style) {
   tb_cell *c;
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
@@ -94,7 +94,7 @@ int add_attr
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
 int add_attr
-(Box b, Cell clocal, Style style) {
+(const Box& b, const Cell& clocal, Style style) {
   auto cglobal = translate_cell(b, clocal);
   if (!b.contains(cglobal)) {
     return TB_ERR;
@@ -105,7 +105,7 @@ int add_attr
 
 
 int rm_attr
-(Cell c, Style style) {
+(const Cell& c, Style style) {
   tb_cell *cbuf;
   if (const auto rc = tb_get_cell(c.j, c.i, 1, &cbuf); rc != TB_OK) {
     return rc;
@@ -115,7 +115,7 @@ int rm_attr
   return tb_set_cell(c.j, c.i, cbuf->ch, fg_attr, bg_attr);
 };
 int rm_attr
-(Box b, Cell clocal, Style style) {
+(const Box& b, const Cell& clocal, Style style) {
   auto cglobal = translate_cell(b, clocal);
   if (!b.contains(cglobal)) {
     return TB_ERR;
@@ -125,7 +125,7 @@ int rm_attr
 
 
 bool check_attr
-(Cell p, Style style) {
+(const Cell& p, Style style) {
   tb_cell *c;
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
@@ -135,7 +135,7 @@ bool check_attr
   return has_fg & has_bg;
 };
 // bool check_attr
-// (Box b, Cell plocal, tb_attr attr, bool fg, bool bg) {
+// (const Box& b, const Cell& plocal, tb_attr attr, bool fg, bool bg) {
 //   const auto pglobal = local2global (b, plocal);
 //   return check_attr (pglobal, attr, fg, bg);
 // }
@@ -143,7 +143,7 @@ bool check_attr
 
 // returns nchars written
 size_t write_string
-(Cell start, size_t nchar, std::string_view s, Style style) {
+(const Cell& start, size_t nchar, std::string_view s, Style style) {
   // TODO bounds checking
   assert (start.j >= 0);
   const size_t lim = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
@@ -162,7 +162,7 @@ size_t write_string
   return nout;
 }
 size_t write_string
-(Box b, Cell local_start, size_t nchar, std::string_view s, Style style) {
+(const Box& b, const Cell& local_start, size_t nchar, std::string_view s, Style style) {
   // log_err ("local cell: {}, {}", local_start.i, local_start.j);
   auto cglobal = translate_cell(b, local_start);
   // log_err ("global cell: {}, {}", cglobal.i, cglobal.j);
@@ -175,7 +175,7 @@ size_t write_string
   return write_string (cglobal, char_lim, s, style);
 }
 size_t write_string
-(Box b, Cell local_start, std::string_view s, Style style) {
+(const Box& b, const Cell& local_start, std::string_view s, Style style) {
   return write_string (b, local_start, 0, s, style);
 }
 

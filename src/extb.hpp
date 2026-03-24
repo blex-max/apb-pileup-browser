@@ -180,50 +180,50 @@ Span translate_span (Box b, Span local);
 // };
 
 int set_cell
-(Cell cglobal, uint32_t ch, Style style={0});
+(const Cell& cglobal, uint32_t ch, Style style={0});
 int set_cell
-(Box b, Cell clocal, uint32_t ch, Style={0});
+(const Box& b, const Cell& clocal, uint32_t ch, Style={0});
 int set_cell
-(Box b, uint32_t ch, Style style={0});  // set all
+(const Box& b, uint32_t ch, Style style={0});  // set all
 
 int clear
-(Cell cglobal);
+(const Cell& cglobal);
 int clear
-(Box b, Cell clocal);
+(const Box& b, const Cell& clocal);
 int clear
-(Box b);  // clear all
+(const Box& b);  // clear all
 
 int set_attr
-(Cell cglobal, Style style);
+(const Cell& cglobal, Style style);
 int set_attr
-(Box b, Cell clocal, Style style);
+(const Box& b, const Cell& clocal, Style style);
 int set_attr
-(Box b, Style style);  // all
+(const Box& b, Style style);  // all
 
 int add_attr
-(Cell cglobal, Style style);
+(const Cell& cglobal, Style style);
 int add_attr
-(Box b, Cell clocal, Style style);
+(const Box& b, const Cell& clocal, Style style);
 int add_attr
-(Box b, Style style);  // all
+(const Box& b, Style style);  // all
 
 int rm_attr
-(Cell cglobal, Style style);
+(const Cell& cglobal, Style style);
 int rm_attr
-(Box b, Cell clocal, Style style);
+(const Box& b, const Cell& clocal, Style style);
 int rm_attr
-(Box b, Style style);  // all
+(const Box& b, Style style);  // all
 
 bool check_attr
-(Cell cglobal, Style style);
+(const Cell& cglobal, Style style);
 bool check_attr
-(Box b, Cell clocal, Style style);
+(const Box& b, const Cell& clocal, Style style);
 
 size_t write_string
-(Cell start, size_t nchar, std::string_view s, Style style={0});
+(const Cell& start, size_t nchar, std::string_view s, Style style={0});
 size_t write_string
-(Box b, Cell local_start, size_t nchar, std::string_view s, Style style = {0});
+(const Box& b, const Cell& local_start, size_t nchar, std::string_view s, Style style = {0});
 size_t write_string
-(Box b, Cell local_start, std::string_view s, Style style = {0});
+(const Box& b, const Cell& local_start, std::string_view s, Style style = {0});
 
 } // end namespace

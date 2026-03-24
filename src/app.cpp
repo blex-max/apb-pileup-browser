@@ -28,46 +28,21 @@ void render_input_text () {
 }
 
 
-bool nav_global (tb_event& ev) {
-    assert (ev.key);
-
-    auto& gui = ctx::get<GlobalContext>().ui;
-
-    switch (ev.key) {
-        case TB_KEY_ENTER:
-        extb::clear(gui.cmd);
-        extb::clear(gui.status);
-        extb::write_string (
-            gui.status,
-            {0, 0},
-            cmd::exec_cmd(gui.cmd_buf.text).msg,
-            TB_DIM
-        );
-        input::clear(gui.cmd_buf);
-        break;
-
-        case TB_KEY_BACKSPACE:
-        case TB_KEY_BACKSPACE2:
-        input::del_back(gui.cmd_buf);
-        render_input_text();
-        break;
-
-        default:
-        return false;
-    }
-    return true;
-
-}
-
-
 void draw_sequence_data () {
-    auto& pctx = ctx::get<PileupContext>();
+    PLOGD << "Starting draw routing for sequence data";
+
+    const auto& pctx = ctx::get<PileupContext>();
     const auto& pconf = pctx.config;
     const auto& pdat = pctx.data;  // TODO
     const auto& pui = pctx.ui;
+    const auto& data_box = pui.data_box;
     const auto& query_box = pui.query_box;
     const auto& ref_line = pui.ref_line;
     const auto& status_line = pui.status_line;
+
+    extb::clear (query_box);
+    extb::clear (ref_line);
+    extb::clear (status_line);
 
     const auto& pd = pdat.pd; // pileup display data
 
@@ -117,13 +92,12 @@ void draw_sequence_data () {
         }
     }
     PLOGD << "drawing property table";
-    table::draw_table(pui.data_box, prop_cols, prop_headers);
+    table::draw_table(data_box, prop_cols, prop_headers);
 
     PLOGD << "drawing query row selector";
     add_attr(query_box, {pdat.row_sel, 0}, TB_REVERSE);
 
 }
-
 
 void init_pileup_display () {
     auto& pctx = ctx::get<PileupContext>();
@@ -152,6 +126,40 @@ void init_pileup_display () {
     pui.status_line = {span_total_i.last, span_query_j};  // show e.g. coordinates
 
     draw_sequence_data();
+}
+
+
+bool nav_global (tb_event& ev) {
+    assert (ev.key);
+
+    auto& gui = ctx::get<GlobalContext>().ui;
+
+    switch (ev.key) {
+        case TB_KEY_ENTER:
+        extb::clear(gui.cmd);
+        extb::clear(gui.status);
+        extb::write_string (
+            gui.status,
+            {0, 0},
+            cmd::exec_cmd(gui.cmd_buf.text).msg,
+            TB_DIM
+        );
+        input::clear(gui.cmd_buf);
+        draw_sequence_data();  // NOTE: this is now modal, not global... (future BUG)
+        // draw_seq
+        break;
+
+        case TB_KEY_BACKSPACE:
+        case TB_KEY_BACKSPACE2:
+        input::del_back(gui.cmd_buf);
+        render_input_text();
+        break;
+
+        default:
+        return false;
+    }
+    return true;
+
 }
 
 

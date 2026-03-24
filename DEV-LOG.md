@@ -29,6 +29,9 @@ Also did various restructing/reorg.
 
 ## 24-03-26
 I realised that before displaying real data, there's further to go
-with fake data! For one, I hadn't yet figured out a modular and
+with fake data! Figured out a modular and
 configurable table display system yet, for displaying properties
 of the pileup base. It is perhaps imperfect but quite functional!
+I've also implemented basic user commands for showing/hiding
+pileup/read properties at request. Now, it *might* be time for
+real data haha.

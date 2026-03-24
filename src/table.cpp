@@ -1,20 +1,23 @@
 #include "table.hpp"
-#include "extb.hpp"
+
 #include <cassert>
 #include <cstddef>
+
+#include "extb.hpp"
 
 namespace table {
 
 void draw_table (
-  extb::Box b,
+  const extb::Box& b,
   std::vector<std::vector<std::string>> cols,
   std::vector<std::string> headers
 ) {
+  // always clear
+  extb::clear (b);
+
   if (cols.empty()) {
     return;
   }
-
-  extb::clear(b);
 
   const auto i_avail = b.i().size();
   const auto j_avail = b.j().size();
