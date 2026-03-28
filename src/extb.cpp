@@ -8,35 +8,82 @@ extern "C" {
 
 namespace extb {
 
-int last_local_i (Box b) noexcept {
-  return b.gi2 - b.gi1;
+bool contains_global (const GlobalBox& b, const GlobalCell& cglobal) noexcept {
+  return cglobal.i >= b.ispan.first && cglobal.i <= b.ispan.last && cglobal.j >= b.jspan.first && cglobal.j <= b.jspan.last;
 }
-int last_local_j (Box b) noexcept {
-  return b.gj2 - b.gj1;
-}
-
-Cell translate_cell
-(Box b, Cell local) {
-  return { local.i + b.i().first, local.j + b.j().first};
+bool contains_local (const GlobalBox& b, const LocalCell& clocal) noexcept {
+  return valid(clocal) && clocal.i <= last_local(b).i && clocal.j <= last_local(b).j;
 }
 
-int set_cell
-(const Cell& c, uint32_t ch, Style style) {
+bool valid (const Cell& c) noexcept {
+  return (c.i >= 0 && c.j >= 0);
+}
+bool valid (const Span& s) noexcept {
+  return (s.first >= 0 && s.last >= 0 && s.last >= s.first);
+}
+bool valid (const GlobalBox& b) noexcept {
+  return valid (b.ispan) && valid (b.jspan);
+}
+
+// Box factories
+GlobalBox make_box (const GlobalSpan& ispan, const GlobalSpan& jspan) {
+  GlobalBox b{ispan.first, ispan.last, jspan.first, jspan.last};
+  if (valid (b)) {
+    return b;
+  }
+  else {
+    return {};
+  }
+}
+GlobalBox make_row (int i, const GlobalSpan& jspan) {
+  return make_box ({i, i}, jspan);
+}
+GlobalBox make_col (const GlobalSpan& ispan, int j) {
+  return make_box (ispan, {j, j});
+}
+int last_local (const GlobalSpan& s) {
+  return s.last - s.first;
+};
+LocalCell last_local (const GlobalBox& b) noexcept {
+  return {
+    last_local (b.ispan),
+    last_local (b.jspan)
+  };
+}
+
+// Span methods
+size_t Span::size () const noexcept {
+    return valid (*this) ? last - first + 1 : 0;
+}
+bool contains (const Span& s, int p) noexcept {
+    return valid (s) && (p >= s.first && p <= s.last);
+}
+bool contains (const GlobalSpan& outer, const GlobalSpan& inner) noexcept {
+    return valid (outer) && valid (inner) && (outer.first <= inner.first && outer.last >= inner.last);
+}
+bool contains (const LocalSpan& outer, const LocalSpan& inner) noexcept {
+    return valid (outer) && valid (inner) && (outer.first <= inner.first && outer.last >= inner.last);
+}
+
+GlobalCell to_global
+(GlobalBox b, LocalCell c) {
+  if (contains_local(b, c)) {
+    return { c.i + b.ispan.first, c.j + b.jspan.first};
+  }
+  else {
+    return {};
+  }
+}
+
+int set
+(const GlobalCell& c, uint32_t ch, const Style& style) {
   return tb_set_cell(c.j, c.i, ch, style.fg(), style.bg());
 };
-int set_cell
-(const Box& b, const Cell& clocal, uint32_t ch, Style style) {
-  auto cglobal = translate_cell(b, clocal);
-  if (!b.contains(cglobal)) {
-    return TB_ERR;
-  }
-  return set_cell (cglobal, ch, style);
-}
-int set_cell
-(const Box& b, uint32_t ch, Style style) {
-  for (int i = b.i().first; i <= b.i().last; ++i) {
-    for (int j = b.j().first; j <= b.j().last; ++j) {
-      const auto rc = set_cell ({i, j}, ch, style);
+int set_box
+(const GlobalBox& b, uint32_t ch, const Style& style) {
+  for (int i = b.ispan.first; i <= b.ispan.last; ++i) {
+    for (int j = b.jspan.first; j <= b.jspan.last; ++j) {
+      const auto rc = set (GlobalCell{i, j}, ch, style);
       if (rc != TB_OK) {
         return rc;
       };
@@ -47,14 +94,14 @@ int set_cell
 
 
 int clear
-(const Cell& c) {
-  return set_cell (c, ' ');
+(const GlobalCell& c) {
+  return set (c, ' ');
 }
-int clear
-(const Box& b) {
-  for (int i = b.i().first; i <= b.i().last; ++i) {
-    for (int j = b.j().first; j <= b.j().last; ++j) {
-      const auto rc = set_cell ({i, j}, ' ');
+int clear_box
+(const GlobalBox& b) {
+  for (int i = b.ispan.first; i <= b.ispan.last; ++i) {
+    for (int j = b.jspan.first; j <= b.jspan.last; ++j) {
+      const auto rc = set (GlobalCell{i, j}, ' ');
       if (rc != TB_OK) {
         return rc;
       };
@@ -65,7 +112,7 @@ int clear
 
 
 int set_attr
-(const Cell& p, Style style) {
+(const GlobalCell& p, const Style& style) {
   tb_cell *c;
   // get from back buffer
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
@@ -84,7 +131,7 @@ int set_attr
 
 
 int add_attr
-(const Cell& p, Style style) {
+(const GlobalCell& p, const Style& style) {
   tb_cell *c;
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
@@ -93,19 +140,23 @@ int add_attr
   const tb_attr bg_attr = c->bg | style.bg();
   return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
 };
-int add_attr
-(const Box& b, const Cell& clocal, Style style) {
-  auto cglobal = translate_cell(b, clocal);
-  if (!b.contains(cglobal)) {
-    return TB_ERR;
+int add_attr_box
+(const GlobalBox& b, const Style& style) {
+  for (int i = b.ispan.first; i <= b.jspan.last; ++i) {
+    for (int j = b.jspan.first; j <= b.jspan.last; ++j) {
+      const auto rc = add_attr (GlobalCell{i, j}, style);
+      if (rc != TB_OK) {
+        return rc;
+      };
+    }
   }
-  return add_attr (translate_cell(b, clocal), style);
+  return TB_OK;
 }
 
 
 
 int rm_attr
-(const Cell& c, Style style) {
+(const GlobalCell& c, const Style& style) {
   tb_cell *cbuf;
   if (const auto rc = tb_get_cell(c.j, c.i, 1, &cbuf); rc != TB_OK) {
     return rc;
@@ -114,18 +165,10 @@ int rm_attr
   const tb_attr bg_attr = cbuf->bg & ~style.bg();
   return tb_set_cell(c.j, c.i, cbuf->ch, fg_attr, bg_attr);
 };
-int rm_attr
-(const Box& b, const Cell& clocal, Style style) {
-  auto cglobal = translate_cell(b, clocal);
-  if (!b.contains(cglobal)) {
-    return TB_ERR;
-  }
-  return rm_attr (cglobal , style);
-}
 
 
 bool check_attr
-(const Cell& p, Style style) {
+(const GlobalCell& p, const Style& style) {
   tb_cell *c;
   if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
     return rc;
@@ -143,14 +186,14 @@ bool check_attr
 
 // returns nchars written
 size_t write_string
-(const Cell& start, size_t nchar, std::string_view s, Style style) {
-  // TODO bounds checking
-  assert (start.j >= 0);
-  const size_t lim = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
+(const GlobalCell& start, std::string_view s, const Style& style) {
+  if (!valid (start) || s.empty()) {
+    return 0;
+  }
   int nout = 0;
-  for (size_t j = 0; j < lim; ++j) {
-    const auto rc = set_cell (
-      {start.i, static_cast<int> (start.j + j)},
+  for (size_t j = 0; j < s.size(); ++j) {
+    const auto rc = set (
+      GlobalCell{start.i, static_cast<int> (start.j + j)},
       s[j],
       style
     );
@@ -161,22 +204,28 @@ size_t write_string
   }
   return nout;
 }
-size_t write_string
-(const Box& b, const Cell& local_start, size_t nchar, std::string_view s, Style style) {
-  // log_err ("local cell: {}, {}", local_start.i, local_start.j);
-  auto cglobal = translate_cell(b, local_start);
-  // log_err ("global cell: {}, {}", cglobal.i, cglobal.j);
-  if (!b.contains(cglobal)) {
-    return TB_ERR;
+size_t write_string_within
+(const GlobalCell &start, const GlobalBox &b, std::string_view s, const Style& style) {
+  if (!valid (start) || s.empty() || !contains_global (b, start)) {
+    return 0;
   }
-  const size_t j_avail = b.j().last - cglobal.j + 1;
-  const size_t req_chars = (nchar > 0) ? std::min({nchar, s.size()}) : s.size();
-  const auto char_lim = std::min({j_avail, req_chars});
-  return write_string (cglobal, char_lim, s, style);
-}
-size_t write_string
-(const Box& b, const Cell& local_start, std::string_view s, Style style) {
-  return write_string (b, local_start, 0, s, style);
+
+  const auto lim =
+    std::min<size_t> (b.jspan.size() - start.j, s.size());
+
+  int nout = 0;
+  for (size_t j = 0; j < lim; ++j) {
+    const auto rc = set (
+      GlobalCell{start.i, static_cast<int> (start.j + j)},
+      s[j],
+      style
+    );
+    if (rc != TB_OK) {
+      break;
+    }
+    ++nout;
+  }
+  return nout;
 }
 
 }  // end namespace

@@ -1,9 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <list>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 
 #include "ctx.hpp"
 #include "extb.hpp"
@@ -18,16 +17,19 @@ struct GlobalContext : ctx::Context {
     public:
     struct {
         app_state state = app_state::browse;
-        bool run = true;
-        std::unordered_map<std::string_view, std::string(*)()> debug{};
         size_t frame = 0;
     } data;
     struct {
-        extb::Box main;
-        extb::Cell cmd_caret;
-        extb::Box cmd;
-        extb::Box status;
+        extb::GlobalBox view;
+        extb::GlobalCell cmd_caret;
+        extb::GlobalBox cmd;
+        extb::GlobalBox status;
         input::EditBuf cmd_buf;
         std::string status_buf;
     } ui;
+    struct {
+        bool run = true;
+        bool demo = true;
+        std::list<std::string> debug_request;
+    } conf;
 };

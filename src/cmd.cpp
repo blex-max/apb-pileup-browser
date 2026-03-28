@@ -36,39 +36,55 @@ split_whitespace (std::string_view s) {
     return out;
 }
 
-std::string debug_print_frame () {
-  auto frame = ctx::get<GlobalContext>().data.frame;
-  return std::format("frame: {}", frame);
-}
-static std::unordered_map<std::string_view, std::string(*)()> DEBUG_CB_REG {
-  {"frame", debug_print_frame}
-};
-
 
 // Commands
 CmdResult quit (std::string_view) {
-    auto& gdata= ctx::get<GlobalContext>().data;
-    gdata.run = false;
+    ctx::get<GlobalContext>().conf.run = false;
     return {true, "Bye!"};
 }
-CmdResult debug_show (std::string_view name) {
-    auto& debug = ctx::get<GlobalContext>().data.debug;
-    if (auto it = DEBUG_CB_REG.find(name); it != DEBUG_CB_REG.end()) {
-        debug.try_emplace(it->first, it->second);
-        return {true, std::format ("Showing debug information for \"{}\"", name)};
+CmdResult debug_show (std::string_view names) {
+    auto& show_requested = ctx::get<GlobalContext>().conf.debug_request;
+
+    // split args
+    const auto new_reqs = split_whitespace(names);
+    if (new_reqs.empty()) {
+        return {false, "needs args"};
     }
-    return {false, std::format ("Cannot display debug information for \"{}\"", name)};
+
+    for (const auto& req : new_reqs) {
+        const auto& it = DEBUG_CALLBACKS.find(req);
+        if (it == DEBUG_CALLBACKS.end()) {
+            return {false, std::format ("Cannot show unknown debug property \"{}\"", req)};
+        }
+        // don't duplicate
+        if (*std::find(begin(show_requested), end(show_requested), req) == req) {
+            continue;
+        }
+        show_requested.emplace_back(req);
+    }
+
+    PLOGD << std::format("User requesting to view debug properties: {}", new_reqs);
+    return {true, std::format ("Showing debug properties: {}", new_reqs)};
 }
-CmdResult debug_hide (std::string_view name) {
+CmdResult debug_hide (std::string_view names) {
     // works in principle, but note that
     // the text hangs around until drawn over right now
     // as it is not cleared!
-    auto& debug = ctx::get<GlobalContext>().data.debug;
-    if (auto it = debug.find(name); it != debug.end()) {
-        debug.erase(it);
-        return {true, std::format ("Hiding debug display for \"{}\"", name)};
+    auto& show_requested = ctx::get<GlobalContext>().conf.debug_request;
+
+    // split args
+    const auto new_reqs = split_whitespace(names);
+    if (new_reqs.empty()) {
+        return {false, "needs args"};
     }
-    return {false, std::format ("Cannot hide debug information for \"{}\"", name)};
+
+    for (const auto& req: new_reqs) {
+        // noop if not found
+        show_requested.remove(std::string{req});   // convert to string...
+    }
+
+    PLOGD << std::format("User requesting to hide debug properties: {}", new_reqs);
+    return {true, std::format ("Hiding debug properties: {}", new_reqs)};
 }
 
 CmdResult pileup_show (std::string_view names) {
@@ -85,12 +101,15 @@ CmdResult pileup_show (std::string_view names) {
         if (it == BAM_RENDER_CALLBACKS.end()) {
             return {false, std::format ("Cannot show unknown property \"{}\"", req)};
         }
-        show_requested.emplace(req);
+        // don't duplicate
+        if (*std::find(begin(show_requested), end(show_requested), req) == req) {
+            continue;
+        }
+        show_requested.emplace_back(req);
     }
 
     PLOGD << std::format("User requesting to view properties: {}", show_requested);
-
-    return {true, std::format ("Showing query properties {}", names)};
+    return {true, std::format ("Showing query properties: {}", new_reqs)};
 }
 CmdResult pileup_hide (std::string_view names) {
     auto& show_requested = ctx::get<PileupContext>().config.bam_props_request;
@@ -103,12 +122,11 @@ CmdResult pileup_hide (std::string_view names) {
 
     for (const auto& req: new_reqs) {
         // noop if not found
-        show_requested.erase(std::string{req});   // convert to string...
+        show_requested.remove(std::string{req});  // convert from string_view
     }
 
-    PLOGD << std::format("User requesting to view properties: {}", show_requested);
-
-    return {true, std::format ("Hiding query properties {}", names)};
+    PLOGD << std::format("User requesting to hide properties: {}", new_reqs);
+    return {true, std::format ("Hiding query properties {}", new_reqs)};
 }
 
 static std::unordered_map<std::string_view, CmdResult(*)(std::string_view)> CMD_REGISTRY{

@@ -33,5 +33,11 @@ with fake data! Figured out a modular and
 configurable table display system yet, for displaying properties
 of the pileup base. It is perhaps imperfect but quite functional!
 I've also implemented basic user commands for showing/hiding
-pileup/read properties at request. Now, it *might* be time for
-real data haha.
+pileup/read properties at request. Still, before moving on
+to real data I need to work out what happens when there is more
+data than can be shown on screen at once.
+
+# 25-04-26
+I started working on the data model and plugging it in to the UI.
+In the future I want to consider the ability to dump to TSV, so
+decoupling is important.

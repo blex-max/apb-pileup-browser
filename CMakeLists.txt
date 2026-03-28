@@ -9,6 +9,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
+# user paths to htslib if needed
+set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
+set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 
 include(FetchContent)
 
@@ -40,6 +44,44 @@ FetchContent_MakeAvailable(argparse)
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
 
+set(HTSLIB_TARGET "")
+set(_htslib_inc "")
+set(_htslib_lib "")
+
+if(HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
+  message(STATUS "Using user-specified htslib install. Must be >=1.14, but this is not enforced.")
+  set(_htslib_inc "${HTSLIB_INCLUDE_DIR}")
+  set(_htslib_lib "${HTSLIB_LIBRARY}")
+endif()
+
+if(_htslib_inc AND _htslib_lib)
+  add_library(htslib UNKNOWN IMPORTED GLOBAL)
+  add_library(htslib::htslib ALIAS htslib)
+  set_target_properties(htslib PROPERTIES
+    IMPORTED_LOCATION "${_htslib_lib}"
+    INTERFACE_INCLUDE_DIRECTORIES "${_htslib_inc}"
+  )
+  set(HTSLIB_TARGET htslib::htslib)
+endif()
+
+message(STATUS "Finding htslib via PkgConfig")
+find_package(PkgConfig)
+if(NOT HTSLIB_TARGET AND PkgConfig_FOUND)
+  # assuming the pkg-config module is called "htslib"
+  pkg_check_modules(HTSLIB QUIET IMPORTED_TARGET htslib>=1.14)
+  if(HTSLIB_FOUND)
+    message(STATUS "Located htslib>=1.14 install via pkg-config.")
+    set(HTSLIB_TARGET PkgConfig::HTSLIB)
+  endif()
+endif()
+
+if(NOT HTSLIB_TARGET)
+  message(FATAL_ERROR
+    "Could not find htslib directly or via pkg-config. "
+    "Set both HTSLIB_INCLUDE_DIR and HTSLIB_LIBRARY to use user install."
+  )
+endif()
+
 add_executable(t2-proto
   src/main.cpp
   src/extb.cpp
@@ -48,6 +90,8 @@ add_executable(t2-proto
   src/input.cpp
   src/tb2_impl.cpp
   src/table.cpp
+  src/demo.cpp
+  src/hts/accessors.cpp
 )
 target_include_directories(t2-proto
   PRIVATE src
@@ -57,4 +101,5 @@ target_link_libraries(t2-proto
   termbox2
   plog::plog
   argparse
+  ${HTSLIB_TARGET}
 )

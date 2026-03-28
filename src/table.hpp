@@ -40,7 +40,7 @@ management
 namespace table {
 
 void draw_table (
-  const extb::Box& b,
+  const extb::GlobalBox& b,
   std::vector<std::vector<std::string>> cols,
   std::vector<std::string> headers
 );
