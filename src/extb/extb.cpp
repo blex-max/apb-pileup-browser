@@ -2,10 +2,6 @@
 
 #include <cassert>
 
-extern "C" {
-    #include "termbox2.h"
-}
-
 namespace extb {
 
 bool contains_global (const GlobalBox& b, const GlobalCell& cglobal) noexcept {
@@ -74,114 +70,6 @@ GlobalCell to_global
     return {};
   }
 }
-
-int set
-(const GlobalCell& c, uint32_t ch, const Style& style) {
-  return tb_set_cell(c.j, c.i, ch, style.fg(), style.bg());
-};
-int set_box
-(const GlobalBox& b, uint32_t ch, const Style& style) {
-  for (int i = b.ispan.first; i <= b.ispan.last; ++i) {
-    for (int j = b.jspan.first; j <= b.jspan.last; ++j) {
-      const auto rc = set (GlobalCell{i, j}, ch, style);
-      if (rc != TB_OK) {
-        return rc;
-      };
-    }
-  }
-  return TB_OK;
-}
-
-
-int clear
-(const GlobalCell& c) {
-  return set (c, ' ');
-}
-int clear_box
-(const GlobalBox& b) {
-  for (int i = b.ispan.first; i <= b.ispan.last; ++i) {
-    for (int j = b.jspan.first; j <= b.jspan.last; ++j) {
-      const auto rc = set (GlobalCell{i, j}, ' ');
-      if (rc != TB_OK) {
-        return rc;
-      };
-    }
-  }
-  return TB_OK;
-}
-
-
-int set_attr
-(const GlobalCell& p, const Style& style) {
-  tb_cell *c;
-  // get from back buffer
-  if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
-    return rc;
-  }
-  const auto fg_attr = style.fg() ? style.fg() : c->fg;
-  const auto bg_attr = style.bg() ? style.bg() : c->bg;
-  return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
-};
-// int set_attr
-// (const Box& b, const Cell& plocal, tb_attr attr, bool fg, bool bg) {
-//   const auto pglobal = local2global (b, plocal);
-//   return set_attr (pglobal, attr, fg, bg);
-// }
-
-
-
-int add_attr
-(const GlobalCell& p, const Style& style) {
-  tb_cell *c;
-  if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
-    return rc;
-  }
-  const tb_attr fg_attr = c->fg | style.fg();
-  const tb_attr bg_attr = c->bg | style.bg();
-  return tb_set_cell(p.j, p.i, c->ch, fg_attr, bg_attr);
-};
-int add_attr_box
-(const GlobalBox& b, const Style& style) {
-  for (int i = b.ispan.first; i <= b.jspan.last; ++i) {
-    for (int j = b.jspan.first; j <= b.jspan.last; ++j) {
-      const auto rc = add_attr (GlobalCell{i, j}, style);
-      if (rc != TB_OK) {
-        return rc;
-      };
-    }
-  }
-  return TB_OK;
-}
-
-
-
-int rm_attr
-(const GlobalCell& c, const Style& style) {
-  tb_cell *cbuf;
-  if (const auto rc = tb_get_cell(c.j, c.i, 1, &cbuf); rc != TB_OK) {
-    return rc;
-  }
-  const tb_attr fg_attr = cbuf->fg & ~style.fg();
-  const tb_attr bg_attr = cbuf->bg & ~style.bg();
-  return tb_set_cell(c.j, c.i, cbuf->ch, fg_attr, bg_attr);
-};
-
-
-bool check_attr
-(const GlobalCell& p, const Style& style) {
-  tb_cell *c;
-  if (const auto rc = tb_get_cell(p.j, p.i, 1, &c); rc != TB_OK) {
-    return rc;
-  }
-  bool has_fg = style.fg() ? (c->fg & style.fg()) : true;
-  bool has_bg = style.bg() ? (c->bg & style.bg()) : true;
-  return has_fg & has_bg;
-};
-// bool check_attr
-// (const Box& b, const Cell& plocal, tb_attr attr, bool fg, bool bg) {
-//   const auto pglobal = local2global (b, plocal);
-//   return check_attr (pglobal, attr, fg, bg);
-// }
 
 
 // returns nchars written

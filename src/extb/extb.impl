@@ -1,0 +1,143 @@
+#pragma once
+
+#include "extb.hpp"
+
+#include <ranges>
+
+namespace extb {
+
+namespace detail {
+
+inline auto as_global_cell_range (GlobalCell cell) {
+    return std::views::single (cell);
+}
+
+template <GlobalCellRange R>
+decltype (auto) as_global_cell_range (R&& r) {
+    return std::forward<R> (r);
+}
+
+template <ConvertsToGlobalCellRange T>
+decltype (auto) as_global_cell_range (T&& t) {
+    return as_global_cells (std::forward<T> (t));
+}
+
+} // end namespace detail
+
+template <GlobalCellSource S>
+int set
+(S&& gcs, uint32_t ch, const Style& style) {
+  for (const auto gc : detail::as_global_cell_range (gcs)) {
+    const auto rc = tb_set_cell(gc.j, gc.i, ch, style.fg(), style.bg());
+    if (rc != TB_OK) {
+      return rc;
+    };
+  }
+  return TB_OK;
+}
+
+template <GlobalCellSource S>
+int clear
+(S&& gcs) {
+  set (gcs, ' ');
+}
+
+template <GlobalCellSource S>
+int set_attr
+(S&& gcs, const Style& style) {
+  tb_cell* tbc;
+  int rc;
+  for (const auto gc : detail::as_global_cell_range (gcs)) {
+    // get from back buffer
+    rc = tb_get_cell(gc.j, gc.i, 1, &tbc); 
+    if (rc != TB_OK) {
+      return rc;
+    }
+    const auto fg_attr = style.fg() ? style.fg() : tbc->fg;
+    const auto bg_attr = style.bg() ? style.bg() : tbc->bg;
+    rc = tb_set_cell(gc.j, gc.i, gc->ch, fg_attr, bg_attr);
+    if (rc != TB_OK) {
+      return rc;
+    }
+  }
+  return TB_OK;
+}
+
+template <GlobalCellSource S>
+int add_attr
+(S&& gcs, const Style& style) {
+  tb_cell *tbc;
+  int rc;
+  for (const auto gc : detail::as_global_cell_range (gcs)) {
+    rc = tb_get_cell(gc.j, gc.i, 1, &tbc); 
+    if (rc != TB_OK) {
+      return rc;
+    }
+    const tb_attr fg_attr = tbc->fg | style.fg();
+    const tb_attr bg_attr = tbc->bg | style.bg();
+    rc = tb_set_cell(gc.j, gc.i, gc->ch, fg_attr, bg_attr);
+    if (rc != TB_OK) {
+      return rc;
+    }
+  }
+  return TB_OK;
+}
+
+template <GlobalCellSource S>
+int rm_attr
+(S&& gcs, const Style& style) {
+  tb_cell *tbc;
+  int rc;
+  for (const auto gc : detail::as_global_cell_range (gcs)) {
+    rc = tb_get_cell(gc.j, gc.i, 1, &tbc);
+    if (rc != TB_OK) {
+      return rc;
+    }
+    const tb_attr fg_attr = tbc->fg & ~style.fg();
+    const tb_attr bg_attr = tbc->bg & ~style.bg();
+    rc = tb_set_cell(gc.j, gc.i, tbc->ch, fg_attr, bg_attr);
+    if (rc != TB_OK) {
+      return rc;
+    }
+  }
+  return TB_OK;
+}
+
+template <GlobalCellSource S>
+int reset_attr
+(S&& gcs, const Style& style) {
+  tb_cell *tbc;
+  int rc;
+  for (const auto gc : detail::as_global_cell_range (gcs)) {
+    rc = tb_get_cell(gc.j, gc.i, 1, &tbc);
+    if (rc != TB_OK) {
+      return rc;
+    }
+    rc = tb_set_cell(gc.j, gc.i, tbc->ch, 0, 0);
+    if (rc != TB_OK) {
+      return rc;
+    }
+  }
+  return TB_OK;
+}
+
+template <GlobalCellSource S>
+int check_attr_all_back
+(S&& gcs, const Style& style) {
+  tb_cell *tbc;
+  int rc;
+  for (const auto gc : detail::as_global_cell_range (gcs)) {
+    rc = tb_get_cell (gc.j, gc.i, 1, &tbc);
+    if (rc != TB_OK) {
+      return false;  // misleading?
+    }
+    bool has_fg = style.fg() ? (tbc->fg & style.fg()) : true;
+    bool has_bg = style.bg() ? (tbc->bg & style.bg()) : true;
+    if (!has_fg || !has_bg) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // end namespace extb
