@@ -49,7 +49,7 @@ concept GlobalCellRange =
 template <typename T>
 concept ConvertsToGlobalCellRange =
     requires(T&& t) {
-        { to_global_cells (std::forward<T>(t)) } -> GlobalCellRange;
+        { cell_source (std::forward<T>(t)) } -> GlobalCellRange;
     };
 template <typename T>
 concept GlobalCellSource =

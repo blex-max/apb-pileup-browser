@@ -5,6 +5,8 @@
 #include <cstddef>
 
 namespace extb {
+namespace box {
+using namespace extb;
 
 struct Span {
     int
@@ -21,7 +23,7 @@ struct LocalSpan : public Span {};
 bool contains (const Span& s, int p) noexcept;
 bool contains (const GlobalSpan& outer, const GlobalSpan& inner) noexcept;
 bool contains (const LocalSpan& outer, const LocalSpan& inner) noexcept;
-int last_local (const Span& s) noexcept;
+int last_local (const GlobalSpan& s) noexcept;
 bool valid (const Span& s) noexcept;
 
 struct GlobalBox {
@@ -33,10 +35,18 @@ struct GlobalBox {
 GlobalBox make_box (const GlobalSpan& ispan, const GlobalSpan& jspan);
 GlobalBox make_row (int i, const GlobalSpan& jspan);
 GlobalBox make_col (const GlobalSpan& ispan, int j);
+
+// box methods
 LocalCell last_local (const GlobalBox& b) noexcept;
+GlobalCell to_global (const GlobalBox& b, LocalCell c);
+GlobalCell top_left (const GlobalBox& b) noexcept;
+GlobalCell top_right (const GlobalBox& b) noexcept;
+GlobalCell bottom_left (const GlobalBox& b) noexcept;
+GlobalCell bottom_right (const GlobalBox& b) noexcept;
 bool valid (const GlobalBox& b) noexcept;
 
 
+// interface for extb
 class BoxGlobalCellsView : public std::ranges::view_interface<BoxGlobalCellsView> {
 public:
     explicit BoxGlobalCellsView(GlobalBox box) : box_(box) {}
@@ -94,10 +104,10 @@ private:
     GlobalBox box_;
 };
 
-inline auto as_global_cells (GlobalBox box) {
+inline auto cell_source (GlobalBox box) {
     return BoxGlobalCellsView {box};
 }
 
+}  // end namespace box
 }  // end namespace extb
-
 

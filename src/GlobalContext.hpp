@@ -5,7 +5,8 @@
 #include <string>
 
 #include "ctx.hpp"
-#include "extb.hpp"
+#include "extb/extb-box.hpp"
+#include "extb/extb.hpp"
 #include "input.hpp"
 
 
@@ -13,19 +14,29 @@ enum class app_state : uint8_t {
   browse
 };
 
+using namespace extb;
+using namespace extb::box;
 struct GlobalContext : ctx::Context {
-    public:
     struct {
         app_state state = app_state::browse;
         size_t frame = 0;
     } data;
     struct {
-        extb::GlobalBox view;
-        extb::GlobalCell cmd_caret;
-        extb::GlobalBox cmd;
-        extb::GlobalBox status;
-        input::EditBuf cmd_buf;
-        std::string status_buf;
+        struct {
+            GlobalBox viewport;
+            GlobalBox frame;
+        } main;
+        struct {
+            GlobalBox display_line;
+            GlobalCell caret;
+            GlobalBox frame;
+            input::EditBuf buf;
+        } cmd;
+        struct {
+            GlobalBox display_line;
+            GlobalBox frame;
+            std::string buf;
+        } status;
     } ui;
     struct {
         bool run = true;

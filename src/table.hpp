@@ -34,13 +34,12 @@ management
 
 #include <vector>
 
-#include "extb.hpp"
-
+#include "extb/extb-box.hpp"
 
 namespace table {
 
 void draw_table (
-  const extb::GlobalBox& b,
+  const extb::box::GlobalBox& b,
   std::vector<std::vector<std::string>> cols,
   std::vector<std::string> headers
 );

@@ -6,7 +6,7 @@
 extern "C" {
     #include "termbox2.h"
 }
-#include "extb.hpp"
+#include "extb/extb.hpp"
 
 #include "table.hpp"
 #include "app.hpp"
@@ -24,30 +24,32 @@ void shutdown () {
 }
 
 void render_input_text () {
-    auto& gui = ctx::get<GlobalContext>().ui;
-    extb::clear_box (gui.cmd);
-    extb::write_string_within (
-        extb::to_global (gui.cmd, {0, 0}),
-        gui.cmd,
-        gui.cmd_buf.text
+    const auto& cui = ctx::get<GlobalContext>().ui.cmd;
+    const auto& cmd_line = cui.display_line;
+    const auto& cmd_buf = cui.buf;
+    extb::clear (cmd_line);
+    extb::write_string (
+        {cmd_line.ispan.first, cmd_line.jspan.first},
+        cmd_line.jspan.last,
+        cmd_buf.text
     );
 }
 
 void draw_sequence_data () {
-    PLOGD << "Begin draw for sequence data";
+    PLOGD << "Begin draw routine for sequence data";
 
     const auto& pctx = ctx::get<PileupContext>();
     const auto& pconf = pctx.config;
-    const auto& pdat = pctx.data;  // TODO
+    const auto& pdat = pctx.data;
     const auto& pui = pctx.ui;
     const auto& data_box = pui.data_box;
     const auto& query_box = pui.query_box;
     const auto& ref_line = pui.ref_line;
     const auto& status_line = pui.status_line;
 
-    extb::clear_box (query_box);
-    extb::clear_box (ref_line);
-    extb::clear_box (status_line);
+    extb::clear (query_box);
+    extb::clear (ref_line);
+    extb::clear (status_line);
 
     /* setup for extracting user requested display fields for tabular display */
 
@@ -57,6 +59,7 @@ void draw_sequence_data () {
     std::vector<std::string> prop_headers;
     std::vector<StringifyFn> prop_callbacks;
 
+    PLOGD << "nprop: " << nprop;
     prop_cols.reserve(nprop);
     prop_headers.reserve(nprop);
     prop_callbacks.reserve(nprop);
@@ -78,27 +81,22 @@ void draw_sequence_data () {
 
     /* setup for mapping pileup coordinates to view coordinates */
 
-    const auto query_box_jspan = jspan (query_box);
+    const auto query_box_jspan = query_box.jspan;
     size_t query_box_w = query_box_jspan.size();
     auto seq_browser_local_j_center = (query_box_w / 2);
     auto pileup_gpos = pdat.ps.pos;
     auto pileup_gstart = pdat.ps.gstart;
     int leftmost_visible_gpos = pileup_gpos - seq_browser_local_j_center;
     auto seq_browser_j_center = query_box_jspan.first + seq_browser_local_j_center;
-    // auto rightmost_visible_gpos = pileup_gpos + query_box_w - seq_browser_local_j_center;
-
-    // auto gpos2local = [pileup_gstart] (int global_pos) { return global_pos - pileup_gstart; };
-
 
     PLOGD << "drawing ref";
-
     // NOTE: genomic_substr may fall down later
     // with indels and such. Could make it cigar aware!
     const auto visible_ref_seq =
         genomic_substr(pileup_gstart, leftmost_visible_gpos, query_box_w, pdat.ref.s);
-    extb::write_string_within (
-        extb::to_global(ref_line, {0, 0}),
-        ref_line,
+    extb::write_string (
+        extb::GlobalCell{ref_line.ispan.first, ref_line.jspan.first},
+        ref_line.jspan.last,
         visible_ref_seq
     );
 
@@ -107,6 +105,9 @@ void draw_sequence_data () {
     const auto p1arr = pdat.query.begin.get();
     const auto np1 = pdat.query.n;
     for (size_t i = 0; i < np1; ++i) {
+        if ((query_box.ispan.first + i) > query_box.ispan.last) {
+            break;
+        }
         const auto& p1 = p1arr + i;
 
         /*
@@ -129,38 +130,38 @@ void draw_sequence_data () {
         PLOGD << edge_to_qstart;  // TODO log more
         PLOGD << visible_qseq;
 
-        extb::write_string_within (
-            extb::to_global (
-                query_box,
-                {
-                    static_cast<int> (i),
-                    static_cast<int> ((edge_to_qstart < 0) ? 0 : edge_to_qstart)}
-            ),
-            query_box,
+        extb::write_string (
+            extb::GlobalCell {
+                static_cast<int> (query_box.ispan.first + i),
+                query_box.jspan.first + static_cast<int> ((edge_to_qstart < 0) ? 0 : edge_to_qstart)
+            },
+            query_box.jspan.last,
             visible_qseq
         );
 
         // extracting and formatting properties to string
         // for tabular display
+        PLOGD << "prop cols size: " << prop_cols.size();
         for (size_t x = 0; x < prop_callbacks.size(); ++x) {
             prop_cols[x].push_back(prop_callbacks[x](p1));
         }
     }
 
+    // BUG: not working
     PLOGD << "drawing property table";
-    table::draw_table(data_box, prop_cols, prop_headers);
+    table::draw_table (data_box, prop_cols, prop_headers);
 
     extb::add_attr (
-        extb::to_global (query_box, {pui.row_sel, 0}),
+        extb::GlobalCell
+            {query_box.ispan.first + pui.row_sel, query_box.jspan.first},
         TB_REVERSE);
 
-    extb::add_attr_box(
+    extb::add_attr (
         make_col (
-            ispan (query_box),
+            query_box.ispan,
             static_cast<int> (seq_browser_j_center)
         ),
-        TB_REVERSE
-    );
+        TB_REVERSE);
 
 }
 
@@ -168,30 +169,30 @@ void init_pileup_display () {
     auto& pctx = ctx::get<PileupContext>();
     auto& pconf = pctx.config;
     auto& pui = pctx.ui;
-    auto& main_pane = ctx::get<GlobalContext>().ui.view;
-    extb::clear_box(main_pane);
+    auto& viewport = ctx::get<GlobalContext>().ui.main.viewport;
+    clear (viewport);
 
-    const auto mispan = ispan (main_pane);
-    const auto mjspan = jspan (main_pane);
+    const auto mispan = viewport.ispan;
+    const auto mjspan = viewport.jspan;
     const auto miwidth = mispan.size();
     const auto mjwidth = mjspan.size();
 
     const auto midsplit = mjspan.first + static_cast<int> (ceil (mjwidth * pconf.query_box_frac));
 
-    const extb::GlobalSpan span_query_j {mjspan.first, midsplit - 1};
-    const extb::GlobalSpan span_data_j {midsplit + 1, mjspan.last};
+    const extb::box::GlobalSpan span_query_j {mjspan.first, midsplit - 1};
+    const extb::box::GlobalSpan span_data_j {midsplit + 1, mjspan.last};
 
     pui.data_box = make_box ({mispan.first, mispan.last - 2}, span_data_j);
 
     pui.ref_line = make_row (mispan.first, span_query_j);
     // set ref separator
-    extb::set_box (make_row (mispan.first + 1, span_query_j), 0x2500, TB_DIM);
+    set (make_row (mispan.first + 1, span_query_j), 0x2500, TB_DIM);
     // set vertical separator
-    extb::set_box (make_col (mispan, midsplit), 0x2502);
+    set (make_col ({mispan.first, mispan.last - 1}, midsplit), 0x2502);
 
     pui.query_box = make_box ({mispan.first + 2, mispan.last - 2}, span_query_j);
     // set status separator
-    extb::set_box (make_row (mispan.last - 1, mjspan), 0x2500, TB_DIM);
+    set (make_row (mispan.last - 1, mjspan), 0x2500, TB_DIM);
     pui.status_line = make_row (mispan.last, mjspan);  // show e.g. coordinates
 }
 
@@ -200,25 +201,29 @@ bool nav_global (tb_event& ev) {
     assert (ev.key);
 
     auto& gui = ctx::get<GlobalContext>().ui;
+    auto& cmd_wgt = gui.cmd;
+    auto& status_wgt = gui.status;
 
     switch (ev.key) {
         case TB_KEY_ENTER:
-        extb::clear_box(gui.cmd);
-        extb::clear_box(gui.status);
-        extb::write_string_within (
-            to_global (gui.status, {0, 0}),
-            gui.status,
-            cmd::exec_cmd(gui.cmd_buf.text).msg,
+        extb::clear (cmd_wgt.display_line);
+        extb::clear (cmd_wgt.display_line);
+        extb::write_string (
+            extb::GlobalCell {
+                status_wgt.display_line.ispan.first,
+                status_wgt.display_line.jspan.first
+            },
+            status_wgt.display_line.jspan.last,
+            cmd::exec_cmd (cmd_wgt.buf.text).msg,
             TB_DIM
         );
-        input::clear(gui.cmd_buf);
+        input::clear (cmd_wgt.buf);
         draw_sequence_data();  // NOTE: this is now modal, not global... (future BUG)
-        // draw_seq
         break;
 
         case TB_KEY_BACKSPACE:
         case TB_KEY_BACKSPACE2:
-        input::del_back(gui.cmd_buf);
+        input::del_back(cmd_wgt.buf);
         render_input_text();
         break;
 
@@ -236,23 +241,29 @@ int nav_browser (tb_event& ev) {
     auto& pc = ctx::get<PileupContext>();
     auto& pui = pc.ui;
     auto& query_box = pui.query_box;
+    auto row_start_cell = [&pui] () {
+        return extb::GlobalCell {
+            pui.query_box.ispan.first + pui.row_sel,
+            pui.query_box.jspan.first
+        };
+    };
 
     switch (ev.key) {
         // N.B. selection not really important
         // for mvp - only scrolling of queries really needed
         // (might use > instead, or just no selector for now)
         case TB_KEY_ARROW_DOWN:
-        rm_attr (to_global (query_box, {pui.row_sel, 0}), TB_REVERSE);
+        rm_attr (row_start_cell(), TB_REVERSE);
         ++pui.row_sel;
         pui.row_sel = std::clamp (pui.row_sel, 0, last_local (query_box).i);
-        add_attr (to_global (query_box, {pui.row_sel, 0}), TB_REVERSE);
+        add_attr (row_start_cell(), TB_REVERSE);
         break;
 
         case TB_KEY_ARROW_UP:
-        rm_attr (to_global (query_box, {pui.row_sel, 0}), TB_REVERSE);
+        rm_attr (row_start_cell(), TB_REVERSE);
         --pui.row_sel;
         pui.row_sel = std::clamp (pui.row_sel, 0, last_local (query_box).i);
-        add_attr (to_global (query_box, {pui.row_sel, 0}), TB_REVERSE);
+        add_attr (row_start_cell(), TB_REVERSE);
         break;
 
         default:
@@ -263,80 +274,92 @@ int nav_browser (tb_event& ev) {
 
 
 void draw_global_borders () {
+    PLOGD << "begin draw routine for global borders";
+    // TODO it is silly to back calculate the surrounding boxes for borders.
+    // Store them in the ui struct at calc time
+
+    using namespace extb;
+
     auto& gui = ctx::get<GlobalContext>().ui;
 
+    // draw fixed elements (carets, borders)
+    // main display
+    // top corners
+    const auto& main_frame = gui.main.frame;
+    set (top_left (main_frame), 0x256D);
+    set (top_right (main_frame), 0x256E);
 
-//     // draw fixed elements (carets, borders)
-//     // main display
-//     // top corners
-//     extb::set ({main_box.ispan().first, main_box.jspan().first}, 0x256D);
-//     extb::set ({main_box.ispan().first, main_box.jspan().last}, 0x256E);
+    // sides
+    for (auto i = main_frame.ispan.first + 1; i <= main_frame.ispan.last; ++i) {
+        set (GlobalCell {i, main_frame.jspan.first}, 0x2502);
+        set (GlobalCell {i, main_frame.jspan.last}, 0x2502);
+    }
 
-//     // sides
-//     for (auto i = main_box.ispan().first + 1; i <= main_box.ispan().last; ++i) {
-//         extb::set ({i, main_box.jspan().first}, 0x2502);
-//         extb::set ({i, main_box.jspan().last}, 0x2502);
-//     }
+    // top
+    for (auto j =  main_frame.jspan.first + 1; j < main_frame.jspan.last; ++j) {
+        set (GlobalCell {main_frame.ispan.first, j}, 0x2500);
+    }
 
-//     // top
-//     for (auto j =  main_box.jspan().first + 1; j < main_box.jspan().last; ++j) {
-//         extb::set ({main_box.ispan().first, j}, 0x2500);
-//     }
+    // cmd display
+    // corners
+    const auto& cmd_frame = gui.cmd.frame;
+    set (top_left (cmd_frame), 0x256D);
+    set (top_right (cmd_frame), 0x256E);
+    set (bottom_left (cmd_frame), 0x251C);
+    set (bottom_right (cmd_frame), 0x2524);
 
-//     // cmd display
-//     // corners
-//     extb::set ({cmd_box.ispan().first, cmd_box.jspan().first}, 0x256D);
-//     extb::set ({cmd_box.ispan().first, cmd_box.jspan().last}, 0x256E);
-//     extb::set ({cmd_box.ispan().last, cmd_box.jspan().last}, 0x256F);
-//     extb::set ({cmd_box.ispan().last, cmd_box.jspan().first}, 0x2570);
+    // sides
+    for (auto i = cmd_frame.ispan.first + 1; i < cmd_frame.ispan.last; ++i) {
+        set (GlobalCell {i, cmd_frame.jspan.first}, 0x2502);
+        set (GlobalCell {i, cmd_frame.jspan.last}, 0x2502);
+    }
 
-//     // sides
-//     for (auto i = cmd_box.ispan().first + 1; i < cmd_box.ispan().last; ++i) {
-//         extb::set ({i, cmd_box.jspan().first}, 0x2502);
-//         extb::set ({i, cmd_box.jspan().last}, 0x2502);
-//     }
+    // top, bottom
+    for (auto j = cmd_frame.jspan.first + 1; j < cmd_frame.jspan.last; ++j) {
+        set (GlobalCell {cmd_frame.ispan.first, j}, 0x2500);
+        set (GlobalCell {cmd_frame.ispan.last, j}, 0x2500, TB_DIM);
+    }
 
-//     // top, bottom
-//     for (auto j = cmd_box.jspan().first + 1; j < cmd_box.jspan().last; ++j) {
-//         extb::set ({cmd_box.ispan().first, j}, 0x2500);
-//         extb::set ({cmd_box.ispan().last, j}, 0x2500);
-//     }
+    const auto& status_frame = gui.status.frame;
+    // status display
+    set (bottom_right (status_frame), 0x256F);
+    set (bottom_left (status_frame), 0x2570);
 
-//     // status display
-//     extb::set ({status_box.ispan().first, status_box.jspan().first}, 0x256D);
-//     extb::set ({status_box.ispan().first, status_box.jspan().last}, 0x256E);
-//     extb::set ({status_box.ispan().last, status_box.jspan().last}, 0x256F);
-//     extb::set ({status_box.ispan().last, status_box.jspan().first}, 0x2570);
+    // sides
+    for (auto i = status_frame.ispan.first + 1; i < status_frame.ispan.last; ++i) {
+        set (GlobalCell {i, status_frame.jspan.first}, 0x2502);
+        set (GlobalCell {i, status_frame.jspan.last}, 0x2502);
+    }
 
-//     // sides
-//     for (auto i = status_box.ispan().first + 1; i < status_box.ispan().last; ++i) {
-//         extb::set ({i, status_box.jspan().first}, 0x2502);
-//         extb::set ({i, status_box.jspan().last}, 0x2502);
-//     }
-
-//     // top, bottom
-//     for (auto j = status_box.jspan().first + 1; j < status_box.jspan().last; ++j) {
-//         extb::set ({status_box.ispan().first, j}, 0x2500);
-//         extb::set ({status_box.ispan().last, j}, 0x2500);
-//     }
+    // bottom
+    for (auto j = status_frame.jspan.first + 1; j < status_frame.jspan.last; ++j) {
+        set (GlobalCell {status_frame.ispan.last, j}, 0x2500);
+    }
 }
 
 
 // TODO: I want to separate calculation and border drawing
 // so I can redraw borders on demand
-void init_global_ui () {
+void calc_global_widgets () {
+    using namespace extb::box;
     auto& gui = ctx::get<GlobalContext>().ui;
 
     tb_clear();
-    // boxes with closed coordinates
 
-    extb::GlobalSpan screen_ispan {0, tb_height() - 1};
-    extb::GlobalSpan screen_jspan {0, tb_width() - 1};
+    extb::box::GlobalSpan screen_ispan {0, tb_height() - 1};
+    extb::box::GlobalSpan screen_jspan {0, tb_width() - 1};
 
     // vertical sectioning of terminal
-    extb::GlobalSpan viewer_ispan {screen_ispan.first, screen_ispan.last - CMD_H - STATUS_H};
-    extb::GlobalSpan cmd_ispan {viewer_ispan.last + 1, viewer_ispan.last + CMD_H};
-    extb::GlobalSpan status_ispan {cmd_ispan.last + 1, cmd_ispan.last + STATUS_H};
+    extb::box::GlobalSpan viewer_ispan {screen_ispan.first, screen_ispan.last - CMD_H - STATUS_H + 1};
+    // overlapping frames
+    extb::box::GlobalSpan cmd_ispan {viewer_ispan.last + 1, viewer_ispan.last + CMD_H};
+    extb::box::GlobalSpan status_ispan {cmd_ispan.last, cmd_ispan.last + STATUS_H - 1};
+
+    PLOGD << "screen i last: " << screen_ispan.last;
+    PLOGD << "cmd i first: " << cmd_ispan.first;
+    PLOGD << "cmd i last: " << cmd_ispan.last;
+    PLOGD << "status i first: " << status_ispan.first;
+    PLOGD << "status i last: " << status_ispan.last;
     
     if (
         !valid (screen_ispan) ||
@@ -347,32 +370,37 @@ void init_global_ui () {
     ) {
         throw std::runtime_error ("Invalid screen area, terminal likely too small");
     }
-    const auto main_box = extb::make_box (
+
+    // widgets to calc
+    auto& main_wgt = gui.main;
+    auto& cmd_wgt = gui.cmd;
+    auto& status_wgt = gui.status;
+
+    main_wgt.frame = make_box (
         viewer_ispan,
         screen_jspan
     );
-    const auto cmd_box = extb::make_box (
+    cmd_wgt.frame = make_box (
         cmd_ispan,
         screen_jspan
     );
-    const auto status_box = extb::make_box (
+    status_wgt.frame = make_box (
         status_ispan,
         screen_jspan
     );
 
-
     // cmd input
-    gui.cmd = extb::make_row (
+    cmd_wgt.display_line = make_row (
         cmd_ispan.first + 1,
         {
-            screen_jspan.first + 2,      // skip border, leave space for caret :
-            screen_jspan.last - 1        // exclude border
+            screen_jspan.first + 2,  // skip border, leave space for caret :
+            screen_jspan.last - 1    // exclude border
         }
     );
-    gui.cmd_caret = extb::GlobalCell{cmd_ispan.first + 1, screen_jspan.first + 1};
-    extb::set (gui.cmd_caret, ':', TB_DIM);
+    cmd_wgt.caret = GlobalCell {cmd_ispan.first + 1, screen_jspan.first + 1};
+    set (cmd_wgt.caret, ':', TB_DIM);
 
-    extb::GlobalBox status_row = extb::make_row (
+    status_wgt.display_line = make_row (
         status_ispan.first + 1,
         {
             screen_jspan.first + 1,
@@ -380,15 +408,17 @@ void init_global_ui () {
         }
     );
 
-    // for data display
-    extb::GlobalBox display_box = extb::make_box (
+    main_wgt.viewport = make_box (
         {viewer_ispan.first + 1, viewer_ispan.last},
         {screen_jspan.first + 1, screen_jspan.last - 1}
     );
 
 }
 
-
+void init_global_ui () {
+    calc_global_widgets();
+    draw_global_borders();
+}
 
 void enter_pileup_mode () {
     auto& gctx = ctx::get<GlobalContext>();
@@ -431,9 +461,13 @@ void init () {
         throw make_runtime_error("Error initialising view: {}", e.what());
     }
 
-    auto& gui = ctx::get<GlobalContext>().ui;
+    auto& status_line = ctx::get<GlobalContext>().ui.status.display_line;
     write_string (
-        to_global (gui.status, {0, 0}),
+        extb::GlobalCell {
+            status_line.ispan.first,
+            status_line.jspan.first
+        },
+        status_line.jspan.last,
         "Hello!",
         TB_DIM
     );
@@ -461,7 +495,7 @@ void loop () {
         if (ev.type == TB_EVENT_RESIZE)
         {
             try {
-                init_global_ui();
+                calc_global_widgets();
             } catch (const std::exception &e) {
                 throw make_runtime_error (
                     "Error while attempting to resize view: {}", e.what()
@@ -492,7 +526,7 @@ void loop () {
         // global
         if (ev.ch)
         {
-            input::insert(gui.cmd_buf, ev.ch);
+            input::insert (gui.cmd.buf, ev.ch);
             render_input_text();
         }
 
@@ -506,7 +540,7 @@ void loop () {
             }
             const auto msg = it->second();  // exec
             const auto ncharw =
-                extb::write_string ({0, j}, msg);
+                extb::write_string ({0, j}, 0, msg);
             if (ncharw < msg.size()) {
                 break;
             }

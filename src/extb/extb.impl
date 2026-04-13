@@ -19,7 +19,7 @@ decltype (auto) as_global_cell_range (R&& r) {
 
 template <ConvertsToGlobalCellRange T>
 decltype (auto) as_global_cell_range (T&& t) {
-    return as_global_cells (std::forward<T> (t));
+    return cell_source (std::forward<T> (t));
 }
 
 } // end namespace detail
@@ -39,7 +39,7 @@ int set
 template <GlobalCellSource S>
 int clear
 (S&& gcs) {
-  set (gcs, ' ');
+  return set (gcs, ' ');
 }
 
 template <GlobalCellSource S>
@@ -47,7 +47,7 @@ int set_attr
 (S&& gcs, const Style& style) {
   tb_cell* tbc;
   int rc;
-  for (const auto gc : detail::as_global_cell_range (gcs)) {
+  for (const auto& gc : detail::as_global_cell_range (gcs)) {
     // get from back buffer
     rc = tb_get_cell(gc.j, gc.i, 1, &tbc); 
     if (rc != TB_OK) {
@@ -55,7 +55,7 @@ int set_attr
     }
     const auto fg_attr = style.fg() ? style.fg() : tbc->fg;
     const auto bg_attr = style.bg() ? style.bg() : tbc->bg;
-    rc = tb_set_cell(gc.j, gc.i, gc->ch, fg_attr, bg_attr);
+    rc = tb_set_cell(gc.j, gc.i, tbc->ch, fg_attr, bg_attr);
     if (rc != TB_OK) {
       return rc;
     }
@@ -68,14 +68,14 @@ int add_attr
 (S&& gcs, const Style& style) {
   tb_cell *tbc;
   int rc;
-  for (const auto gc : detail::as_global_cell_range (gcs)) {
-    rc = tb_get_cell(gc.j, gc.i, 1, &tbc); 
+  for (const auto& gc : detail::as_global_cell_range (gcs)) {
+    rc = tb_get_cell (gc.j, gc.i, 1, &tbc); 
     if (rc != TB_OK) {
       return rc;
     }
     const tb_attr fg_attr = tbc->fg | style.fg();
     const tb_attr bg_attr = tbc->bg | style.bg();
-    rc = tb_set_cell(gc.j, gc.i, gc->ch, fg_attr, bg_attr);
+    rc = tb_set_cell (gc.j, gc.i, tbc->ch, fg_attr, bg_attr);
     if (rc != TB_OK) {
       return rc;
     }
@@ -88,7 +88,7 @@ int rm_attr
 (S&& gcs, const Style& style) {
   tb_cell *tbc;
   int rc;
-  for (const auto gc : detail::as_global_cell_range (gcs)) {
+  for (const auto& gc : detail::as_global_cell_range (gcs)) {
     rc = tb_get_cell(gc.j, gc.i, 1, &tbc);
     if (rc != TB_OK) {
       return rc;
@@ -108,7 +108,7 @@ int reset_attr
 (S&& gcs, const Style& style) {
   tb_cell *tbc;
   int rc;
-  for (const auto gc : detail::as_global_cell_range (gcs)) {
+  for (const auto& gc : detail::as_global_cell_range (gcs)) {
     rc = tb_get_cell(gc.j, gc.i, 1, &tbc);
     if (rc != TB_OK) {
       return rc;
@@ -126,7 +126,7 @@ int check_attr_all_back
 (S&& gcs, const Style& style) {
   tb_cell *tbc;
   int rc;
-  for (const auto gc : detail::as_global_cell_range (gcs)) {
+  for (const auto& gc : detail::as_global_cell_range (gcs)) {
     rc = tb_get_cell (gc.j, gc.i, 1, &tbc);
     if (rc != TB_OK) {
       return false;  // misleading?

@@ -5,7 +5,7 @@
 
 #include <htslib/sam.h>
 
-namespace acchts {
+namespace htsacc {
 
 
 hts_pos_t qpos (const bam_pileup1_t* p1) {

@@ -84,7 +84,8 @@ endif()
 
 add_executable(t2-proto
   src/main.cpp
-  src/extb.cpp
+  src/extb/extb.cpp
+  src/extb/extb-box.cpp
   src/app.cpp
   src/cmd.cpp
   src/input.cpp

@@ -2,7 +2,7 @@
 
 #include "hts/accessors.hpp"
 #include "ctx.hpp"
-#include "extb.hpp"
+#include "extb/extb-box.hpp"
 #include "hts/boundary-types.hpp"
 #include <list>  // preserves insertion order, allows removal by val
 #include <unordered_map>
@@ -20,10 +20,10 @@ struct PileupContext : ctx::Context {
     PileupData data;
     struct {
         int row_sel = 0;
-        extb::GlobalBox ref_line;
-        extb::GlobalBox query_box;
-        extb::GlobalBox status_line;
-        extb::GlobalBox data_box;
+        extb::box::GlobalBox ref_line;
+        extb::box::GlobalBox query_box;
+        extb::box::GlobalBox status_line;
+        extb::box::GlobalBox data_box;
     } ui;
     struct {
         std::list<std::string> bam_props_request;  // user reqeuested properties to show from pileup data
