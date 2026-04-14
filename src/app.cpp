@@ -19,6 +19,11 @@ extern "C" {
 #include "demo.hpp"
 #include "hts/accessors.hpp"
 
+// TODO use these shorthand aliases throughout
+// best convenience + discoverability I think
+namespace e2 = extb;
+namespace e2b = extb::box;
+
 void shutdown () {
     tb_shutdown();
 }
@@ -27,8 +32,8 @@ void render_input_text () {
     const auto& cui = ctx::get<GlobalContext>().ui.cmd;
     const auto& cmd_line = cui.display_line;
     const auto& cmd_buf = cui.buf;
-    extb::clear (cmd_line);
-    extb::write_string (
+    e2::clear (cmd_line);
+    e2::write_string (
         {cmd_line.ispan.first, cmd_line.jspan.first},
         cmd_line.jspan.last,
         cmd_buf.text
@@ -47,9 +52,9 @@ void draw_sequence_data () {
     const auto& ref_line = pui.ref_line;
     const auto& status_line = pui.status_line;
 
-    extb::clear (query_box);
-    extb::clear (ref_line);
-    extb::clear (status_line);
+    e2::clear (query_box);
+    e2::clear (ref_line);
+    e2::clear (status_line);
 
     /* setup for extracting user requested display fields for tabular display */
 
@@ -94,8 +99,8 @@ void draw_sequence_data () {
     // with indels and such. Could make it cigar aware!
     const auto visible_ref_seq =
         genomic_substr(pileup_gstart, leftmost_visible_gpos, query_box_w, pdat.ref.s);
-    extb::write_string (
-        extb::GlobalCell{ref_line.ispan.first, ref_line.jspan.first},
+    e2::write_string (
+        e2::GlobalCell{ref_line.ispan.first, ref_line.jspan.first},
         ref_line.jspan.last,
         visible_ref_seq
     );
@@ -130,8 +135,8 @@ void draw_sequence_data () {
         PLOGD << edge_to_qstart;  // TODO log more
         PLOGD << visible_qseq;
 
-        extb::write_string (
-            extb::GlobalCell {
+        e2::write_string (
+            e2::GlobalCell {
                 static_cast<int> (query_box.ispan.first + i),
                 query_box.jspan.first + static_cast<int> ((edge_to_qstart < 0) ? 0 : edge_to_qstart)
             },
@@ -151,12 +156,12 @@ void draw_sequence_data () {
     PLOGD << "drawing property table";
     table::draw_table (data_box, prop_cols, prop_headers);
 
-    extb::add_attr (
+    e2::add_attr (
         extb::GlobalCell
             {query_box.ispan.first + pui.row_sel, query_box.jspan.first},
         TB_REVERSE);
 
-    extb::add_attr (
+    e2::add_attr (
         make_col (
             query_box.ispan,
             static_cast<int> (seq_browser_j_center)
@@ -170,7 +175,7 @@ void init_pileup_display () {
     auto& pconf = pctx.config;
     auto& pui = pctx.ui;
     auto& viewport = ctx::get<GlobalContext>().ui.main.viewport;
-    clear (viewport);
+    e2::clear (viewport);
 
     const auto mispan = viewport.ispan;
     const auto mjspan = viewport.jspan;
@@ -179,20 +184,20 @@ void init_pileup_display () {
 
     const auto midsplit = mjspan.first + static_cast<int> (ceil (mjwidth * pconf.query_box_frac));
 
-    const extb::box::GlobalSpan span_query_j {mjspan.first, midsplit - 1};
-    const extb::box::GlobalSpan span_data_j {midsplit + 1, mjspan.last};
+    const e2b::GlobalSpan span_query_j {mjspan.first, midsplit - 1};
+    const e2b::GlobalSpan span_data_j {midsplit + 1, mjspan.last};
 
-    pui.data_box = make_box ({mispan.first, mispan.last - 2}, span_data_j);
+    pui.data_box = e2b::make_box ({mispan.first, mispan.last - 2}, span_data_j);
 
-    pui.ref_line = make_row (mispan.first, span_query_j);
+    pui.ref_line = e2b::make_row (mispan.first, span_query_j);
     // set ref separator
-    set (make_row (mispan.first + 1, span_query_j), 0x2500, TB_DIM);
+    e2::set (make_row (mispan.first + 1, span_query_j), 0x2500, TB_DIM);
     // set vertical separator
-    set (make_col ({mispan.first, mispan.last - 1}, midsplit), 0x2502);
+    e2::set (make_col ({mispan.first, mispan.last - 1}, midsplit), 0x2502);
 
     pui.query_box = make_box ({mispan.first + 2, mispan.last - 2}, span_query_j);
     // set status separator
-    set (make_row (mispan.last - 1, mjspan), 0x2500, TB_DIM);
+    e2::set (make_row (mispan.last - 1, mjspan), 0x2500, TB_DIM);
     pui.status_line = make_row (mispan.last, mjspan);  // show e.g. coordinates
 }
 
@@ -206,10 +211,10 @@ bool nav_global (tb_event& ev) {
 
     switch (ev.key) {
         case TB_KEY_ENTER:
-        extb::clear (cmd_wgt.display_line);
-        extb::clear (cmd_wgt.display_line);
-        extb::write_string (
-            extb::GlobalCell {
+        e2::clear (cmd_wgt.display_line);
+        e2::clear (cmd_wgt.display_line);
+        e2::write_string (
+            e2::GlobalCell {
                 status_wgt.display_line.ispan.first,
                 status_wgt.display_line.jspan.first
             },
@@ -253,17 +258,17 @@ int nav_browser (tb_event& ev) {
         // for mvp - only scrolling of queries really needed
         // (might use > instead, or just no selector for now)
         case TB_KEY_ARROW_DOWN:
-        rm_attr (row_start_cell(), TB_REVERSE);
+        e2::rm_attr (row_start_cell(), TB_REVERSE);
         ++pui.row_sel;
         pui.row_sel = std::clamp (pui.row_sel, 0, last_local (query_box).i);
-        add_attr (row_start_cell(), TB_REVERSE);
+        e2::add_attr (row_start_cell(), TB_REVERSE);
         break;
 
         case TB_KEY_ARROW_UP:
-        rm_attr (row_start_cell(), TB_REVERSE);
+        e2::rm_attr (row_start_cell(), TB_REVERSE);
         --pui.row_sel;
         pui.row_sel = std::clamp (pui.row_sel, 0, last_local (query_box).i);
-        add_attr (row_start_cell(), TB_REVERSE);
+        e2::add_attr (row_start_cell(), TB_REVERSE);
         break;
 
         default:
@@ -278,62 +283,60 @@ void draw_global_borders () {
     // TODO it is silly to back calculate the surrounding boxes for borders.
     // Store them in the ui struct at calc time
 
-    using namespace extb;
-
     auto& gui = ctx::get<GlobalContext>().ui;
 
     // draw fixed elements (carets, borders)
     // main display
     // top corners
     const auto& main_frame = gui.main.frame;
-    set (top_left (main_frame), 0x256D);
-    set (top_right (main_frame), 0x256E);
+    e2::set (top_left (main_frame), 0x256D);
+    e2::set (top_right (main_frame), 0x256E);
 
     // sides
     for (auto i = main_frame.ispan.first + 1; i <= main_frame.ispan.last; ++i) {
-        set (GlobalCell {i, main_frame.jspan.first}, 0x2502);
-        set (GlobalCell {i, main_frame.jspan.last}, 0x2502);
+        e2::set (GlobalCell {i, main_frame.jspan.first}, 0x2502);
+        e2::set (GlobalCell {i, main_frame.jspan.last}, 0x2502);
     }
 
     // top
     for (auto j =  main_frame.jspan.first + 1; j < main_frame.jspan.last; ++j) {
-        set (GlobalCell {main_frame.ispan.first, j}, 0x2500);
+        e2::set (GlobalCell {main_frame.ispan.first, j}, 0x2500);
     }
 
     // cmd display
     // corners
     const auto& cmd_frame = gui.cmd.frame;
-    set (top_left (cmd_frame), 0x256D);
-    set (top_right (cmd_frame), 0x256E);
-    set (bottom_left (cmd_frame), 0x251C);
-    set (bottom_right (cmd_frame), 0x2524);
+    e2::set (top_left (cmd_frame), 0x256D);
+    e2::set (top_right (cmd_frame), 0x256E);
+    e2::set (bottom_left (cmd_frame), 0x251C);
+    e2::set (bottom_right (cmd_frame), 0x2524);
 
     // sides
     for (auto i = cmd_frame.ispan.first + 1; i < cmd_frame.ispan.last; ++i) {
-        set (GlobalCell {i, cmd_frame.jspan.first}, 0x2502);
-        set (GlobalCell {i, cmd_frame.jspan.last}, 0x2502);
+        e2::set (GlobalCell {i, cmd_frame.jspan.first}, 0x2502);
+        e2::set (GlobalCell {i, cmd_frame.jspan.last}, 0x2502);
     }
 
     // top, bottom
     for (auto j = cmd_frame.jspan.first + 1; j < cmd_frame.jspan.last; ++j) {
-        set (GlobalCell {cmd_frame.ispan.first, j}, 0x2500);
-        set (GlobalCell {cmd_frame.ispan.last, j}, 0x2500, TB_DIM);
+        e2::set (GlobalCell {cmd_frame.ispan.first, j}, 0x2500);
+        e2::set (GlobalCell {cmd_frame.ispan.last, j}, 0x2500, TB_DIM);
     }
 
     const auto& status_frame = gui.status.frame;
     // status display
-    set (bottom_right (status_frame), 0x256F);
-    set (bottom_left (status_frame), 0x2570);
+    e2::set (bottom_right (status_frame), 0x256F);
+    e2::set (bottom_left (status_frame), 0x2570);
 
     // sides
     for (auto i = status_frame.ispan.first + 1; i < status_frame.ispan.last; ++i) {
-        set (GlobalCell {i, status_frame.jspan.first}, 0x2502);
+        e2::set (GlobalCell {i, status_frame.jspan.first}, 0x2502);
         set (GlobalCell {i, status_frame.jspan.last}, 0x2502);
     }
 
     // bottom
     for (auto j = status_frame.jspan.first + 1; j < status_frame.jspan.last; ++j) {
-        set (GlobalCell {status_frame.ispan.last, j}, 0x2500);
+        e2::set (GlobalCell {status_frame.ispan.last, j}, 0x2500);
     }
 }
 
@@ -346,14 +349,14 @@ void calc_global_widgets () {
 
     tb_clear();
 
-    extb::box::GlobalSpan screen_ispan {0, tb_height() - 1};
-    extb::box::GlobalSpan screen_jspan {0, tb_width() - 1};
+    e2b::GlobalSpan screen_ispan {0, tb_height() - 1};
+    e2b::GlobalSpan screen_jspan {0, tb_width() - 1};
 
     // vertical sectioning of terminal
-    extb::box::GlobalSpan viewer_ispan {screen_ispan.first, screen_ispan.last - CMD_H - STATUS_H + 1};
+    e2b::GlobalSpan viewer_ispan {screen_ispan.first, screen_ispan.last - CMD_H - STATUS_H + 1};
     // overlapping frames
-    extb::box::GlobalSpan cmd_ispan {viewer_ispan.last + 1, viewer_ispan.last + CMD_H};
-    extb::box::GlobalSpan status_ispan {cmd_ispan.last, cmd_ispan.last + STATUS_H - 1};
+    e2b::GlobalSpan cmd_ispan {viewer_ispan.last + 1, viewer_ispan.last + CMD_H};
+    e2b::GlobalSpan status_ispan {cmd_ispan.last, cmd_ispan.last + STATUS_H - 1};
 
     PLOGD << "screen i last: " << screen_ispan.last;
     PLOGD << "cmd i first: " << cmd_ispan.first;
@@ -362,11 +365,11 @@ void calc_global_widgets () {
     PLOGD << "status i last: " << status_ispan.last;
     
     if (
-        !valid (screen_ispan) ||
-        !valid (screen_jspan) ||
-        !valid (viewer_ispan) ||
-        !valid (cmd_ispan) ||
-        !valid (status_ispan)
+        !e2b::valid (screen_ispan) ||
+        !e2b::valid (screen_jspan) ||
+        !e2b::valid (viewer_ispan) ||
+        !e2b::valid (cmd_ispan) ||
+        !e2b::valid (status_ispan)
     ) {
         throw std::runtime_error ("Invalid screen area, terminal likely too small");
     }
@@ -376,21 +379,21 @@ void calc_global_widgets () {
     auto& cmd_wgt = gui.cmd;
     auto& status_wgt = gui.status;
 
-    main_wgt.frame = make_box (
+    main_wgt.frame = e2b::make_box (
         viewer_ispan,
         screen_jspan
     );
-    cmd_wgt.frame = make_box (
+    cmd_wgt.frame = e2b::make_box (
         cmd_ispan,
         screen_jspan
     );
-    status_wgt.frame = make_box (
+    status_wgt.frame = e2b::make_box (
         status_ispan,
         screen_jspan
     );
 
     // cmd input
-    cmd_wgt.display_line = make_row (
+    cmd_wgt.display_line = e2b::make_row (
         cmd_ispan.first + 1,
         {
             screen_jspan.first + 2,  // skip border, leave space for caret :
@@ -398,9 +401,9 @@ void calc_global_widgets () {
         }
     );
     cmd_wgt.caret = GlobalCell {cmd_ispan.first + 1, screen_jspan.first + 1};
-    set (cmd_wgt.caret, ':', TB_DIM);
+    e2::set (cmd_wgt.caret, ':', TB_DIM);
 
-    status_wgt.display_line = make_row (
+    status_wgt.display_line = e2b::make_row (
         status_ispan.first + 1,
         {
             screen_jspan.first + 1,
@@ -408,7 +411,7 @@ void calc_global_widgets () {
         }
     );
 
-    main_wgt.viewport = make_box (
+    main_wgt.viewport = e2b::make_box (
         {viewer_ispan.first + 1, viewer_ispan.last},
         {screen_jspan.first + 1, screen_jspan.last - 1}
     );
@@ -462,7 +465,7 @@ void init () {
     }
 
     auto& status_line = ctx::get<GlobalContext>().ui.status.display_line;
-    write_string (
+    e2::write_string (
         extb::GlobalCell {
             status_line.ispan.first,
             status_line.jspan.first
@@ -540,7 +543,7 @@ void loop () {
             }
             const auto msg = it->second();  // exec
             const auto ncharw =
-                extb::write_string ({0, j}, 0, msg);
+                e2::write_string ({0, j}, 0, msg);
             if (ncharw < msg.size()) {
                 break;
             }

@@ -17,22 +17,18 @@ bool valid (const GlobalBox& b) noexcept {
   return valid (b.ispan) && valid (b.jspan);
 }
 
-// Box factories
+// box factories
 GlobalBox make_box (const GlobalSpan& ispan, const GlobalSpan& jspan) {
-  GlobalBox b{ispan.first, ispan.last, jspan.first, jspan.last};
-  if (valid (b)) {
-    return b;
-  }
-  else {
-    return {};
-  }
+  return {ispan, jspan};
 }
 GlobalBox make_row (int i, const GlobalSpan& jspan) {
-  return make_box ({i, i}, jspan);
+  return {{i, i}, jspan};
 }
 GlobalBox make_col (const GlobalSpan& ispan, int j) {
-  return make_box (ispan, {j, j});
+  return {ispan, {j, j}};
 }
+
+// box methods
 int last_local (const GlobalSpan& s) noexcept {
   return s.last - s.first;
 };
