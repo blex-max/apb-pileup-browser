@@ -11,30 +11,28 @@
 
 
 enum class app_state : uint8_t {
-  browse
+  pileup
 };
 
-using namespace extb;
-using namespace extb::box;
 struct GlobalContext : ctx::Context {
     struct {
-        app_state state = app_state::browse;
+        app_state state = app_state::pileup;
         size_t frame = 0;
     } data;
     struct {
         struct {
-            GlobalBox viewport;
-            GlobalBox frame;
+            extb::box::GlobalBox viewport;
+            extb::box::GlobalBox frame;
         } main;
         struct {
-            GlobalBox display_line;
-            GlobalCell caret;
-            GlobalBox frame;
+            extb::box::GlobalBox display_line;
+            extb::GlobalCell caret;
+            extb::box::GlobalBox frame;
             input::EditBuf buf;
         } cmd;
         struct {
-            GlobalBox display_line;
-            GlobalBox frame;
+            extb::box::GlobalBox display_line;
+            extb::box::GlobalBox frame;
             std::string buf;
         } status;
     } ui;

@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.22)
 
-project(t2-proto
+project(pileup-browser
   LANGUAGES CXX
   VERSION 0.0.0
 )
@@ -82,7 +82,7 @@ if(NOT HTSLIB_TARGET)
   )
 endif()
 
-add_executable(t2-proto
+add_executable(pileup-browser
   src/main.cpp
   src/extb/extb.cpp
   src/extb/extb-box.cpp
@@ -94,10 +94,23 @@ add_executable(t2-proto
   src/demo.cpp
   src/hts/accessors.cpp
 )
-target_include_directories(t2-proto
-  PRIVATE src
+target_compile_options(pileup-browser
+  PRIVATE
+  -Wall
+  -Wextra
+  -Wpedantic
+  -Wshadow
+  -Wconversion
+  -Wsign-conversion
+  -Wfloat-equal
+  -Wnull-dereference
+  -Wformat=2
 )
-target_link_libraries(t2-proto
+target_include_directories(pileup-browser
+  PRIVATE
+  src
+)
+target_link_libraries(pileup-browser
   PRIVATE
   termbox2
   plog::plog

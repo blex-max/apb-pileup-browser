@@ -16,7 +16,7 @@ int main(int, char **) {
 
     plog::init<plog::TxtFormatter> (plog::debug, plog::streamStdErr);
 
-    init ();
+    app::init ();
 
     // --- DEMO --- //
     // n.b. probaby good to keep a demo mode in the final product!
@@ -64,13 +64,13 @@ int main(int, char **) {
     // tb_present();
 
     try {
-        loop();
+        app::loop();
     } catch (const std::exception &e) {
         PLOGF << e.what();
-        shutdown();
+        app::shutdown();
         return EXIT_FAILURE;
     }
 
-    shutdown();
+    app::shutdown();
     return EXIT_SUCCESS;
 }

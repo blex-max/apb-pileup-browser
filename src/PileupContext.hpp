@@ -10,7 +10,7 @@
 
 
 using StringifyFn = std::string(*)(const bam_pileup1_t*);
-static std::unordered_map<std::string_view, StringifyFn> BAM_RENDER_CALLBACKS {
+inline std::unordered_map<std::string_view, StringifyFn> BAM_RENDER_CALLBACKS {
     {"qual", [] (const bam_pileup1_t* p1) -> std::string { return std::to_string(htsacc::base_qual(p1)); }},
     {"flag", [] (const bam_pileup1_t* p1) -> std::string { return std::to_string(htsacc::flag (p1)); }}
 };

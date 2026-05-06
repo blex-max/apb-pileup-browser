@@ -7,7 +7,7 @@ struct EditBuf {
   size_t curs = 0;
 };
 
-bool valid (EditBuf& b);
+bool valid (const EditBuf& b);
 void insert (EditBuf& b, char c);
 void del_back (EditBuf& b);
 void del_forward (EditBuf& b);
