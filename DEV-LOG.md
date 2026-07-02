@@ -41,3 +41,10 @@ data than can be shown on screen at once.
 I started working on the data model and plugging it in to the UI.
 In the future I want to consider the ability to dump to TSV, so
 decoupling is important.
+
+# 06-05-26
+I restructed the main rendering and event handling infrastructure
+to localise all drawing calls to one place. Rather than each
+element statefully handling drawing/redrawing of its features,
+there is now a single draw call (subdivided into functions)
+and other logic is separate.

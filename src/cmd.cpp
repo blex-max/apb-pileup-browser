@@ -1,12 +1,27 @@
 #include "cmd.hpp"
 
 #include <format>
+#include <functional>
 #include <unordered_map>
 
 #include "GlobalContext.hpp"
 #include "PileupContext.hpp"
+#include "hts/accessors.hpp"
 
 namespace cmd {
+
+static std::string debug_print_frame () {
+    return std::format("frame: {}", ctx::get<GlobalContext>().data.frame);
+}
+static std::unordered_map<std::string_view, std::string(*)()> DEBUG_CALLBACKS {
+    {"frame", debug_print_frame}
+};
+
+std::optional<std::string> get_debug_text (std::string_view name) {
+    auto it = DEBUG_CALLBACKS.find(name);
+    if (it == DEBUG_CALLBACKS.end()) return std::nullopt;
+    return it->second();
+}
 
 std::pair<std::string_view, std::string_view>
 split_first_space (std::string_view s) {
@@ -56,8 +71,7 @@ CmdResult debug_show (std::string_view names) {
         if (it == DEBUG_CALLBACKS.end()) {
             return {false, std::format ("Cannot show unknown debug property \"{}\"", req)};
         }
-        // don't duplicate
-        if (*std::find(begin(show_requested), end(show_requested), req) == req) {
+        if (std::find(begin(show_requested), end(show_requested), req) != end(show_requested)) {
             continue;
         }
         show_requested.emplace_back(req);
@@ -97,18 +111,17 @@ CmdResult pileup_show (std::string_view names) {
     }
 
     for (const auto& req : new_reqs) {
-        const auto& it = BAM_RENDER_CALLBACKS.find(req);
-        if (it == BAM_RENDER_CALLBACKS.end()) {
+        auto cb = get_pileup_text_callback(req);
+        if (!cb) {
             return {false, std::format ("Cannot show unknown property \"{}\"", req)};
         }
-        // don't duplicate
-        if (*std::find(begin(show_requested), end(show_requested), req) == req) {
-            continue;
-        }
-        show_requested.emplace_back(req);
+        auto already = std::find_if(begin(show_requested), end(show_requested),
+            [&req](const auto& p) { return p.name == req; });
+        if (already != end(show_requested)) continue;
+        show_requested.push_back({std::string{req}, cb});
     }
 
-    PLOGD << std::format("User requesting to view properties: {}", show_requested);
+    PLOGD << std::format("User requesting to view properties: {}", new_reqs);
     return {true, std::format ("Showing query properties: {}", new_reqs)};
 }
 CmdResult pileup_hide (std::string_view names) {
@@ -121,13 +134,30 @@ CmdResult pileup_hide (std::string_view names) {
     }
 
     for (const auto& req: new_reqs) {
-        // noop if not found
-        show_requested.remove(std::string{req});  // convert from string_view
+        show_requested.remove_if([&req](const auto& p) { return p.name == req; });
     }
 
     PLOGD << std::format("User requesting to hide properties: {}", new_reqs);
     return {true, std::format ("Hiding query properties {}", new_reqs)};
 }
+// NOTE: no separation of mode specific commands
+// CmdResult pileup_sort (std::string_view names) {
+//     using SortFn = std::function<bool(const bam_pileup1_t*, const bam_pileup1_t*)>;
+//     static std::unordered_map<
+//         std::string_view,
+//         std::tuple<SortFn, SortFn>
+//     > SORT_CMD_REGISTRY {
+//         {"start", {[] (const auto a, const auto b) { return htsacc::gstart(a) > htsacc::gstart(b); }, [] (const auto a, const auto b) { return htsacc::gstart(a) < htsacc::gstart(b);}}}
+//     };
+
+//     const auto args = split_whitespace(names);
+    
+//     auto& queries = ctx::get<PileupContext>().data.data;
+
+//     std::sort(begin(queries), end(queries), )
+
+//     return {true, "not implemented"};
+// }
 
 static std::unordered_map<std::string_view, CmdResult(*)(std::string_view)> CMD_REGISTRY{
     {"q", &quit},

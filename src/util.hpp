@@ -2,7 +2,7 @@
 #include <format>
 
 template <typename ...Args>
-std::runtime_error make_runtime_error(std::format_string<Args...> fmt, Args&&... args) {
+std::runtime_error format_runtime_error(std::format_string<Args...> fmt, Args&&... args) {
   return std::runtime_error(std::format(fmt, std::forward<Args>(args)...));
 }
 

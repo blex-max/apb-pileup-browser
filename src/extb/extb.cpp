@@ -16,7 +16,7 @@ size_t write_string
   }
 
   const auto jlim =
-    std::min<size_t> (s.size(), static_cast<size_t>(j_bound));
+    std::min<size_t> (s.size(), static_cast<size_t> (j_bound - start.j + 1));
   
   int nout = 0;
   for (size_t j = 0; j < jlim; ++j) {

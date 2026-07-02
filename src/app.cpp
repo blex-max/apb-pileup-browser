@@ -1,8 +1,13 @@
 #include "app.hpp"
 
 #include <format>
+#include <htslib/hts.h>
+#include <htslib/sam.h>
+#include <sstream>
 #include <stdexcept>
 
+#include "argparse/argparse.hpp"
+#include "hts/types.hpp"
 #include "plog/Log.h"
 
 extern "C" {
@@ -12,7 +17,6 @@ extern "C" {
 
 #include "table.hpp"
 #include "ctx.hpp"
-#include "hts/boundary-types.hpp"
 #include "util.hpp"
 #include "GlobalContext.hpp"
 #include "PileupContext.hpp"
@@ -23,6 +27,8 @@ extern "C" {
 namespace e2 = extb;
 namespace e2b = extb::box;
 
+static constexpr auto CMD_H = 3;  // inc. borders
+static constexpr auto STATUS_H = 3;
 
 namespace {  // forward declarations for use in app namespace fns
 
@@ -45,7 +51,75 @@ void draw_screen (GlobalContext& gctx);
 
 namespace app {
 
-void init () {
+StartupArgs init_cli (int argc, char** argv)
+{
+    argparse::ArgumentParser cli ("apb", "0.0.0");
+
+    cli.add_argument ("--demo")
+       .help ("run with synthetic data, no alignment file required")
+       .flag();
+    cli.add_argument ("SAM")
+       .help ("path to alignment file in s/b/cram format")
+       .nargs(argparse::nargs_pattern::optional);
+    cli.add_argument ("region")
+       .help ("genomic region in the form tid:position")
+       .nargs(argparse::nargs_pattern::optional);
+
+    try {
+        cli.parse_args(argc, argv);
+    }
+    catch (const std::exception& ex) {
+        std::ostringstream oss;
+        oss << ex.what() << "\n" << cli;
+        throw std::runtime_error(oss.str());
+    }
+
+    if (cli.get<bool>("--demo")) {
+        return {.start={}, .aln={}, .demo=true};
+    }
+
+    const auto aln_fp = cli.present<std::string>("SAM").value_or("");
+    if (aln_fp.empty()) {
+        std::ostringstream oss;
+        oss << "SAM argument required when not using --demo\n" << cli;
+        throw std::runtime_error(oss.str());
+    }
+
+    htsacc::AlnFile aln_fh;
+    aln_fh.f = hts_open(aln_fp.c_str(), "r");
+    if (!aln_fh.f)
+        throw format_runtime_error("Could not open alignment file at {}", aln_fp);
+    aln_fh.hdr = sam_hdr_read(aln_fh.f);
+    if (!aln_fh.hdr)
+        throw std::runtime_error("Could not read header from alignment file");
+    aln_fh.idx = sam_index_load(aln_fh.f, aln_fp.c_str());
+    if (!aln_fh.idx)
+        throw format_runtime_error("Could not load index for {}", aln_fp);
+
+    const auto region_str = cli.present<std::string>("region").value_or("");
+    if (region_str.empty()) {
+        std::ostringstream oss;
+        oss << "region argument required when not using --demo\n" << cli;
+        throw std::runtime_error(oss.str());
+    }
+
+    PileupPosition user_region{};
+    {
+        hts_pos_t pend; // required
+        if (hts_parse_region(region_str.c_str(), &user_region.tid, &user_region.pos,
+                             &pend, reinterpret_cast<hts_name2id_f>(sam_hdr_name2tid),
+                             aln_fh.hdr, HTS_PARSE_ONE_COORD) == NULL) {
+            throw format_runtime_error("Could not parse region string {}", region_str);
+        }
+    }
+
+    return {
+        .start = user_region,
+        .aln   = std::move(aln_fh),
+    };
+}
+
+void init (StartupArgs args) {
     PLOGD << "Begin global init";
 
     init_tb2();
@@ -56,13 +130,17 @@ void init () {
     try {
         init_global_ui (gctx);
     } catch (const std::exception &e) {
-        throw make_runtime_error ("Error initialising view: {}", e.what());
+        throw format_runtime_error ("Error initialising view: {}", e.what());
     }
 
     gctx.ui.status.buf = "Hello!";  // welcome msg
+    gctx.conf.demo = args.demo;
 
     // init modal contexts
     ctx::init<PileupContext>();
+    auto& pctx = ctx::get<PileupContext>();
+    pctx.aln       = std::move(args.aln);
+    pctx.start_pos = args.start;
 
     enter_state (gctx);
 
@@ -102,12 +180,12 @@ namespace {
 
 // forward declarations
 void draw_global_widgets (const GlobalContext& gctx);
-void draw_global_borders (const GlobalContext& gctx);
+void draw_global_layout (const GlobalContext& gctx);
 void draw_debug (const GlobalContext& gctx);
 void render_input_line ();
 void render_status_line ();
 void draw_modal_widgets ();
-void calc_global_widgets (GlobalContext& gctx);
+void calc_global_layout (GlobalContext& gctx);
 void draw_pileup (PileupContext& pctx);
 void draw_sequence_data (const PileupContext& pctx);
 void calc_pileup_layout (PileupContext& pctx);
@@ -130,7 +208,7 @@ void handle_event (GlobalContext& gctx, const tb_event& ev)
             handle_resize (gctx);
         }
         catch (const std::exception &e) {
-            throw make_runtime_error (
+            throw format_runtime_error (
                 "Error while attempting to resize view: {}", e.what()
             );
         }
@@ -200,23 +278,26 @@ bool nav_browser (PileupContext& pctx, const tb_event& ev) {
     auto& pui = pctx.ui;
     const auto& query_box = pui.query_box;
 
+    const auto nreads     = static_cast<int>(pctx.data.data.size());
+    const auto vp_rows    = e2b::last_local(query_box).i + 1;
+    const auto max_scroll = std::max(0, nreads - vp_rows + 1);
+
     switch (ev.key) {
         // N.B. selection not really important
         // for mvp - only scrolling of queries really needed
         // (might use > instead, or just no selector for now)
         case TB_KEY_ARROW_DOWN:
-            ++pui.row_sel;
-            pui.row_sel = std::clamp (pui.row_sel, 0, e2b::last_local (query_box).i);
+            ++pui.row_start;
             break;
 
         case TB_KEY_ARROW_UP:
-            --pui.row_sel;
-            pui.row_sel = std::clamp (pui.row_sel, 0, e2b::last_local (query_box).i);
+            --pui.row_start;
             break;
 
         default:
             return false;
     }
+    pui.row_start = std::clamp(pui.row_start, 0, max_scroll);
     return true;
 }
 
@@ -225,7 +306,7 @@ bool nav_browser (PileupContext& pctx, const tb_event& ev) {
 
 void handle_resize (GlobalContext& gctx)
 {
-    calc_global_widgets (gctx);
+    calc_global_layout (gctx);
     switch (gctx.data.state) {
         case app_state::pileup:
             calc_pileup_layout (ctx::get<PileupContext>());
@@ -248,7 +329,7 @@ void draw_screen (GlobalContext& gctx)
 
 void draw_global_widgets (const GlobalContext& gctx)
 {
-    draw_global_borders (gctx);  // since drawing is now localised
+    draw_global_layout (gctx);  // since drawing is now localised
                             // to one fn, maybe each component
                             // can render its own borders?
     render_input_line();
@@ -262,17 +343,13 @@ void draw_debug (const GlobalContext& gctx)
     auto& gconf = gctx.conf;
 
     int j = 0;
-    for (const auto& cb_name  : gconf.debug_request) {
-        const auto& it = cmd::DEBUG_CALLBACKS.find(cb_name);
-        if (it == cmd::DEBUG_CALLBACKS.end()) {
-            continue;
-        }
-        const auto msg = it->second();  // exec
-        const auto ncharw =
-            e2::write_string ({0, j}, 0, msg);
-        if (ncharw < msg.size()) {
-            break;
-        }
+    for (const auto& cb_name : gconf.debug_request) {
+        const int remaining = tb_width() - j;
+        if (remaining <= 0) break;
+        const auto msg = cmd::get_debug_text(cb_name);
+        if (!msg) continue;
+        const auto ncharw = e2::write_string({0, j}, remaining, *msg);
+        if (ncharw < msg->size()) break;
         j += ncharw;
     }
 }
@@ -340,61 +417,52 @@ void draw_sequence_data (const PileupContext& pctx) {
 
     /* setup for extracting user requested display fields for tabular display */
 
-    const auto nprop = pconf.bam_props_request.size();
-
-    std::vector<std::vector<std::string>> prop_cols;  // TODO flat vector with stride rather than nested vectors
-    std::vector<std::string> prop_headers;
-    std::vector<StringifyFn> prop_callbacks;
+    const auto& active_props = pconf.bam_props_request;
+    const auto nprop = active_props.size();
 
     PLOGD << "nprop: " << nprop;
-    prop_cols.reserve(nprop);
+    std::vector<std::vector<std::string>> prop_cols(nprop);
+    std::vector<std::string> prop_headers;
     prop_headers.reserve(nprop);
-    prop_callbacks.reserve(nprop);
-
-    for (const auto& head : pconf.bam_props_request) {
-        const auto& it = BAM_RENDER_CALLBACKS.find(head); 
-        if (it == BAM_RENDER_CALLBACKS.end()) {
-            PLOGW << std::format("Unknown property callback {}", head);
-            continue;
-        }
-
-        prop_callbacks.push_back(it->second);
-        prop_headers.push_back(head);
-        prop_cols.emplace_back();
+    for (const auto& prop : active_props) {
+        prop_headers.push_back(prop.name);
     }
-
-    assert (prop_callbacks.size() == prop_cols.size());
-    assert (prop_cols.size() == prop_headers.size());
 
     /* setup for mapping pileup coordinates to view coordinates */
 
     const auto query_box_jspan = query_box.jspan;
     size_t query_box_w = query_box_jspan.size();
     auto seq_browser_local_j_center = (query_box_w / 2);
-    auto pileup_gpos = pdat.ps.pos;
-    auto pileup_gstart = pdat.ps.gstart;
-    int leftmost_visible_gpos = pileup_gpos - seq_browser_local_j_center;
-    auto seq_browser_j_center = query_box_jspan.first + seq_browser_local_j_center;
+    const hts_pos_t pileup_gpos   = pdat.pos.pos;
+    const hts_pos_t pileup_gstart = pdat.span.gstart;
+    const hts_pos_t leftmost_visible_gpos =
+        pileup_gpos - static_cast<hts_pos_t>(seq_browser_local_j_center);
+    const int seq_browser_j_center =
+        query_box_jspan.first + static_cast<int>(seq_browser_local_j_center);
 
     PLOGD << "drawing ref";
     // NOTE: genomic_substr may fall down later
     // with indels and such. Could make it cigar aware!
-    const auto visible_ref_seq =
-        genomic_substr(pileup_gstart, leftmost_visible_gpos, query_box_w, pdat.ref.s);
-    e2::write_string (
-        e2::GlobalCell{ref_line.ispan.first, ref_line.jspan.first},
-        ref_line.jspan.last,
-        visible_ref_seq
-    );
+    if (!pdat.ref_seq.empty()) {
+        const auto visible_ref_seq =
+            genomic_substr(static_cast<size_t>(pileup_gstart),
+                           static_cast<size_t>(leftmost_visible_gpos),
+                           query_box_w, pdat.ref_seq);
+        e2::write_string (
+            e2::GlobalCell{ref_line.ispan.first, ref_line.jspan.first},
+            ref_line.jspan.last,
+            visible_ref_seq
+        );
+    }
 
     PLOGD << "drawing queries";
-    const auto p1arr = pdat.query.begin.get();
-    const auto np1 = pdat.query.n;
+    const auto np1 = static_cast<size_t>(
+        std::max(0, static_cast<int>(pdat.data.size()) - pui.row_start));
     for (size_t i = 0; i < np1; ++i) {
-        if ((query_box.ispan.first + i) > query_box.ispan.last) {
+        if (query_box.ispan.first + static_cast<int>(i) > query_box.ispan.last) {
             break;
         }
-        const auto& p1 = p1arr + i;
+        const auto* p1 = pdat.data[static_cast<size_t>(pui.row_start) + i];
 
         /*
             If query begins before displayed region,
@@ -404,11 +472,12 @@ void draw_sequence_data (const PileupContext& pctx) {
             write_string will just discard those chars.
         */
 
-        int edge_to_qstart= htsacc::gstart (p1) - leftmost_visible_gpos;
+        const int edge_to_qstart =
+            static_cast<int>(htsacc::gstart(p1) - leftmost_visible_gpos);
 
         std::string visible_qseq;
         if (edge_to_qstart < 0) {
-            visible_qseq = htsacc::seq(p1).substr(-edge_to_qstart);
+            visible_qseq = htsacc::seq(p1).substr(static_cast<size_t>(-edge_to_qstart));
         } else {
             visible_qseq = htsacc::seq(p1);
         }
@@ -418,28 +487,22 @@ void draw_sequence_data (const PileupContext& pctx) {
 
         e2::write_string (
             e2::GlobalCell {
-                static_cast<int> (query_box.ispan.first + i),
-                query_box.jspan.first + static_cast<int> ((edge_to_qstart < 0) ? 0 : edge_to_qstart)
+                query_box.ispan.first + static_cast<int>(i),
+                query_box.jspan.first + (edge_to_qstart < 0 ? 0 : edge_to_qstart)
             },
             query_box.jspan.last,
             visible_qseq
         );
 
-        // extracting and formatting properties to string
-        // for tabular display
-        PLOGD << "prop cols size: " << prop_cols.size();
-        for (size_t x = 0; x < prop_callbacks.size(); ++x) {
-            prop_cols[x].push_back(prop_callbacks[x](p1));
+        size_t x = 0;
+        for (const auto& prop : active_props) {
+            prop_cols[x].push_back(prop.cb(p1));
+            ++x;
         }
     }
 
     PLOGD << "drawing property table";
     table::draw_table (data_box, prop_cols, prop_headers);
-
-    e2::add_attr (
-        extb::GlobalCell
-            {query_box.ispan.first + pui.row_sel, query_box.jspan.first},
-        TB_REVERSE);
 
     e2::add_attr (
         e2b::make_col (
@@ -485,7 +548,7 @@ void draw_pileup_layout (const PileupContext& pctx)
     e2::set (e2b::make_row (mispan.last - 1, mjspan), 0x2500, TB_DIM);
 }
 
-void draw_global_borders (const GlobalContext& gctx) {
+void draw_global_layout (const GlobalContext& gctx) {
     PLOGD << "begin draw routine for global borders";
 
     auto& gui = gctx.ui;
@@ -547,7 +610,7 @@ void draw_global_borders (const GlobalContext& gctx) {
 }
 
 
-void calc_global_widgets (GlobalContext& gctx) {
+void calc_global_layout (GlobalContext& gctx) {
     auto& gui = gctx.ui;
 
     e2b::GlobalSpan screen_ispan {0, tb_height() - 1};
@@ -620,15 +683,16 @@ void calc_global_widgets (GlobalContext& gctx) {
 
 void init_global_ui (GlobalContext& gctx)
 {
-    calc_global_widgets (gctx);
-    draw_global_borders (gctx);
+    calc_global_layout (gctx);
+    draw_global_layout (gctx);
 }
 
 void enter_pileup_mode (const GlobalContext& gctx, PileupContext& pctx)
 {
-    if (gctx.conf.demo) {
+    if (gctx.conf.demo)
         pctx.data = demo::make_demo_pileup(301, 100);
-    }
+    else
+        load_pileup(pctx.data, pctx.aln, pctx.start_pos);
 
     calc_pileup_layout (pctx);
     draw_sequence_data (pctx);

@@ -88,6 +88,7 @@ add_executable(pileup-browser
   src/extb/extb-box.cpp
   src/app.cpp
   src/cmd.cpp
+  src/PileupContext.cpp
   src/input.cpp
   src/tb2_impl.cpp
   src/table.cpp

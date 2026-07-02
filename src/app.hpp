@@ -1,11 +1,19 @@
 #pragma once
 
-constexpr auto CMD_H = 3;  // inc. borders
-constexpr auto STATUS_H = 3;
+#include "PileupContext.hpp"
+#include "hts/types.hpp"
+
 
 namespace app {
 
-void init ();
+struct StartupArgs {
+    PileupPosition  start;
+    htsacc::AlnFile aln;
+    bool            demo = false;
+};
+
+StartupArgs init_cli (int argc, char** argv);
+void init (StartupArgs args);
 void loop ();
 void shutdown ();
 
