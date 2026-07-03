@@ -18,4 +18,5 @@ struct AlnFile {
     AlnFile& operator=(AlnFile&&) noexcept;
 };
 
+
 }

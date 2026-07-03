@@ -48,3 +48,121 @@ to localise all drawing calls to one place. Rather than each
 element statefully handling drawing/redrawing of its features,
 there is now a single draw call (subdivided into functions)
 and other logic is separate.
+
+## 02-07-26
+*(the following is a Claude-generated summary of progress since the last
+devlog entry, produced at the user's request against the working-tree
+diff.)*
+While starting on the `pileup_sort` console command in cmd.cpp, it became
+clear I was slowly reinventing a subset of SQL. Discussed with a colleague
+and decided to pivot: load the current pileup column straight into an
+in-memory SQLite table and let the console run arbitrary SQL against it,
+rather than hand-rolling filter/sort grammar. Since this is a *pileup*
+browser rather than a full genome browser, at most a screen's worth of
+reads (<10000, usually far fewer) is ever loaded at once, so an in-memory
+table is cheap to rebuild on every cursor move. Sketched the shape of this
+in sql-UML.puml (Pileup Engine -> Pileup2SQL -> SQLite table -> Query API
+-> TUI/console).
+
+Wrote the first concrete piece: `src/sql/schema.hpp`, a `reads` table
+covering the 11 mandatory SAM fields (spec §1.4: QNAME, FLAG, RNAME, POS,
+MAPQ, CIGAR, RNEXT, PNEXT, TLEN, SEQ, QUAL), aux tags (§1.5) serialized as
+a JSON `tags` column so individual tags stay queryable via
+`json_extract()` without a side table, plus the `bam_pileup1_t` fields
+that are meaningful at a single reference position (qpos, indel, is_del,
+is_head, is_tail, is_refskip, cigar_ind). Left out `level` (htslib's own
+display-stacking value, not a read attribute), and `cd`/the reserved
+padding bits, which are caller-owned scratch space nothing in this
+codebase ever touches.
+
+Kept the schema as a `constexpr std::string_view` in a header rather than
+a loose `.sql` file, since there's no resource-embedding step in
+CMakeLists.txt and this is a single self-contained binary — no reason to
+add a runtime file read and a working-directory dependency for a DDL
+string that never changes at runtime.
+
+To verify: compiled a throwaway TU that just includes schema.hpp and
+prints `kCreateReadsTable.size()`, under the project's actual warning
+flags (`-std=c++23 -Wall -Wextra -Wpedantic`), to make sure the raw
+string literal is well-formed and the header is self-contained. Didn't
+yet wire it into the build or actually run the DDL through sqlite3 — that
+happens once the loader code (accessors for QNAME/RNAME/MAPQ/CIGAR/
+RNEXT/PNEXT/TLEN/tags, plus the INSERT loop) exists to actually populate
+the table.
+
+## 03-07-26
+*(the following is a Claude-generated summary of progress since the last
+devlog entry, produced at the user's request against the working-tree
+diff.)*
+
+Continued building out the SQL pivot described above: the pileup engine
+and the pileup-to-SQL loading layer both now exist end-to-end and are
+wired into the build, though the loading layer is still rough at the
+edges.
+
+**Pileup engine (`src/hts/pileup.{hpp,cpp}`)** — new, and largely
+complete. `PileupBundle` owns an htslib `bam_plp_t` plus a non-owning
+`PileupColumn` (a `vector<const bam_pileup1_t*>`) into it, and
+`load_pileup()` drives `bam_plp64_auto` over a `sam_itr_queryi`-scoped
+region to pull out the single pileup column at a requested
+`{tid, pos}`, sorted by query start position. `PileupBundle` is
+move-only (copy deleted, since it owns the htslib pileup iterator and
+destroys it via `bam_plp_destroy` on drop). This is the layer that used
+to be entangled with sorting/filtering console commands (per the
+02-07-26 entry) — now it just produces a column; anything SQL-shaped
+lives downstream.
+
+**SQL loading layer (`src/sql/`)** — the schema DDL from the previous
+entry is now actually run. `SqliteConn`/`SqliteErr` (`sql/types.hpp`)
+wrap a raw `sqlite3*` with move-only ownership and an `operator
+sqlite3*()` so call sites don't need an extra accessor layer.
+`PileupDB` (`sql/create.hpp`) is a `SqliteConn` alias, deliberately *not*
+bundled with pileup position metadata — noted in-code as a case of
+avoiding premature coupling until there's a demonstrated need to key a
+cache by position. `sql/create.cpp` implements `init()` (open + run
+`CREATE TABLE`), `clear()` (`DELETE FROM reads`), and `insert_pileup()`
+(single prepared `INSERT`, wrapped in an explicit `BEGIN`/`COMMIT`
+transaction rather than one-row-per-autocommit).
+
+`insert_pileup()` is the known-rough part: CIGAR is inserted as an empty
+placeholder (stringification not written yet), `mtid` is inserted as an
+empty string because the mate's reference name isn't reachable without
+the header (which isn't threaded through to this function yet), and the
+`tags` column is inserted as `NULL` pending aux-field → JSON
+serialization. Error handling in the insert loop is stubbed (`// TODO:
+ERR`) rather than actually returning the `SqliteErr` the function's
+`VoidOrSqliteErr` return type promises. Left a comment flagging the
+per-row `sqlite3_step` error path as unreviewed AI-generated code, to
+come back to before trusting it.
+
+**Accessors (`src/hts/accessors.{hpp,cpp}`)** — reshaped to feed the
+insert loop directly: renamed/added thin wrappers over
+`bam_pileup1_t`/`bam1_t` core fields (`start`, `mapq`, `mtid`, `mpos`,
+`flag`, `base`, `qlen`) alongside the existing `seq()`, and added a new
+`qual_ascii()` that renders the quality array as SAM-spec ASCII
+(offset-33, or `*` for missing quality) instead of raw phred bytes —
+needed since the `reads.qual` column is a text column mirroring the SAM
+QUAL field. Return types on the small wrappers were loosened to `auto`
+rather than spelling out htslib's underlying integer typedefs.
+
+**Housekeeping** — `PileupPosition` moved out of `PileupContext.hpp` and
+into `hts/pileup.hpp` where it's actually used. `AlnFile`'s
+ctor/dtor/move-assignment bodies moved out of `accessors.cpp` into a new
+`hts/types.cpp`, so `accessors.cpp` only holds field accessors and
+`types.cpp` only holds `AlnFile` lifetime management. `src/table.{cpp,hpp}`
+and `src/extb/extb-box.{cpp,hpp}` were deleted and reappear under
+`src/extb/widgets/` (`table.{hpp,cpp}`, `extb-box.{hpp,cpp}`) — a
+relocation rather than a rewrite, grouping UI widgets together now that
+`extb-box` has SQL-console-facing siblings coming.
+
+`CMakeLists.txt` now does `pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET
+sqlite3)` and links `PkgConfig::DEPS`, alongside a small cleanup of the
+htslib-discovery logic (dropped the redundant `_htslib_inc`/`_htslib_lib`
+intermediate variables now that `HTSLIB_INCLUDE_DIR`/`HTSLIB_LIBRARY` are
+used directly).
+
+**Not yet done:** CIGAR stringification, mate reference-name lookup
+(needs header plumbed into the insert path), aux tag → JSON
+serialization, and real error propagation out of `insert_pileup()`. The
+DDL has been run against real data via this loader for the first time,
+but the row content is still partly placeholder.

@@ -19,11 +19,6 @@ struct PropRequest {
     StringifyFn cb;
 };
 
-struct PileupPosition {
-  int32_t tid;
-  hts_pos_t pos;
-};
-
 struct PileupSpan {
   hts_pos_t gstart;
   hts_pos_t gend;

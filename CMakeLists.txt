@@ -14,8 +14,10 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 
-include(FetchContent)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3)
 
+include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 
 FetchContent_Declare(
@@ -44,29 +46,21 @@ FetchContent_MakeAvailable(argparse)
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
 
+
 set(HTSLIB_TARGET "")
-set(_htslib_inc "")
-set(_htslib_lib "")
-
 if(HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
-  message(STATUS "Using user-specified htslib install. Must be >=1.14, but this is not enforced.")
-  set(_htslib_inc "${HTSLIB_INCLUDE_DIR}")
-  set(_htslib_lib "${HTSLIB_LIBRARY}")
-endif()
-
-if(_htslib_inc AND _htslib_lib)
+  message(STATUS "Using user-specified htslib install. Must be >=1.14, but this is not enforced by the installer.")
   add_library(htslib UNKNOWN IMPORTED GLOBAL)
   add_library(htslib::htslib ALIAS htslib)
   set_target_properties(htslib PROPERTIES
-    IMPORTED_LOCATION "${_htslib_lib}"
-    INTERFACE_INCLUDE_DIRECTORIES "${_htslib_inc}"
+    IMPORTED_LOCATION "${HTSLIB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${HTSLIB_INCLUDE_DIR}"
   )
   set(HTSLIB_TARGET htslib::htslib)
 endif()
 
-message(STATUS "Finding htslib via PkgConfig")
-find_package(PkgConfig)
-if(NOT HTSLIB_TARGET AND PkgConfig_FOUND)
+if(NOT HTSLIB_TARGET)
+  message(STATUS "Looking for htslib via PkgConfig")
   # assuming the pkg-config module is called "htslib"
   pkg_check_modules(HTSLIB QUIET IMPORTED_TARGET htslib>=1.14)
   if(HTSLIB_FOUND)
@@ -117,4 +111,5 @@ target_link_libraries(pileup-browser
   plog::plog
   argparse
   ${HTSLIB_TARGET}
+  PkgConfig::DEPS
 )

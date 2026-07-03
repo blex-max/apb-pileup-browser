@@ -1,60 +1,54 @@
 #include "hts/accessors.hpp"
-#include "hts/types.hpp"
 
 #include <htslib/hts.h>
-#include <string>
-
 #include <htslib/sam.h>
 
 namespace htsacc {
 
-AlnFile::~AlnFile() noexcept {
-    if (idx) hts_idx_destroy(idx);
-    if (hdr) sam_hdr_destroy(hdr);
-    if (f)   hts_close(f);
-}
-
-AlnFile::AlnFile(AlnFile&& o) noexcept
-    : f{o.f}, hdr{o.hdr}, idx{o.idx}
-{
-    o.f = nullptr; o.hdr = nullptr; o.idx = nullptr;
-}
-
-AlnFile& AlnFile::operator=(AlnFile&& o) noexcept {
-    if (this != &o) {
-        if (idx) hts_idx_destroy(idx);
-        if (hdr) sam_hdr_destroy(hdr);
-        if (f)   hts_close(f);
-        f = o.f; hdr = o.hdr; idx = o.idx;
-        o.f = nullptr; o.hdr = nullptr; o.idx = nullptr;
-    }
-    return *this;
-}
-
-
-hts_pos_t qpos (const bam_pileup1_t* p1) {
-  return p1->qpos;
-}
-
-
-hts_pos_t gstart (const bam_pileup1_t* p1) {
+auto start (const bam_pileup1_t* p1) {
   return p1->b->core.pos;
 }
 
-char pileup_base (const bam_pileup1_t* p1) {
+auto base (const bam_pileup1_t* p1) {
   return seq_nt16_str[bam_seqi(bam_get_seq(p1->b), p1->qpos)];
 }
 
-uint16_t flag (const bam_pileup1_t* p1) {
+auto mapq (const bam_pileup1_t* p1) {
+  return p1->b->core.qual;
+}
+
+auto mtid (const bam_pileup1_t* p1) {
+  return p1->b->core.mtid;
+}
+
+auto mstart (const bam_pileup1_t* p1) {
+  return p1->b->core.mpos;
+}
+
+auto flag (const bam_pileup1_t* p1) {
   return p1->b->core.flag;
 }
 
+auto qlen (const bam_pileup1_t* p1) {
+  return p1->b->core.l_qseq;
+}
+
+auto base_qual (const bam_pileup1_t *p1) {
+  const auto qpos = p1->qpos;
+
+  const auto bq = bam_get_qual(p1->b);  // get qual arr
+  if (bq == NULL) {
+    return (uint8_t)0;
+  }
+  return *(bq + qpos);
+}
 
 std::string seq (const bam_pileup1_t* p1, size_t qpos, size_t n) {
   std::string seq_out{};
+  size_t seq_len = static_cast<size_t> (qlen(p1));
 
-  if (n == 0 || (qpos + n) > p1->b->core.l_qseq) {
-    n = p1->b->core.l_qseq;
+  if (n == 0 || (qpos + n) > seq_len) {
+    n = seq_len;
   }
 
   const auto seq_nib = bam_get_seq(p1->b);
@@ -67,21 +61,25 @@ std::string seq (const bam_pileup1_t* p1, size_t qpos, size_t n) {
 }
 
 
-std::string get_seq_genomic (const bam_pileup1_t* p1, size_t gpos, size_t n=0) {
-  const auto qpos = gpos - p1->b->core.pos;
-  return seq (p1, qpos, n);
-}
+std::string qual_ascii (const bam_pileup1_t* p1, size_t qpos, size_t n) {
+  std::string qual_out{};  // ascii
+  size_t seq_len = static_cast<size_t> (qlen(p1));
 
-uint8_t base_qual (const bam_pileup1_t *p1) {
-  const auto qpos = p1->qpos;
-
-  const auto bq = bam_get_qual(p1->b);  // get qual string arr
-  if (bq == NULL) {
-    return 0;
+  if (n == 0 || (qpos + n) > seq_len) {
+    n = seq_len;
   }
-  return *(bq + qpos);
+
+  const auto qual = bam_get_qual(p1->b);
+  if (qual[0] == 255) {
+    qual_out = '*';
+  }
+  else {
+    for (size_t i = qpos; i < n; ++i) {
+      qual_out += (char)(qual[i] + 33);
+    }
+  }
+
+  return qual_out;
 }
 
 }  // end namespace
-
-
