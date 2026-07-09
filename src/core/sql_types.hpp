@@ -13,16 +13,10 @@ struct SqliteConn {
   SqliteConn& operator= (const SqliteConn&) = delete;
 
   SqliteConn (SqliteConn&& other) noexcept : o_ptr (other.o_ptr) { other.o_ptr = nullptr; }
-  SqliteConn& operator= (SqliteConn&& other) noexcept {
-    if (this != &other) {
-      if (o_ptr) sqlite3_close_v2 (o_ptr);
-      o_ptr = other.o_ptr;
-      other.o_ptr = nullptr;
-    }
-    return *this;
-  }
+  SqliteConn& operator= (SqliteConn&&) = delete;
 
-  ~SqliteConn () { if (o_ptr) sqlite3_close_v2 (o_ptr); }};
+  ~SqliteConn () { if (o_ptr) sqlite3_close_v2 (o_ptr); }
+};
 
 
 /* STATEMENTS */
@@ -37,14 +31,7 @@ struct SqliteStmt {
   SqliteStmt& operator= (const SqliteStmt&) = delete;
 
   SqliteStmt (SqliteStmt&& other) noexcept : o_ptr (other.o_ptr) { other.o_ptr = nullptr; }
-  SqliteStmt& operator= (SqliteStmt&& other) noexcept {
-    if (this != &other) {
-      sqlite3_finalize (o_ptr);
-      o_ptr = other.o_ptr;
-      other.o_ptr = nullptr;
-    }
-    return *this;
-  }
+  SqliteStmt& operator= (SqliteStmt&& other) = delete;
 
   ~SqliteStmt () { if (o_ptr) sqlite3_finalize (o_ptr); }
 };

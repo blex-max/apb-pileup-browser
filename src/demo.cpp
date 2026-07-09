@@ -61,7 +61,7 @@ VoidOrErr insert_demo_data (PileupDB& i_db, size_t regWidth, size_t nQuery) {
     if (sqlRc = bind_pileup_fields (stmt, ru_pf); sqlRc != SQLITE_OK) {
       if (const int rollbackRc = sqlite3_exec (i_db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
         return std::unexpected{make_sqlite3_err (sqlRc,
-            (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(i_db) + ")").c_str())};
+            (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(i_db) + ")"))};
       }
       return std::unexpected{make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))};
     }
@@ -84,9 +84,9 @@ err_db:
     const std::string errMsg = sqlite3_errmsg (i_db);
     if (const int rollbackRc = sqlite3_exec (i_db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
       return std::unexpected{make_sqlite3_err (sqlRc,
-          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(i_db) + ")").c_str())};
+          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(i_db) + ")"))};
     }
-    return std::unexpected{make_sqlite3_err (sqlRc, errMsg.c_str())};
+    return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
   }
 
 }

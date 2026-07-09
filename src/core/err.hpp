@@ -20,7 +20,7 @@ struct Err {
   const ErrKind kind;
   const ErrSrc src;
   std::optional<const int> code;      // raw htslib/sqlite3 code, for diagnostics
-  const std::string msg;  // human-readable, for reporting
+  std::string msg;  // human-readable, for reporting
 };
 
 using VoidOrErr = std::expected<void, Err>;

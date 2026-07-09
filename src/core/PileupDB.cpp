@@ -9,6 +9,7 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include "core/err.hpp"
 #include "core/sql.hpp"
 #include "plog/Log.h"
 
@@ -80,8 +81,8 @@ err_sql:
     // are stored on the *destination* handle, so o_fileDb is the
     // right handle to query here in every failure case above.
     const std::string errMsg = sqlite3_errmsg (o_fileDb);
-    sqlite3_close_v2 (o_fileDb);  // v2: return code is unchecked here anyway, so avoid ever leaking o_fileDb
-    return std::unexpected{make_sqlite3_err (sqlRc, errMsg.c_str())};
+    sqlite3_close_v2 (o_fileDb);
+    return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
   }
 }
 
@@ -114,12 +115,14 @@ void append_json_escaped (const char* p_data, size_t len, std::string& out)
   }
 }
 
-void aux1_to_json (const uint8_t* p_aux1, const uint8_t* p_auxEnd, std::string& entryOut)
+VoidOrErr aux1_to_json (const uint8_t* p_aux1, const uint8_t* p_auxEnd, std::string& entryOut)
 {
   // TODO: error strategy
   kstring_t o_kstr;
   ks_initialize(&o_kstr);
-  sam_format_aux1(p_aux1-2, *p_aux1, p_aux1+1, p_auxEnd, &o_kstr);
+  if (sam_format_aux1(p_aux1-2, *p_aux1, p_aux1+1, p_auxEnd, &o_kstr) == NULL) {
+    return std::unexpected{make_htslib_err(-1, "failed to parse aux tag")}; // TODO: better error
+  }
   const char* p_str = ks_str(&o_kstr);
 
   /* append key */
@@ -167,6 +170,7 @@ void aux1_to_json (const uint8_t* p_aux1, const uint8_t* p_auxEnd, std::string& 
   }
 
   ks_free(&o_kstr);
+  return {};
 }
 
 /* PILEUP MACHINERY */
@@ -317,7 +321,16 @@ VoidOrErr insert_pileup(PileupDB &db, const AlnFile &aln, const PileupPosition &
         }
       }
 
-      fill_fields(ru_pf, ru_p1, ru_mtidName);
+      if (auto ffRet = fill_fields(ru_pf, ru_p1, ru_mtidName); !ffRet) {
+        if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
+          ffRet.error().msg += "(additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")";
+
+        }
+        else {
+          ffRet.error().msg += "(database transaction has been rolled back)";
+        }
+        return std::unexpected{ffRet.error()};
+      }
 
       if (sqlRc = bind_pileup_fields (stmt, ru_pf); sqlRc != SQLITE_OK) {
         goto err_rc;
@@ -344,16 +357,16 @@ err_db:
     // could factor out rollback
     if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
       return std::unexpected{make_sqlite3_err (sqlRc,
-          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")").c_str())};
+          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")"))};
     }
-    return std::unexpected{make_sqlite3_err (sqlRc, errMsg.c_str())};
+    return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
   }
 
 err_rc:
   {
     if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
       return std::unexpected{make_sqlite3_err (sqlRc,
-          (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")").c_str())};
+          (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")"))};
     }
     return std::unexpected{make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))};
   }
@@ -365,23 +378,23 @@ err_rc:
 //
 // NOTE: takes mTidName directly to
 // avoid dealing with SAM header.
-void fill_fields (PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_mTidName)
+VoidOrErr fill_fields (PileupFields& pf, const bam_pileup1_t* p1, const char* mTidName)
 {
-  const auto uo_b1 = uo_p1->b;
+  const auto uo_b1 = p1->b;
 
-  pf.qPos = uo_p1->qpos;
-  pf.indel = uo_p1->indel;
-  pf.isDel = uo_p1->is_del;
-  pf.isHead = uo_p1->is_head;
-  pf.isTail = uo_p1->is_tail;
-  pf.isRefSkip = uo_p1->is_refskip;
+  pf.qPos = p1->qpos;
+  pf.indel = p1->indel;
+  pf.isDel = p1->is_del;
+  pf.isHead = p1->is_head;
+  pf.isTail = p1->is_tail;
+  pf.isRefSkip = p1->is_refskip;
   // NOTE: qname null terminated,
   // so assignment safe.
   pf.qName = bam_get_qname(uo_b1);
   pf.flag = uo_b1->core.flag;
   pf.start = uo_b1->core.pos;
   pf.mapQ = uo_b1->core.qual;
-  pf.mtidName = uo_mTidName != NULL ? uo_mTidName : "";
+  pf.mtidName = mTidName != NULL ? mTidName : "";
   pf.mStart = uo_b1->core.mpos; // <0 == unaligned (or no mate)
 
   {
@@ -398,8 +411,8 @@ void fill_fields (PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_m
       ru_seq[j] = seq_nt16_str[bam_seqi (p_qs, j)];
       ru_qual[j] = static_cast<char> (p_qq[j] + 33);
     }
-    pf.baseQual = p_qq[uo_p1->qpos];
-    pf.base = ru_seq[static_cast<size_t>(uo_p1->qpos)];
+    pf.baseQual = p_qq[p1->qpos];
+    pf.base = ru_seq[static_cast<size_t>(p1->qpos)];
   }
 
   {
@@ -432,7 +445,10 @@ void fill_fields (PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_m
       std::string ru_aux1{};
       for (; p_aux1;) {
         ru_aux1.clear();
-        aux1_to_json(p_aux1, p_dataEnd, ru_aux1);
+        auto convRet = aux1_to_json(p_aux1, p_dataEnd, ru_aux1);
+        if (!convRet) {
+          return std::unexpected{convRet.error()};
+        }
         auxJson += ru_aux1;
         p_aux1 = bam_aux_next(uo_b1, p_aux1);
         if (p_aux1 == NULL) {
@@ -443,7 +459,8 @@ void fill_fields (PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_m
       auxJson += '}';
     }
   }
-  
+
+  return {};
 }
 
 // Bind one pileup row's fields into `stmt`, in column order matching

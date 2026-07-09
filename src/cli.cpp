@@ -20,7 +20,14 @@ ArgsOrErr init_cli (int argc, char** argv)
     .nargs(1)
     .metavar("PATH")
     .store_into(args.dumpPath);
-  // TODO: redo below args
+  cli.add_argument ("--log")
+    .help ("log debug output to file")
+    .nargs(1)
+    .metavar("PATH")
+    .store_into(args.logPath);
+  // NOTE: may want to redo below args
+  // at some point since may want ability
+  // to load directly from db. (shareable artefact)
   cli.add_argument ("SAM")
     .help ("path to alignment file in s/b/cram format")
     .nargs (argparse::nargs_pattern::optional);

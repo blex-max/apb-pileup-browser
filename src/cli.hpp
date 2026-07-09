@@ -12,6 +12,7 @@ struct StartupArgs {
     std::optional<AlnFile> aln;
     bool demo;
     std::string dumpPath;
+    std::string logPath;
 };
 
 using ArgsOrErr = std::expected<StartupArgs, Err>;

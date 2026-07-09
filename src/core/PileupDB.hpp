@@ -10,9 +10,12 @@
 #include "core/hts_types.hpp"
 
 
-struct PileupDB : public SqliteConn {};
+struct PileupDB : public SqliteConn {
+  friend std::expected<PileupDB, Err> make_db ();
+  private: PileupDB()=default;  // factory-only construction
+};
 using DbOrErr = std::expected<PileupDB, Err>;
-DbOrErr make_db ();
+DbOrErr make_db (); // factory
 
 using InsertReadsStmt = SqliteStmt<struct InsertReadsTag>;
 [[nodiscard]] inline int prepare_insert_reads (PileupDB& db, InsertReadsStmt& out) {
@@ -52,7 +55,7 @@ struct PileupFields {
 
 // convert to database-facing interface type
 // NOTE: noexcept?
-void fill_fields(PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_mTidName);
+VoidOrErr fill_fields (PileupFields& pf, const bam_pileup1_t* p1, const char* mTidName);
 
 // returns sql rc directly
 [[nodiscard]] int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf);

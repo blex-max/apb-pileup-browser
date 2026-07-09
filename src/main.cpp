@@ -2,24 +2,23 @@
 #include <iostream>
 
 #include <plog/Log.h>
-#include <plog/Initializers/ConsoleInitializer.h>
-#include <plog/Formatters/TxtFormatter.h>
+#include <plog/Initializers/RollingFileInitializer.h>
 
 #include "cli.hpp"
 #include "core/PileupDB.hpp"
 #include "demo.hpp"
 
 int main (int argc, char** argv) {
-  plog::init<plog::TxtFormatter> (plog::debug, plog::streamStdErr);
 
-  PLOGD << "Processing invocation";
   auto argRet = init_cli(argc, argv);
   if (!argRet) {
     std::cerr << argRet.error().msg << std::endl;
     return EXIT_FAILURE;
   }
   StartupArgs args = std::move(*argRet);
-  PLOGD << "Args processed";
+
+  plog::init (plog::debug, args.logPath.c_str(), 10000000 /* 10mb limit */, 1);
+  PLOGD << "Startup";
 
   PLOGD << "Creating database";
   auto dbRet = make_db();
