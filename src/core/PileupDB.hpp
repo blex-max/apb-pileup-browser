@@ -23,27 +23,32 @@ using InsertReadsStmt = SqliteStmt<struct InsertReadsTag>;
 
 // for use as a buffer during conversion
 struct PileupFields {
-  char base;
-  uint8_t baseQual;
-  int32_t qPos;
-  int indel;
-  bool isDel, isHead, isTail, isRefSkip;
+  // NOTE: layout as table schema
   std::string qName;
   uint16_t flag;
   hts_pos_t start;
   hts_pos_t end;
   uint8_t mapQ;
+
+  char base;
+  uint8_t baseQual;
+  int32_t qPos;
+  int indel;
+  bool isDel, isHead, isTail, isRefSkip;
+
   std::string cig;
-  std::string mtidName;
-  hts_pos_t mStart;
   std::string seqBases;
   std::string qualAscii;
+
+  std::string mtidName;
+  hts_pos_t mStart;
+  
   std::string auxJson;
 };
 
 // NOTE: may return number of records written
 // or similar over void
-[[nodiscard]] VoidOrErr pileup_to_db (PileupDB& db, const AlnFile& aln, const PileupPosition& pos);
+[[nodiscard]] VoidOrErr insert_pileup (PileupDB& db, const AlnFile& aln, const PileupPosition& pos);
 
 // convert to database-facing interface type
 // NOTE: noexcept?

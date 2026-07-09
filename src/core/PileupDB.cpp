@@ -10,6 +10,7 @@
 #include <htslib/sam.h>
 
 #include "core/sql.hpp"
+#include "plog/Log.h"
 
 
 DbOrErr make_db () {
@@ -91,7 +92,7 @@ namespace /* pileup details */ {
 
 // Escape a raw aux string value for embedding in a JSON string literal.
 // SAM 'A'/'Z' values are drawn from [ !-~]+, which permits '"' and '\'
-// unescaped — without this, such (spec-valid) tags produce malformed JSON
+// unescaped — without this, valid tags can produce malformed JSON
 // and trip the `reads.tags` CHECK(json_valid(tags)) constraint.
 void append_json_escaped (const char* p_data, size_t len, std::string& out)
 {
@@ -170,12 +171,8 @@ void aux1_to_json (const uint8_t* p_aux1, const uint8_t* p_auxEnd, std::string& 
 
 /* PILEUP MACHINERY */
 struct PileupCapture {
-  htsFile* uo_fh;   // UnOwned
-  hts_itr_t* o_it;  // Owned
-
-  ~PileupCapture () {
-    hts_itr_destroy(o_it);
-  }
+  htsFile* uo_fh=nullptr;   // UnOwned
+  hts_itr_t* o_it=nullptr;  // Owned
 };
 
 extern "C" {
@@ -187,17 +184,35 @@ int pileup_func (void* data, bam1_t* b) {
 }
 
 struct PreparedPileup {
-  PileupCapture data;
-  bam_plp_t o_plp;  // owned
+  PileupCapture* o_cap=nullptr;
+  bam_plp_t o_plp=nullptr;
 
   ~PreparedPileup () {
-    bam_plp_destroy(o_plp);
+    if (o_cap) {
+      hts_itr_destroy(o_cap->o_it);
+      delete o_cap;
+    }
+    if (o_plp) {
+      bam_plp_destroy(o_plp);
+    }
   }
+  PreparedPileup () = default;
+  PreparedPileup (PreparedPileup&) = delete;
+  PreparedPileup& operator=(PreparedPileup&) = delete;
+  PreparedPileup (PreparedPileup&& o)
+    : o_cap(o.o_cap), o_plp(o.o_plp) {
+    o.o_cap = nullptr; o.o_plp = nullptr;
+  };
+  PreparedPileup& operator=(PreparedPileup&&) = delete;
 };
 
 std::expected<PreparedPileup, Err>
 prepare_pileup (const AlnFile& aln, const PileupPosition& pos)
 {
+  PLOGD << "Begin prepare_pileup";
+  PreparedPileup out;
+
+  PLOGD << "Initalising sam_itr_queryi";
   auto alnIter = sam_itr_queryi (
       aln.o_idx,
       pos.tid,
@@ -208,16 +223,18 @@ prepare_pileup (const AlnFile& aln, const PileupPosition& pos)
     return std::unexpected{make_htslib_err (-1, "sam_itr_queryi: failed to create iterator")};
   }
 
-  PileupCapture pfc{
+  PLOGD << "Initialising bam_plp_t";
+  out.o_cap = new PileupCapture{
       aln.o_fh,
       alnIter
   };
-  auto plp = bam_plp_init (pileup_func, &pfc);
+  auto plp = bam_plp_init (pileup_func, out.o_cap);
   if (plp == NULL) {
     return std::unexpected{make_htslib_err (-1, "bam_plp_init: failed to initialise pileup engine")};
   }
+  out.o_plp = plp;
 
-  return PreparedPileup{pfc, plp};
+  return std::move(out);
 }
 
 } // namespace
@@ -228,17 +245,19 @@ prepare_pileup (const AlnFile& aln, const PileupPosition& pos)
 // crashing the app. Some may indicate that
 // pileup creation at the given loci is not possible.
 // Others (sql) may indicate a retry is worthwile.
-VoidOrErr pileup_to_db(PileupDB &db, const AlnFile &aln, const PileupPosition &pos) {
+VoidOrErr insert_pileup(PileupDB &db, const AlnFile &aln, const PileupPosition &pos) {
   /*
     Insert a reads covering a pileup position into database.
   */
   // NOTE: does not directly check db
   // for already existing tables.
   // TODO: should do via factored out function
+  PLOGD << "Begin pileup to sql conversion";
 
   int sqlRc = SQLITE_OK;
   InsertReadsStmt stmt;
 
+  PLOGD << "Preparing pileup";
   auto plp = prepare_pileup(aln, pos);
   if (!plp) {
     return std::unexpected{plp.error()};
@@ -247,6 +266,7 @@ VoidOrErr pileup_to_db(PileupDB &db, const AlnFile &aln, const PileupPosition &p
   int plpTid = -1;
   int n_plp   = -1;
   const bam_pileup1_t* p_plpArr;
+  PLOGD << "Iterating pileup";
   while (
       (p_plpArr = bam_plp64_auto (plp->o_plp, &plpTid, &plpPos, &n_plp))
       != 0
@@ -257,11 +277,14 @@ VoidOrErr pileup_to_db(PileupDB &db, const AlnFile &aln, const PileupPosition &p
     if (plpPos < pos.pos) {
       continue;     // doesn't cover variant
     }
+    PLOGD << "Position found";
     // plpPos == pos.pos
     // transaction controlled directly, rather than using autocommit for each row
     if (sqlRc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL); sqlRc != SQLITE_OK) {
       goto err_db;
     }
+
+    PLOGD << "test";
 
     if (sqlRc = prepare_insert_reads (db, stmt); sqlRc != SQLITE_OK) {
       goto err_db;
@@ -274,6 +297,7 @@ VoidOrErr pileup_to_db(PileupDB &db, const AlnFile &aln, const PileupPosition &p
     char* ru_mtidName = NULL;
     // NOTE: zero nread falls through to
     // finalise and return path.
+    PLOGD << "Inserting reads";
     for (size_t i = 0; i < static_cast<size_t> (n_plp); ++i) {
       ru_p1 = const_cast<bam_pileup1_t*>(&p_plpArr[i]);
       {
@@ -428,6 +452,11 @@ void fill_fields (PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_m
 int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf) {
   int col = 1;
   int sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qName.data(), static_cast<int> (pf.qName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.flag); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.start); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.end); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.mapQ); sqlRc != SQLITE_OK) return sqlRc;
   if (sqlRc = sqlite3_bind_text  (stmt, col++, &pf.base, 1, SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
   if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.baseQual); sqlRc != SQLITE_OK) return sqlRc;
   if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.qPos); sqlRc != SQLITE_OK) return sqlRc;
@@ -436,12 +465,9 @@ int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf) {
   if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isHead); sqlRc != SQLITE_OK) return sqlRc;
   if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isTail); sqlRc != SQLITE_OK) return sqlRc;
   if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isRefSkip); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qName.data(), static_cast<int> (pf.qName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.flag); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.start); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.end); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.mapQ); sqlRc != SQLITE_OK) return sqlRc;
   if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.cig.data(), static_cast<int> (pf.cig.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.seqBases.data(), static_cast<int> (pf.seqBases.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qualAscii.data(), static_cast<int> (pf.qualAscii.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
   if (!pf.mtidName.empty()) {
     if (sqlRc = sqlite3_bind_text (stmt, col++, pf.mtidName.data(), static_cast<int> (pf.mtidName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
   } else {
@@ -452,8 +478,6 @@ int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf) {
   } else {
     if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.mStart); sqlRc != SQLITE_OK) return sqlRc;
   }
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.seqBases.data(), static_cast<int> (pf.seqBases.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qualAscii.data(), static_cast<int> (pf.qualAscii.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
   if (pf.auxJson.empty()) {
     if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
   } else {

@@ -19,22 +19,44 @@ int main (int argc, char** argv) {
     return EXIT_FAILURE;
   }
   StartupArgs args = std::move(*argRet);
+  PLOGD << "Args processed";
 
-  PLOGD << "Creating demo db";
-  auto demoRet = make_demo_db(300, 100);
-  if (!demoRet) {
-    std::cerr << demoRet.error().msg << std::endl;
+  PLOGD << "Creating database";
+  auto dbRet = make_db();
+  if (!dbRet) {
+    std::cerr << dbRet.error().msg << std::endl;
     return EXIT_FAILURE;
   }
-  PileupDB db = std::move(*demoRet);
-
-  PLOGD << "Dumping db";
-  auto dumpRet = dump_to_disk(db, "test.db");
-  if (!dumpRet) {
-    std::cerr << dumpRet.error().msg << std::endl;
-    return EXIT_FAILURE;
+  PileupDB db = std::move(*dbRet);
+  PLOGD << "Database created";
+  if (args.demo) {
+    PLOGD << "Inserting demo data into pileup db";
+    auto demoRet = insert_demo_data (db, 300, 100);
+    if (!demoRet) {
+      std::cerr << demoRet.error().msg << std::endl;
+      return EXIT_FAILURE;
+    }
+  } else {
+    PLOGD << "Inserting alignment pileup into pileup db";
+    // TODO: move open files here?
+    auto transRet = insert_pileup (db, *(args.aln), *(args.start));
+    if (!transRet) {
+      std::cerr << transRet.error().msg << std::endl;
+      return EXIT_FAILURE;
+    }
   }
-  
+  PLOGD << "Insertion complete";
+
+  if (!args.dumpPath.empty()) {
+    PLOGD << "Dumping db";
+    auto dumpRet = dump_to_disk(db, args.dumpPath);
+    if (!dumpRet) {
+      std::cerr << dumpRet.error().msg << std::endl;
+      return EXIT_FAILURE;
+    }
+  } else {
+    // load frontend
+  }
 
   return EXIT_SUCCESS;
 

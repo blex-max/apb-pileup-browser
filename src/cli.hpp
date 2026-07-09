@@ -10,7 +10,8 @@
 struct StartupArgs {
     std::optional<PileupPosition> start;
     std::optional<AlnFile> aln;
-    bool mode_demo=false;
+    bool demo;
+    std::string dumpPath;
 };
 
 using ArgsOrErr = std::expected<StartupArgs, Err>;

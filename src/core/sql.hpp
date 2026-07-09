@@ -21,6 +21,12 @@ CREATE TABLE reads (
     id          INTEGER PRIMARY KEY,
 
     -- pileup position fields
+    qname       TEXT,  -- Query template NAME
+    flag        INTEGER NOT NULL,  -- bitwise FLAG
+    rstart      INTEGER NOT NULL,  -- 0-based leftmost mapping pos
+    rend        INTEGER NOT NULL,  -- 0-based righmost mapping pos
+    mapq        INTEGER NOT NULL,  -- MAPping Quality
+
     base        CHAR(1) NOT NULL,  -- query base at pileup position (denormalised from seq for easy access)
     basequal    INTEGER NOT NULL,  -- query base quality
     qpos        INTEGER NOT NULL,  -- 0-based offset into seq/qual at this position
@@ -31,14 +37,10 @@ CREATE TABLE reads (
     is_refskip  INTEGER NOT NULL CHECK (is_refskip IN (0, 1)),
 
     -- bam1_t/alignment fields
-    qname       TEXT,  -- Query template NAME
-    flag        INTEGER NOT NULL,  -- bitwise FLAG
-    rstart      INTEGER NOT NULL,  -- 0-based leftmost mapping pos
-    rend        INTEGER NOT NULL,  -- 0-based righmost mapping pos
-    mapq        INTEGER NOT NULL,  -- MAPping Quality
     cigar       TEXT NOT NULL,  -- CIGAR string, stored as text for querying purposes
     seq         TEXT NOT NULL,  -- segment SEQuence
     qual        TEXT NOT NULL,  -- ASCII of Phred-scaled base QUALity+33
+
     mtid        TEXT,  -- Ref name of the mate/next read ('=' if same as tid per spec)
     mstart      INTEGER,  -- 0-based leftmost mappig position of the mate/next read, can be null
 
@@ -56,7 +58,8 @@ CREATE TABLE reads (
 
 inline constexpr std::string_view rsql_InsertReads = R"sql(
   INSERT INTO reads (
+      qname, flag, rstart, rend, mapq,
       base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
-      qname, flag, rstart, rend, mapq, cigar, mtid, mstart, seq, qual, tags
+      cigar, seq, qual, mtid, mstart, tags
   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
 )sql";

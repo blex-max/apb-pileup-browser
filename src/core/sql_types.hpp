@@ -22,8 +22,7 @@ struct SqliteConn {
     return *this;
   }
 
-  ~SqliteConn () { if (o_ptr) sqlite3_close_v2 (o_ptr); }  // v2: never leaks even if a stmt/backup is still outstanding; can't report an error from a dtor anyway
-};
+  ~SqliteConn () { if (o_ptr) sqlite3_close_v2 (o_ptr); }};
 
 
 /* STATEMENTS */
@@ -47,6 +46,6 @@ struct SqliteStmt {
     return *this;
   }
 
-  ~SqliteStmt () { sqlite3_finalize (o_ptr); }
+  ~SqliteStmt () { if (o_ptr) sqlite3_finalize (o_ptr); }
 };
 

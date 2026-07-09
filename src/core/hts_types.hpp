@@ -15,7 +15,7 @@ struct AlnFile {
   ~AlnFile() noexcept {
     if (o_idx) hts_idx_destroy(o_idx);
     if (o_hdr) sam_hdr_destroy(o_hdr);
-    if (o_fh)   hts_close(o_fh);
+    if (o_fh) hts_close(o_fh);
   }
 
   AlnFile(AlnFile&& o) noexcept
