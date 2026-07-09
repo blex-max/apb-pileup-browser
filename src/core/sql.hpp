@@ -18,7 +18,7 @@ inline constexpr std::string_view rsql_SetTempStoreMemory = "PRAGMA temp_store =
 // One row per read overlapping pileup reference position.
 inline constexpr std::string_view rsql_CreateReadsTable = R"sql(
 CREATE TABLE reads (
-    id          INTEGER PRIMARY KEY,  -- possibly unnecessary
+    id          INTEGER PRIMARY KEY,
 
     -- pileup position fields
     base        CHAR(1) NOT NULL,  -- query base at pileup position (denormalised from seq for easy access)
@@ -46,6 +46,7 @@ CREATE TABLE reads (
     -- e.g. {"NM":2,"MD":"76","RG":"sample1"}. Query individual tags with
     -- json_extract(tags, '$.NM'). NULL if the read has no aux tags.
     tags        TEXT CHECK (json_valid (tags))
+    -- NOTE: may add cigar as uint8_t blob for iterating/aligning on the query side
 
 );
 )sql";

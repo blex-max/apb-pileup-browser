@@ -1,3 +1,5 @@
+#pragma once
+
 #include <expected>
 #include <optional>
 #include <string>

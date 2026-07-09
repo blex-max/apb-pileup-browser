@@ -3,44 +3,36 @@
 #include <cstddef>
 #include <cstring>
 #include <expected>
-#include <htslib/kstring.h>
 #include <string>
 
+#include <htslib/kstring.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
 #include "core/sql.hpp"
 
 
-VoidOrErr init (PileupDB& db) {
-  if (db.o_ptr != nullptr) {
-    return std::unexpected{make_internal_err("attempt to initialise; PileupDB is already open")};
-  }
-
+DbOrErr make_db () {
+  PileupDB db;
   int sqlRc = 0;
+
   if (sqlRc = sqlite3_open (":memory:", &db.o_ptr); sqlRc != SQLITE_OK) {
     return std::unexpected{make_sqlite3_err(sqlRc, sqlite3_errmsg (db))};
   }
 
-  char* o_tmpErr;
-  auto excFn = [&db, &o_tmpErr] (const std::string_view stmt) -> int {
-    return sqlite3_exec (db, stmt.data(), NULL, NULL, &o_tmpErr);
+  auto excFn = [&db] (const std::string_view stmt) -> int {
+    return sqlite3_exec (db, stmt.data(), NULL, NULL, NULL);
   };
 
   if (sqlRc = excFn(rsql_SetTempStoreMemory); sqlRc != SQLITE_OK) {
-    goto exec_err;
+    return std::unexpected{make_sqlite3_err (sqlRc, sqlite3_errmsg(db))};
   }
 
   if (sqlRc = excFn (rsql_CreateReadsTable); sqlRc != SQLITE_OK) {
-    goto exec_err;
+    return std::unexpected{make_sqlite3_err (sqlRc, sqlite3_errmsg(db))};
   }
 
-  return {};
-
-exec_err:
-  std::string errMsg = o_tmpErr;
-  sqlite3_free (o_tmpErr);
-  return std::unexpected{make_sqlite3_err (sqlRc, errMsg.data())};
+  return db;
 }
 
 
@@ -228,72 +220,6 @@ prepare_pileup (const AlnFile& aln, const PileupPosition& pos)
   return PreparedPileup{pfc, plp};
 }
 
-/* INSERT STATEMENT */
-
-// Bespoke on purpose: this is the only prepared statement in the codebase
-// today. If a second one shows up, generalize this into a
-// template<typename Tag> struct SqliteStmt { ... }; with
-// using InsertReadsStmt = SqliteStmt<struct InsertReadsTag>; — a small,
-// mechanical refactor — rather than templating pre-emptively now.
-struct InsertReadsStmt {
-  sqlite3_stmt* o_ptr = nullptr;
-  operator sqlite3_stmt* () const { return o_ptr; }
-
-  InsertReadsStmt () = default;
-  InsertReadsStmt (const InsertReadsStmt&) = delete;
-  InsertReadsStmt& operator= (const InsertReadsStmt&) = delete;
-
-  // safe to call multiple times; leaves o_ptr null so the dtor no-ops
-  void finalize () { sqlite3_finalize (o_ptr); o_ptr = nullptr; }
-  ~InsertReadsStmt () { finalize(); }
-};
-
-int prepare_insert_reads (sqlite3* db, InsertReadsStmt& out) {
-  return sqlite3_prepare_v2 (
-      db, rsql_InsertReads.data(), static_cast<int> (rsql_InsertReads.size()),
-      &out.o_ptr, NULL);
-}
-
-// Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads. Returns the sqlite3 result code of the first
-// failing bind call, or SQLITE_OK if all columns bound successfully.
-int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf) {
-  int col = 1;
-  int sqlRc;
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, &pf.base, 1, SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.baseQual); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.qPos); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.indel); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isDel); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isHead); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isTail); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isRefSkip); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qName.data(), static_cast<int> (pf.qName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.flag); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.start); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.end); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.mapQ); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.cig.data(), static_cast<int> (pf.cig.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (!pf.mtidName.empty()) {
-    if (sqlRc = sqlite3_bind_text (stmt, col++, pf.mtidName.data(), static_cast<int> (pf.mtidName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  } else {
-    if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
-  }
-  if (pf.mStart < 0) {
-    if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
-  } else {
-    if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.mStart); sqlRc != SQLITE_OK) return sqlRc;
-  }
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.seqBases.data(), static_cast<int> (pf.seqBases.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qualAscii.data(), static_cast<int> (pf.qualAscii.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  if (pf.auxJson.empty()) {
-    if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
-  } else {
-    if (sqlRc = sqlite3_bind_text (stmt, col++, pf.auxJson.data(), static_cast<int> (pf.auxJson.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
-  }
-  return SQLITE_OK;
-}
-
 } // namespace
 
 
@@ -380,7 +306,6 @@ VoidOrErr pileup_to_db(PileupDB &db, const AlnFile &aln, const PileupPosition &p
       sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs
     }
 
-    stmt.finalize();
     if (sqlRc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL); sqlRc != SQLITE_OK) {
       goto err_db;
     }
@@ -392,21 +317,19 @@ VoidOrErr pileup_to_db(PileupDB &db, const AlnFile &aln, const PileupPosition &p
 err_db:
   {
     const std::string errMsg = sqlite3_errmsg (db);
-    stmt.finalize();
     // could factor out rollback
     if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
       return std::unexpected{make_sqlite3_err (sqlRc,
-          (errMsg + " (additionally, ROLLBACK failed: " + sqlite3_errstr (rollbackRc) + ")").c_str())};
+          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")").c_str())};
     }
     return std::unexpected{make_sqlite3_err (sqlRc, errMsg.c_str())};
   }
 
 err_rc:
   {
-    stmt.finalize();
     if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
       return std::unexpected{make_sqlite3_err (sqlRc,
-          (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed: " + sqlite3_errstr (rollbackRc) + ")").c_str())};
+          (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")").c_str())};
     }
     return std::unexpected{make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))};
   }
@@ -499,4 +422,43 @@ void fill_fields (PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_m
   
 }
 
+// Bind one pileup row's fields into `stmt`, in column order matching
+// stmt_str_InsertReads. Returns the sqlite3 result code of the first
+// failing bind call, or SQLITE_OK if all columns bound successfully.
+int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf) {
+  int col = 1;
+  int sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, &pf.base, 1, SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.baseQual); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.qPos); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.indel); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isDel); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isHead); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isTail); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.isRefSkip); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qName.data(), static_cast<int> (pf.qName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.flag); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.start); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.end); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_int   (stmt, col++, pf.mapQ); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.cig.data(), static_cast<int> (pf.cig.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (!pf.mtidName.empty()) {
+    if (sqlRc = sqlite3_bind_text (stmt, col++, pf.mtidName.data(), static_cast<int> (pf.mtidName.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  } else {
+    if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
+  }
+  if (pf.mStart < 0) {
+    if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
+  } else {
+    if (sqlRc = sqlite3_bind_int64 (stmt, col++, pf.mStart); sqlRc != SQLITE_OK) return sqlRc;
+  }
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.seqBases.data(), static_cast<int> (pf.seqBases.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (sqlRc = sqlite3_bind_text  (stmt, col++, pf.qualAscii.data(), static_cast<int> (pf.qualAscii.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  if (pf.auxJson.empty()) {
+    if (sqlRc = sqlite3_bind_null (stmt, col++); sqlRc != SQLITE_OK) return sqlRc;
+  } else {
+    if (sqlRc = sqlite3_bind_text (stmt, col++, pf.auxJson.data(), static_cast<int> (pf.auxJson.size()), SQLITE_TRANSIENT); sqlRc != SQLITE_OK) return sqlRc;
+  }
+  return SQLITE_OK;
+}
 

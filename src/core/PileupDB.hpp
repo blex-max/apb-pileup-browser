@@ -1,14 +1,25 @@
 #pragma once
 
+#include <expected>
 #include <htslib/sam.h>
 #include <string>
 
 #include "core/err.hpp"
+#include "core/sql.hpp"
 #include "core/sql_types.hpp"
 #include "core/hts_types.hpp"
 
 
 struct PileupDB : public SqliteConn {};
+using DbOrErr = std::expected<PileupDB, Err>;
+DbOrErr make_db ();
+
+using InsertReadsStmt = SqliteStmt<struct InsertReadsTag>;
+[[nodiscard]] inline int prepare_insert_reads (PileupDB& db, InsertReadsStmt& out) {
+  return sqlite3_prepare_v2 (
+      db, rsql_InsertReads.data(), static_cast<int> (rsql_InsertReads.size()),
+      &out.o_ptr, NULL);
+}
 
 // for use as a buffer during conversion
 struct PileupFields {
@@ -30,14 +41,16 @@ struct PileupFields {
   std::string auxJson;
 };
 
-[[nodiscard]] VoidOrErr init (PileupDB& db);
-
 // NOTE: may return number of records written
 // or similar over void
 [[nodiscard]] VoidOrErr pileup_to_db (PileupDB& db, const AlnFile& aln, const PileupPosition& pos);
 
 // convert to database-facing interface type
+// NOTE: noexcept?
 void fill_fields(PileupFields& pf, const bam_pileup1_t* uo_p1, const char* uo_mTidName);
+
+// returns sql rc directly
+[[nodiscard]] int bind_pileup_fields (InsertReadsStmt& stmt, const PileupFields& pf);
 
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
