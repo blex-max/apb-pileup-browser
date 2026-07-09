@@ -14,8 +14,13 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 
+option(MAKE_TEST "Build the unit test binary" OFF)
+
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3)
+# >=3.38: reads.tags relies on the built-in json_valid() (JSON support was
+# folded into core sqlite3 in 3.38; before that it required the JSON1
+# extension to be compiled in separately).
+pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3>=3.38)
 
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
@@ -42,6 +47,16 @@ FetchContent_Declare(
     GIT_TAG v3.2
 )
 FetchContent_MakeAvailable(argparse)
+
+if(MAKE_TEST)
+  FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.8.1
+    GIT_SHALLOW    TRUE
+  )
+  FetchContent_MakeAvailable(Catch2)
+endif()
 
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
@@ -77,17 +92,17 @@ if(NOT HTSLIB_TARGET)
 endif()
 
 add_executable(pileup-browser
+  src/sql/create.cpp
   src/main.cpp
   src/extb/extb.cpp
-  src/extb/extb-box.cpp
+  src/extb/widgets/extb-box.cpp
   src/app.cpp
   src/cmd.cpp
   src/PileupContext.cpp
   src/input.cpp
   src/tb2_impl.cpp
-  src/table.cpp
+  src/extb/widgets/table.cpp
   src/demo.cpp
-  src/hts/accessors.cpp
 )
 target_compile_options(pileup-browser
   PRIVATE
@@ -113,3 +128,19 @@ target_link_libraries(pileup-browser
   ${HTSLIB_TARGET}
   PkgConfig::DEPS
 )
+
+if(MAKE_TEST)
+  enable_testing()
+  add_executable(pileup-browser-tests
+    tests/test_PileupRead.cpp
+  )
+  target_include_directories(pileup-browser-tests PRIVATE src)
+  target_link_libraries(pileup-browser-tests
+    PRIVATE
+    Catch2::Catch2WithMain
+    ${HTSLIB_TARGET}
+  )
+  list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+  include(Catch)
+  catch_discover_tests(pileup-browser-tests)
+endif()

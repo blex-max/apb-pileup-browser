@@ -1,9 +1,5 @@
 #pragma once
 
-#include "PileupContext.hpp"
+#include "core/PileupDB.hpp"
 
-namespace demo {
-
-PileupBundle make_demo_pileup (size_t region_width, size_t n_query);
-
-}
+PileupDB make_demo_db (size_t region_width, size_t n_query);
