@@ -3,3 +3,4 @@ build/
 scratch/
 build/
 build-asan/
+.DS_Store

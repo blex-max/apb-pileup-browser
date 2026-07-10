@@ -166,3 +166,105 @@ used directly).
 serialization, and real error propagation out of `insert_pileup()`. The
 DDL has been run against real data via this loader for the first time,
 but the row content is still partly placeholder.
+
+## 10-07-26
+*(the following is a Claude-generated summary of progress since the last
+devlog entry, produced at the user's request against the commit history
+and working-tree diff of tracked files — four commits, `pileup2db`
+through `log to file`, all dated 09-07-26, plus a handful of uncommitted
+tweaks.)*
+
+This is the entry where the "not yet done" list from 03-07-26 gets
+cleared, alongside a deliberate module reshuffle.
+
+**The TUI is shelved, not deleted.** Every file belonging to the old
+termbox2-based app (`app.*pp`, `cmd.*pp`, `ctx.hpp`, `input.*pp`,
+`extb/`, `PileupContext.*pp`, `GlobalContext.hpp`, `tb2_impl.cpp`) moved
+as a block, unmodified, from `src/` into `src/app-tmp/` and dropped out
+of the CMake executable's source list — `CMakeLists.txt`'s
+`add_executable(pileup-browser ...)` now lists just
+`core/PileupDB.cpp`, `main.cpp`, `cli.cpp`, `demo.cpp`. termbox2 is still
+fetched and linked but nothing compiled currently calls into it. This
+reads as the pivot decided on 02-07-26 (pileup browser → SQL backend)
+reaching its logical endpoint: rather than keep threading SQL through
+the existing TUI incrementally, the TUI is parked wholesale while the
+backend is finished and proven out standalone.
+
+**`src/sql/` and `src/hts/` collapsed into `src/core/`.** Where the
+03-07-26 layout had the pileup engine, accessors, and SQL loading as
+separate directories, everything now lives in `core/`: `hts_types.hpp`
+(`AlnFile`, `PileupPosition`, `GenomeSpan` — moved in from their old
+homes), `sql_types.hpp` (`SqliteConn`, the templated
+`SqliteStmt<Tag>` wrapper), `sql.hpp` (the raw DDL/DML strings),
+`err.hpp` (new unified error type, see below), and `PileupDB.{hpp,cpp}`
+(the actual pileup→SQL logic). The old standalone `pileup.{hpp,cpp}`
+engine (a separate `PileupBundle`/`load_pileup()` abstraction from
+03-07-26) is gone; pileup iteration now lives inline in `PileupDB.cpp`
+as `PreparedPileup`/`prepare_pileup()`, built directly around a
+`PileupCapture` (`uo_fh` borrowed, `o_it` owned) and a `pileup_func`
+callback driving `sam_itr_next`.
+
+**`insert_pileup()` is now real, not a rough draft.** Against the
+03-07-26 placeholder list:
+- CIGAR is stringified properly (`bam_cigar_oplen`/`bam_cigar_opchr` per
+  op), and `rend` is computed from it via `bam_cigar2rlen` rather than
+  left as an empty string.
+- Mate reference name is resolved via `sam_hdr_tid2name` against
+  `aln.o_hdr`, threaded down into the per-row loop rather than needing a
+  separate plumbing pass — `'='` when the mate shares the read's own
+  `tid` (per SAM RNEXT convention), the looked-up name otherwise, empty
+  (→ SQL `NULL`) when the read has no mate.
+- Aux tags are fully serialized to JSON (`aux1_to_json`, new): walks
+  `bam_aux_first`/`bam_aux_next`, calls `sam_format_aux1` per tag, and
+  handles both `'B'` (numeric array → JSON array) and scalar types
+  (`'A'`/`'Z'`/`'H'` as JSON strings, everything else as a bare JSON
+  number). A dedicated `append_json_escaped()` escapes `"`/`\`/control
+  characters when writing string-valued tags, since SAM's `A`/`Z` aux
+  values are allowed to contain raw `"` and `\` unescaped — without it,
+  a legal tag value could produce invalid JSON and trip the
+  `reads.tags CHECK(json_valid(tags))` constraint from the 02-07-26
+  schema.
+- Error propagation is real `VoidOrErr`/`std::expected` throughout, not
+  a `// TODO: ERR` stub: failures roll back the open transaction and, if
+  the rollback itself fails, that failure's message is appended to the
+  original error rather than swallowed.
+
+**New: `dump_to_disk()`.** Copies the in-memory db out to a file path
+via sqlite3's online backup API (`sqlite3_backup_init`/`_step`/`_finish`
+against a freshly-opened destination handle), under the documented
+assumption that the source db is quiescent for the copy's duration.
+Wired up behind a new `--dump PATH` CLI flag — this is what actually
+got exercised end-to-end against real data in the `e2e run of
+pileup->sqlite functional on real data!` commit.
+
+**New: `cli.cpp`/`cli.hpp`**, built on `argparse` (new dependency,
+v3.2). `--demo` (synthetic data, no alignment file needed), `--dump
+PATH`, `--log PATH`, and positional `SAM`/`region` arguments. Region
+parsing uses `hts_parse_region` against the loaded header; opening the
+alignment file (`hts_open`/`sam_hdr_read`/`sam_index_load` into an
+`AlnFile`) happens eagerly during arg parsing rather than later, with a
+noted TODO that it'd be cleaner to just store paths here and open files
+once the full argument set is validated.
+
+**New: `demo.cpp`.** `insert_demo_data()` populates the `reads` table
+with synthetic random-base-sequence reads at random offsets, going
+straight through `bind_pileup_fields()` without touching htslib or the
+pileup engine at all — driven by the `--demo` CLI flag.
+
+**Logging now goes to a file.** `plog::init` takes a rolling file sink
+(`--log PATH`, 10MB cap) instead of console-only output (`log to file`
+commit).
+
+**Unified error type.** `core/err.hpp` replaces the rougher, per-module
+error handling from 03-07-26 with one `Err{kind, src, code, msg}` (plus
+`make_htslib_err`/`make_sqlite3_err`/`make_cli_err`/`make_internal_err`
+helpers) used consistently across `insert_pileup`, `dump_to_disk`,
+`fill_fields`, and `init_cli`. `ErrKind` currently has only `fatal`, with
+a comment flagging that recoverable errors may be distinguished later.
+
+**Test scaffold.** `CMakeLists.txt` gained a `MAKE_TEST` option that,
+when on, fetches Catch2 v3.8.1 and wires up a `pileup-browser-tests`
+target via `catch_discover_tests`. It also bumped the sqlite3
+dependency to `>=3.38`, noted as the version where `json_valid()` (used
+by the `reads.tags` CHECK constraint) became built-in rather than
+requiring the separate JSON1 extension.

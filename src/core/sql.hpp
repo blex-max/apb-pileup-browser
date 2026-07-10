@@ -4,9 +4,16 @@
 
 // NOTE: rsql_ == raw sql string
 
-// (maybe) TODO: add an additional metadata table
-// which details which bam this db is made
-// from.
+
+// metadata table storing provenance data, possibly
+// information retreived from the header
+// NOTE: currently unused
+inline constexpr std::string_view rsql_CreateMetaDataTable = R"sql(
+CREATE TABLE sample (
+    path TEXT -- alignment file path
+)
+)sql";
+
 
 // Default temp_store spills large sorts/temp b-trees to disk. Everything in
 // this db is meant to live in memory only — force temp structures there too,

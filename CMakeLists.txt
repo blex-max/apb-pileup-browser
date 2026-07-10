@@ -125,7 +125,7 @@ target_link_libraries(pileup-browser
 if(MAKE_TEST)
   enable_testing()
   add_executable(pileup-browser-tests
-    tests/test_PileupRead.cpp
+    tests/test_PileupDb.cpp
   )
   target_include_directories(pileup-browser-tests PRIVATE src)
   target_link_libraries(pileup-browser-tests

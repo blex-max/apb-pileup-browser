@@ -288,8 +288,6 @@ VoidOrErr insert_pileup(PileupDB &db, const AlnFile &aln, const PileupPosition &
       goto err_db;
     }
 
-    PLOGD << "test";
-
     if (sqlRc = prepare_insert_reads (db, stmt); sqlRc != SQLITE_OK) {
       goto err_db;
     }
