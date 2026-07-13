@@ -8,6 +8,7 @@
 #include <htslib/sam.h>
 
 #include "core/PileupDB.hpp"
+#include "core/PileupDB_internal.hpp"
 #include "core/err.hpp"
 
 
@@ -19,7 +20,7 @@ static std::string random_base_seq (size_t len) {
   return out;
 }
 
-VoidOrErr insert_demo_data (PileupDB& i_db, size_t regWidth, size_t nQuery) {
+VoidOrErr insert_demo_data (PileupDB& db, size_t regWidth, size_t nQuery) {
   std::mt19937 rng;
 
   const hts_pos_t pileupPos = static_cast<hts_pos_t>((regWidth / 2) - 1);
@@ -28,14 +29,30 @@ VoidOrErr insert_demo_data (PileupDB& i_db, size_t regWidth, size_t nQuery) {
 
   std::uniform_int_distribution<size_t> gstartGen(0, qLen);
 
-  InsertReadsStmt stmt;
+  // demo data has no real alignment file / contigs; placeholder
+  // sample + loci rows just satisfy the reads table's FK constraints.
+  AlnFile dummyAln;
+  auto isRet = insert_sample (db, dummyAln);
+  if (!isRet) {
+    return std::unexpected{isRet.error()};
+  }
+  const int alnId = *isRet;
+
+  auto ilRet = insert_loci (db, PileupPosition{0, 0}, alnId, [] (int) { return "demo"; });
+  if (!ilRet) {
+    return std::unexpected{ilRet.error()};
+  }
+  const int lociId = *ilRet;
+
+  auto stmtRet = prepare<InsertReadsStmt> (db);
+  if (!stmtRet) {
+    return std::unexpected{stmtRet.error()};
+  }
+  auto stmt{std::move(*stmtRet)};
   PileupFields ru_pf;
 
   int sqlRc = SQLITE_OK;
-  if (sqlRc = prepare_insert_reads(i_db, stmt); sqlRc != SQLITE_OK) {
-    goto err_db;
-  };
-  if (sqlRc = sqlite3_exec (i_db, "BEGIN;", NULL, NULL, NULL); sqlRc != SQLITE_OK) {
+  if (sqlRc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL); sqlRc != SQLITE_OK) {
     goto err_db;
   }
 
@@ -58,10 +75,10 @@ VoidOrErr insert_demo_data (PileupDB& i_db, size_t regWidth, size_t nQuery) {
     ru_pf.isHead = (ru_pf.qPos == 0);
     ru_pf.isTail = (ru_pf.qPos == (qLen - 1));
 
-    if (sqlRc = bind_pileup_fields (stmt, ru_pf); sqlRc != SQLITE_OK) {
-      if (const int rollbackRc = sqlite3_exec (i_db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
+    if (sqlRc = bind_pileup_fields (stmt, alnId, lociId, ru_pf); sqlRc != SQLITE_OK) {
+      if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
         return std::unexpected{make_sqlite3_err (sqlRc,
-            (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(i_db) + ")"))};
+            (std::string (sqlite3_errstr (sqlRc)) + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")"))};
       }
       return std::unexpected{make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))};
     }
@@ -73,7 +90,7 @@ VoidOrErr insert_demo_data (PileupDB& i_db, size_t regWidth, size_t nQuery) {
     sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs
   }
 
-  if (sqlRc = sqlite3_exec (i_db, "COMMIT;", NULL, NULL, NULL); sqlRc != SQLITE_OK) {
+  if (sqlRc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL); sqlRc != SQLITE_OK) {
     goto err_db;
   }
 
@@ -81,10 +98,10 @@ VoidOrErr insert_demo_data (PileupDB& i_db, size_t regWidth, size_t nQuery) {
 
 err_db:
   {
-    const std::string errMsg = sqlite3_errmsg (i_db);
-    if (const int rollbackRc = sqlite3_exec (i_db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
+    const std::string errMsg = sqlite3_errmsg (db);
+    if (const int rollbackRc = sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL); rollbackRc != SQLITE_OK) {
       return std::unexpected{make_sqlite3_err (sqlRc,
-          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(i_db) + ")"))};
+          (errMsg + " (additionally, ROLLBACK failed with code " + std::to_string(rollbackRc) + " and msg: " + sqlite3_errmsg(db) + ")"))};
     }
     return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
   }

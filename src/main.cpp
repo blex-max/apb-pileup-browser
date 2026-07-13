@@ -6,6 +6,7 @@
 
 #include "cli.hpp"
 #include "core/PileupDB.hpp"
+#include "core/hts_types.hpp"
 #include "demo.hpp"
 
 int main (int argc, char** argv) {
@@ -38,9 +39,18 @@ int main (int argc, char** argv) {
   } else {
     PLOGD << "Inserting alignment pileup into pileup db";
     // TODO: move open files here?
-    auto transRet = insert_pileup (db, *(args.aln), *(args.start));
-    if (!transRet) {
-      std::cerr << transRet.error().msg << std::endl;
+    auto isRet = insert_sample (db, args.aln.value());
+    if (!isRet) {
+      std::cerr << isRet.error().msg << std::endl;
+      return EXIT_FAILURE;
+    }
+    // NOTE: not worrying about tracking
+    // multiple alignment files for now
+    auto alnId = *isRet;
+
+    auto irRet = insert_pileup (db, *(args.aln), *(args.start), alnId);
+    if (!irRet) {
+      std::cerr << irRet.error().msg << std::endl;
       return EXIT_FAILURE;
     }
   }

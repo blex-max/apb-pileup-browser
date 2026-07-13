@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sqlite3.h>
+#include <string_view>
 
 
 struct SqliteConn {
@@ -21,8 +22,8 @@ struct SqliteConn {
 
 /* STATEMENTS */
 
-template <typename StmtTag>
 struct SqliteStmt {
+  static inline std::string_view rsql_stmt;
   sqlite3_stmt* o_ptr = nullptr;
   operator sqlite3_stmt* () const { return o_ptr; }
 
