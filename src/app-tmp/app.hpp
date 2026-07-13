@@ -11,8 +11,8 @@ struct StartupArgs {
   bool demo = false;
 };
 
-StartupArgs init_cli(int argc, char** argv);
-void init(StartupArgs args);
+StartupArgs init_cli (int argc, char** argv);
+void init (StartupArgs args);
 void loop();
 void shutdown();
 

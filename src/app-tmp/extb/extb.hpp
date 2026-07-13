@@ -33,7 +33,7 @@ struct GlobalCell : public Cell {};
 struct LocalCell : public Cell {
 };  // For operations local to a shape abstraction
 
-bool valid(const Cell& c) noexcept;
+bool valid (const Cell& c) noexcept;
 
 // all functions may operate on a
 // single global cell, a range of global cells,
@@ -47,8 +47,8 @@ concept GlobalCellRange =
     std::convertible_to<
         std::ranges::range_value_t<R>, GlobalCell>;
 template <typename T>
-concept ConvertsToGlobalCellRange = requires(T&& t) {
-  { cell_source(std::forward<T>(t)) } -> GlobalCellRange;
+concept ConvertsToGlobalCellRange = requires (T&& t) {
+  { cell_source (std::forward<T> (t)) } -> GlobalCellRange;
 };
 template <typename T>
 concept GlobalCellSource =
@@ -73,8 +73,8 @@ struct Style {
   tb_attr fg() const noexcept { return fg_attr; }
   tb_attr bg() const noexcept { return bg_attr; }
 
-  Style(tb_attr fg, tb_attr bg) : fg_attr(fg), bg_attr(bg) {}
-  Style(tb_attr attr) : fg_attr(attr), bg_attr(attr) {}
+  Style (tb_attr fg, tb_attr bg) : fg_attr (fg), bg_attr (bg) {}
+  Style (tb_attr attr) : fg_attr (attr), bg_attr (attr) {}
   Style() = delete;
 };
 
@@ -95,27 +95,27 @@ struct Style {
 // };
 
 template <GlobalCellSource S>
-int set(S&& gcs, uint32_t ch, const Style& style = {0});
+int set (S&& gcs, uint32_t ch, const Style& style = {0});
 
 // set cells to an empty space
 // with no styling, i.e. blank
 template <GlobalCellSource S>
-int clear(S&& gcs);
+int clear (S&& gcs);
 
 template <GlobalCellSource S>
-int set_attr(S&& gcs, const Style& style);
+int set_attr (S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int add_attr(S&& gcs, const Style& style);
+int add_attr (S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int rm_attr(S&& gcs, const Style& style);
+int rm_attr (S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int reset_atrr(S&& gcs);
+int reset_atrr (S&& gcs);
 
 template <GlobalCellSource S>
-bool check_attr_all_back(S&& gcs, const Style& style);
+bool check_attr_all_back (S&& gcs, const Style& style);
 // template <GlobalCellSource S>
 // bool check_attr_all_front
 // (S&& gcs, const Style& style);
@@ -128,7 +128,7 @@ bool check_attr_all_back(S&& gcs, const Style& style);
 // (S&& gcs, const Style& style);
 
 // implementation TODO
-size_t write_string(
+size_t write_string (
     const GlobalCell& start, int j_bound, std::string_view s,
     const Style& style = {0}
 );

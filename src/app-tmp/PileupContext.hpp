@@ -11,8 +11,8 @@
 #include "extb/extb-box.hpp"
 #include "hts/types.hpp"
 
-using StringifyFn = std::string (*)(const bam_pileup1_t*);
-StringifyFn get_pileup_text_callback(std::string_view name);
+using StringifyFn = std::string (*) (const bam_pileup1_t*);
+StringifyFn get_pileup_text_callback (std::string_view name);
 struct PropRequest {
   std::string name;
   StringifyFn cb;
@@ -31,13 +31,13 @@ struct PileupBundle {
   ~PileupBundle() noexcept
   {
     if (storage) {
-      bam_plp_destroy(storage);
+      bam_plp_destroy (storage);
     }
   }
-  PileupBundle(const PileupBundle&) = delete;
-  PileupBundle& operator=(const PileupBundle&) = delete;
-  PileupBundle(PileupBundle&&) noexcept;
-  PileupBundle& operator=(PileupBundle&&) noexcept;
+  PileupBundle (const PileupBundle&) = delete;
+  PileupBundle& operator= (const PileupBundle&) = delete;
+  PileupBundle (PileupBundle&&) noexcept;
+  PileupBundle& operator= (PileupBundle&&) noexcept;
 
   PileupPosition pos{};
   PileupSpan span{};
@@ -45,7 +45,7 @@ struct PileupBundle {
   bam_plp_t storage = nullptr;
   PileupColumn data;
 };
-void load_pileup(
+void load_pileup (
     PileupBundle& b, const htsacc::AlnFile& fh,
     const PileupPosition& pos
 );

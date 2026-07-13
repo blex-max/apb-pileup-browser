@@ -38,10 +38,9 @@ management
 
 namespace table {
 
-void draw_table(
+void draw_table (
     const extb::box::GlobalBox& b,
     std::vector<std::vector<std::string>> cols,
     std::vector<std::string> headers
 );
-
 }

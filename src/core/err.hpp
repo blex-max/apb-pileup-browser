@@ -22,32 +22,32 @@ struct Err {
 using VoidOrErr = std::expected<void, Err>;
 using IntOrErr = std::expected<int, Err>;
 
-inline Err make_htslib_err(const int code, std::string msg)
+inline Err make_htslib_err (const int code, std::string msg)
 {
   return Err{
-      ErrKind::fatal, ErrSrc::htslib, code, std::move(msg)
+      ErrKind::fatal, ErrSrc::htslib, code, std::move (msg)
   };
 }
 
-inline Err make_sqlite3_err(const int code, std::string msg)
+inline Err make_sqlite3_err (const int code, std::string msg)
 {
   return Err{
-      ErrKind::fatal, ErrSrc::sqlite3, code, std::move(msg)
+      ErrKind::fatal, ErrSrc::sqlite3, code, std::move (msg)
   };
 }
 
-inline Err make_internal_err(std::string msg)
+inline Err make_internal_err (std::string msg)
 {
   return Err{
       ErrKind::fatal, ErrSrc::internal, std::nullopt,
-      std::move(msg)
+      std::move (msg)
   };
 }
 
-inline Err make_cli_err(std::string msg)
+inline Err make_cli_err (std::string msg)
 {
   return Err{
       ErrKind::fatal, ErrSrc::argparse, std::nullopt,
-      std::move(msg)
+      std::move (msg)
   };
 }

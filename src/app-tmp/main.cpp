@@ -8,14 +8,14 @@
 
 #include "app.hpp"
 
-int main(int argc, char** argv)
+int main (int argc, char** argv)
 {
-  plog::init<plog::TxtFormatter>(
+  plog::init<plog::TxtFormatter> (
       plog::debug, plog::streamStdErr
   );
 
   try {
-    app::init(app::init_cli(argc, argv));
+    app::init (app::init_cli (argc, argv));
   }
   catch (const std::exception& e) {
     std::cerr << e.what() << "\n";

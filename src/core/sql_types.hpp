@@ -13,19 +13,19 @@ struct SqliteConn {
 
   SqliteConn() = default;
   // delete copy, avoid double free/close
-  SqliteConn(const SqliteConn&) = delete;
-  SqliteConn& operator=(const SqliteConn&) = delete;
+  SqliteConn (const SqliteConn&) = delete;
+  SqliteConn& operator= (const SqliteConn&) = delete;
 
-  SqliteConn(SqliteConn&& other) noexcept : o_ptr(other.o_ptr)
+  SqliteConn (SqliteConn&& other) noexcept : o_ptr (other.o_ptr)
   {
     other.o_ptr = nullptr;
   }
-  SqliteConn& operator=(SqliteConn&&) = delete;
+  SqliteConn& operator= (SqliteConn&&) = delete;
 
   ~SqliteConn()
   {
     if (o_ptr) {
-      sqlite3_close_v2(o_ptr);
+      sqlite3_close_v2 (o_ptr);
     }
   }
 };
@@ -38,19 +38,19 @@ struct SqliteStmt {
   operator sqlite3_stmt*() const { return o_ptr; }
 
   SqliteStmt() = default;
-  SqliteStmt(const SqliteStmt&) = delete;
-  SqliteStmt& operator=(const SqliteStmt&) = delete;
+  SqliteStmt (const SqliteStmt&) = delete;
+  SqliteStmt& operator= (const SqliteStmt&) = delete;
 
-  SqliteStmt(SqliteStmt&& other) noexcept : o_ptr(other.o_ptr)
+  SqliteStmt (SqliteStmt&& other) noexcept : o_ptr (other.o_ptr)
   {
     other.o_ptr = nullptr;
   }
-  SqliteStmt& operator=(SqliteStmt&& other) = delete;
+  SqliteStmt& operator= (SqliteStmt&& other) = delete;
 
   ~SqliteStmt()
   {
     if (o_ptr) {
-      sqlite3_finalize(o_ptr);
+      sqlite3_finalize (o_ptr);
     }
   }
 };

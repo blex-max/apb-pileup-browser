@@ -17,21 +17,21 @@ using DbOrErr = std::expected<PileupDB, Err>;
 DbOrErr make_db(); // factory
 
 // insert sample metadata into database, returning id.
-[[nodiscard]] IntOrErr insert_sample(
+[[nodiscard]] IntOrErr insert_sample (
     PileupDB& db, const AlnFile& aln
 );
 
 // insert reads at pileup position into database
-[[nodiscard]] VoidOrErr insert_pileup(
+[[nodiscard]] VoidOrErr insert_pileup (
     PileupDB& db, const AlnFile& aln, const PileupPosition& pos,
     int alnId
 );
 
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
-[[nodiscard]] VoidOrErr dump_to_disk(
+[[nodiscard]] VoidOrErr dump_to_disk (
     const PileupDB& db, const std::string& path
 );
 
 // TODO: undefined!
-[[nodiscard]] VoidOrErr clear(PileupDB& db);
+[[nodiscard]] VoidOrErr clear (PileupDB& db);

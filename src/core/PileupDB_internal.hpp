@@ -29,18 +29,18 @@ using LociStmtOrErr = std::expected<InsertLociStmt, Err>;
 using ReadsStmtOrErr = std::expected<InsertReadsStmt, Err>;
 
 template <typename StmtT>
-inline std::expected<StmtT, Err> prepare(PileupDB& db)
+inline std::expected<StmtT, Err> prepare (PileupDB& db)
 {
   StmtT stmt;
   int rc;
-  if (rc = sqlite3_prepare_v2(
+  if (rc = sqlite3_prepare_v2 (
           db, StmtT::rsql_stmt.data(),
-          static_cast<int>(StmtT::rsql_stmt.size()), &stmt.o_ptr,
-          NULL
+          static_cast<int> (StmtT::rsql_stmt.size()),
+          &stmt.o_ptr, NULL
       );
       rc != SQLITE_OK) {
     return std::unexpected{
-        make_sqlite3_err(rc, sqlite3_errmsg(db))
+        make_sqlite3_err (rc, sqlite3_errmsg (db))
     };
   }
   return stmt;
@@ -87,33 +87,33 @@ struct PreparedPileup {
   ~PreparedPileup()
   {
     if (o_cap) {
-      hts_itr_destroy(o_cap->o_it);
+      hts_itr_destroy (o_cap->o_it);
       delete o_cap;
     }
     if (o_plp) {
-      bam_plp_destroy(o_plp);
+      bam_plp_destroy (o_plp);
     }
     plpArr = nullptr;
   }
   PreparedPileup() = default;
-  PreparedPileup(PreparedPileup&) = delete;
-  PreparedPileup& operator=(PreparedPileup&) = delete;
-  PreparedPileup(PreparedPileup&& o)
-      : o_cap(o.o_cap),
-        o_plp(o.o_plp),
-        plpArr(o.plpArr),
-        nPlp(o.nPlp)
+  PreparedPileup (PreparedPileup&) = delete;
+  PreparedPileup& operator= (PreparedPileup&) = delete;
+  PreparedPileup (PreparedPileup&& o)
+      : o_cap (o.o_cap),
+        o_plp (o.o_plp),
+        plpArr (o.plpArr),
+        nPlp (o.nPlp)
   {
     o.o_cap = nullptr;
     o.o_plp = nullptr;
     o.plpArr = nullptr;
     o.nPlp = 0;
   };
-  PreparedPileup& operator=(PreparedPileup&&) = delete;
+  PreparedPileup& operator= (PreparedPileup&&) = delete;
 };
 
 using PileupOrErr = std::expected<PreparedPileup, Err>;
-PileupOrErr prepare_pileup(
+PileupOrErr prepare_pileup (
     const AlnFile& aln, const PileupPosition& pos
 );
 
@@ -121,7 +121,7 @@ PileupOrErr prepare_pileup(
 using Tid2StrFn = std::function<const char*(int)>;
 
 // insert pileup loci into database, returning id.
-[[nodiscard]] IntOrErr insert_loci(
+[[nodiscard]] IntOrErr insert_loci (
     PileupDB& db, const PileupPosition& pos, int alnId,
     Tid2StrFn tid2str
 );
@@ -129,7 +129,7 @@ using Tid2StrFn = std::function<const char*(int)>;
 // Insert reads covering a pileup position into database.
 // plpArr/nPlp: the pileup array produced by prepare_pileup, for the (sample, locus)
 // identified by alnId/lociId.
-[[nodiscard]] VoidOrErr insert_reads_internal(
+[[nodiscard]] VoidOrErr insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* plpArr, size_t nPlp,
     int alnId, int lociId, Tid2StrFn tid2str
 );
@@ -138,14 +138,14 @@ using Tid2StrFn = std::function<const char*(int)>;
 // stmt_str_InsertReads. sampleId/lociId identify the tranche (sample, locus)
 // this read belongs to. Returns the sqlite3 result code of the first
 // failing bind call, or SQLITE_OK if all columns bound successfully.
-[[nodiscard]] int bind_pileup_fields(
+[[nodiscard]] int bind_pileup_fields (
     InsertReadsStmt& stmt, sqlite3_int64 sampleId,
     sqlite3_int64 lociId, const PileupFields& pf
 );
 
 // convert to database-facing interface type
 // NOTE: noexcept?
-VoidOrErr fill_fields(
+VoidOrErr fill_fields (
     PileupFields& pf, const bam_pileup1_t* p1,
     const char* mTidName
 );

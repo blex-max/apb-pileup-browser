@@ -28,4 +28,4 @@ struct StartupArgs {
 };
 
 using ArgsOrErr = std::expected<StartupArgs, Err>;
-ArgsOrErr parse_args(int argc, char** argv);
+ArgsOrErr parse_args (int argc, char** argv);

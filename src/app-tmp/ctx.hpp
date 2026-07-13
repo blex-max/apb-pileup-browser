@@ -19,18 +19,18 @@ struct Context {
 
  private:
   bool initialised = false;
-  friend void set_init(Context& s);
-  friend bool check_init(Context& s);
+  friend void set_init (Context& s);
+  friend bool check_init (Context& s);
 
  public:
     // no copies or moves
-  Context(const Context&) = delete;
-  Context& operator=(const Context&) = delete;
-  Context(Context&&) = delete;
-  Context& operator=(Context&&) = delete;
+  Context (const Context&) = delete;
+  Context& operator= (const Context&) = delete;
+  Context (Context&&) = delete;
+  Context& operator= (Context&&) = delete;
 };
-inline void set_init(Context& s) { s.initialised = true; }
-inline bool check_init(Context& s) { return s.initialised; }
+inline void set_init (Context& s) { s.initialised = true; }
+inline bool check_init (Context& s) { return s.initialised; }
 
 template <typename ChildClassT>
 constexpr bool IsContextT =
@@ -51,9 +51,9 @@ template <typename S>
 inline void init()
 {
   auto& s = singleton_internal::create<S>();
-  set_init(s);
-  PLOGD << std::format(
-      "Initialised singleton of type {}", typeid(S).name()
+  set_init (s);
+  PLOGD << std::format (
+      "Initialised singleton of type {}", typeid (S).name()
   );
 }
 
@@ -62,12 +62,12 @@ template <typename S>
 inline S& get()
 {
   auto& s = singleton_internal::create<S>();
-  if (!check_init(s)) {
-    throw std::runtime_error(
-        std::format(
+  if (!check_init (s)) {
+    throw std::runtime_error (
+        std::format (
             "Retrieval of singleton {} "
             "before initialisation",
-            typeid(S).name()
+            typeid (S).name()
         )
     );
   }
