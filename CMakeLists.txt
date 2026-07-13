@@ -96,6 +96,7 @@ add_executable(pileup-browser
   src/main.cpp
   src/cli.cpp
   src/demo.cpp
+  src/subcommands.cpp
 )
 target_compile_options(pileup-browser
   PRIVATE

@@ -4,45 +4,50 @@
 #include <optional>
 #include <string>
 
-enum class ErrSrc {
-  htslib,
-  sqlite3,
-  argparse,
-  internal
-};
+enum class ErrSrc { htslib, sqlite3, argparse, internal };
 
 enum class ErrKind {
   fatal  // only kind as of now
-         // but in future may have recoverable errors
+  // but in future may have recoverable errors
 };
 
 struct Err {
   const ErrKind kind;
   const ErrSrc src;
-  std::optional<const int> code;      // raw htslib/sqlite3 code, for diagnostics
+  std::optional<const int>
+      code;  // raw htslib/sqlite3 code, for diagnostics
   std::string msg;  // human-readable, for reporting
 };
 
 using VoidOrErr = std::expected<void, Err>;
 using IntOrErr = std::expected<int, Err>;
 
-inline Err make_htslib_err (const int code, std::string msg)
+inline Err make_htslib_err(const int code, std::string msg)
 {
-  return Err{ErrKind::fatal, ErrSrc::htslib, code, std::move(msg)};
+  return Err{
+      ErrKind::fatal, ErrSrc::htslib, code, std::move(msg)
+  };
 }
 
-inline Err make_sqlite3_err (const int code, std::string msg)
+inline Err make_sqlite3_err(const int code, std::string msg)
 {
-  return Err{ErrKind::fatal, ErrSrc::sqlite3, code, std::move(msg)};
+  return Err{
+      ErrKind::fatal, ErrSrc::sqlite3, code, std::move(msg)
+  };
 }
 
-inline Err make_internal_err (std::string msg)
+inline Err make_internal_err(std::string msg)
 {
-  return Err{ErrKind::fatal, ErrSrc::internal, std::nullopt, std::move(msg)};
+  return Err{
+      ErrKind::fatal, ErrSrc::internal, std::nullopt,
+      std::move(msg)
+  };
 }
 
-inline Err make_cli_err (std::string msg)
+inline Err make_cli_err(std::string msg)
 {
-  return Err{ErrKind::fatal, ErrSrc::argparse, std::nullopt, std::move(msg)};
+  return Err{
+      ErrKind::fatal, ErrSrc::argparse, std::nullopt,
+      std::move(msg)
+  };
 }
-

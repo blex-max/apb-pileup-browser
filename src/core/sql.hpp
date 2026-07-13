@@ -4,30 +4,32 @@
 
 // NOTE: rsql_ == raw sql string
 
-inline constexpr std::string_view rsql_PragmaForeignKeys = R"sql(
+inline constexpr std::string_view rsql_PragmaForeignKeys =
+    R"sql(
     PRAGMA foreign_keys = ON;
 )sql";
-
 
 // Default temp_store spills large sorts/temp b-trees to disk. Everything in
 // this db is meant to live in memory only — force temp structures there too,
 // so a big sort can't fail with a disk I/O error on a machine with no disk
 // space but plenty of RAM.
-inline constexpr std::string_view rsql_SetTempStoreMemory = R"sql(
+inline constexpr std::string_view rsql_SetTempStoreMemory =
+    R"sql(
     PRAGMA temp_store = MEMORY;
 )sql";
 
-
 // metadata table storing provenance data, possibly
 // information retreived from the header
-inline constexpr std::string_view rsql_CreateMetaDataTable = R"sql(
+inline constexpr std::string_view rsql_CreateMetaDataTable =
+    R"sql(
 CREATE TABLE sample (
     id     INTEGER PRIMARY KEY,
     field1 INT NOT NULL -- placeholder
 )
 )sql";
 
-inline constexpr std::string_view rsql_CreateLociTable = R"sql(
+inline constexpr std::string_view rsql_CreateLociTable =
+    R"sql(
 CREATE TABLE loci (
     id        INTEGER PRIMARY KEY,
     sample_id INTEGER NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
@@ -38,14 +40,14 @@ CREATE TABLE loci (
 
 // Cascade deletes (sample -> loci) walk this table looking for matching
 // sample_id rows; without an index that's a full table scan.
-inline constexpr std::string_view rsql_CreateLociSampleIdIndex = R"sql(
+inline constexpr std::string_view rsql_CreateLociSampleIdIndex =
+    R"sql(
 CREATE INDEX idx_loci_sample_id ON loci(sample_id);
 )sql";
 
-
-
 // One row per read overlapping pileup reference position.
-inline constexpr std::string_view rsql_CreateReadsTable = R"sql(
+inline constexpr std::string_view rsql_CreateReadsTable =
+    R"sql(
 CREATE TABLE reads (
     id          INTEGER PRIMARY KEY,
     sample_id   INTEGER NOT NULL REFERENCES sample(id) ON DELETE CASCADE,  -- foreign key one, likely rarely used
@@ -86,16 +88,17 @@ CREATE TABLE reads (
 
 // Supports both the common "reads at this locus" query and cascade
 // deletes (loci -> reads).
-inline constexpr std::string_view rsql_CreateReadsLociIdIndex = R"sql(
+inline constexpr std::string_view rsql_CreateReadsLociIdIndex =
+    R"sql(
 CREATE INDEX idx_reads_loci_id ON reads(loci_id);
 )sql";
 
 // Cascade deletes (sample -> reads) walk this table looking for matching
 // sample_id rows; without an index that's a full table scan.
-inline constexpr std::string_view rsql_CreateReadsSampleIdIndex = R"sql(
+inline constexpr std::string_view rsql_CreateReadsSampleIdIndex =
+    R"sql(
 CREATE INDEX idx_reads_sample_id ON reads(sample_id);
 )sql";
-
 
 // --- STATEMENTS ---
 inline constexpr std::string_view rsql_InsertSample = R"sql(

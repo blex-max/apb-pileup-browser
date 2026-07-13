@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v clang-format >/dev/null 2>&1; then
+  echo "pre-commit: clang-format not found, skipping format check" >&2
+  exit 0
+fi
+
+# Only reformats lines touched by what's staged for this commit —
+# pre-existing formatting elsewhere in the file is left alone.
+git clang-format --staged
+
+changed=$(git diff --name-only)
+if [ -n "$changed" ]; then
+  echo "pre-commit: clang-format adjusted staged changes in:"
+  echo "$changed"
+  echo "$changed" | xargs git add
+fi

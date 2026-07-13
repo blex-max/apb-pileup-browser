@@ -1,39 +1,60 @@
 #include "cli.hpp"
 
+#include <expected>
+#include <sstream>
+
 #include "argparse/argparse.hpp"
 
-#include "plog/Log.h"
-#include "util.hpp"
-#include <expected>
-
-ArgsOrErr init_cli (int argc, char** argv)
+ArgsOrErr parse_args(int argc, char** argv)
 {
-  argparse::ArgumentParser cli ("apb", "0.0.0");
-  StartupArgs args;
+  argparse::ArgumentParser cli("apb", "0.0.0");
+  std::string logPath;
 
-  cli.add_argument ("--demo")
-    .help ("run with synthetic data, no alignment file required")
-    .flag()
-    .store_into(args.demo);
-  cli.add_argument ("--dump")
-    .help ("convert pileup to sqlite3 database, dump to disk, and exit.")
-    .nargs(1)
-    .metavar("PATH")
-    .store_into(args.dumpPath);
-  cli.add_argument ("--log")
-    .help ("log debug output to file")
-    .nargs(1)
-    .metavar("PATH")
-    .store_into(args.logPath);
-  // NOTE: may want to redo below args
-  // at some point since may want ability
-  // to load directly from db. (shareable artefact)
-  cli.add_argument ("SAM")
-    .help ("path to alignment file in s/b/cram format")
-    .nargs (argparse::nargs_pattern::optional);
-  cli.add_argument ("region")
-    .help ("genomic region in the form tid:position")
-    .nargs (argparse::nargs_pattern::optional);
+  argparse::ArgumentParser scmdSam("sam");
+  scmdSam.add_description("read from alignment file");
+  scmdSam.add_argument("SAM").help(
+      "path to alignment file in s/b/cram "
+      "format"
+  );
+  scmdSam.add_argument("locus").help(
+      "genomic locus in the form tid:position"
+  );
+  scmdSam.add_argument("--dump")
+      .help(
+          "convert pileup to sqlite3 database, "
+          "dump to disk, and exit."
+      )  // headless mode
+      .metavar("PATH");
+
+  argparse::ArgumentParser scmdDb("db");
+  scmdDb.add_description("read from database dump");
+  scmdDb.add_argument("DB").help(
+      "path to a previously dumped sqlite3 "
+      "database file"
+  );
+  // TODO: locus select (in frontend?)
+  // scmdDb.add_argument ("locus")
+  //   .help ("genomic locus in the form tid:position");
+
+  argparse::ArgumentParser scmdDemo("demo");
+  scmdDemo.add_description("run in demo mode");
+  scmdDemo.add_argument("--dump")
+      .help(
+          "convert pileup to sqlite3 database, "
+          "dump to disk, and exit."
+      )  // headless mode
+      .metavar("PATH");
+
+  // shared args
+  cli.add_argument("--log")
+      .help("log debug output to file")
+      .nargs(1)
+      .metavar("PATH")
+      .store_into(logPath);
+
+  cli.add_subparser(scmdSam);
+  cli.add_subparser(scmdDb);
+  cli.add_subparser(scmdDemo);
 
   try {
     cli.parse_args(argc, argv);
@@ -41,54 +62,36 @@ ArgsOrErr init_cli (int argc, char** argv)
   catch (const std::exception& ex) {
     std::ostringstream oss;
     oss << ex.what() << "\n" << cli;
-    return std::unexpected{make_cli_err(oss.str())};
-  }
-
-  if (args.demo) {
-    return args;  // no further info needed
-  }
-
-  const std::string alnFp = cli.present<std::string>("SAM").value_or("");
-  if (alnFp.empty()) {
-    std::ostringstream oss;
-    oss << "SAM argument required when not using --demo\n" << cli;
     return std::unexpected(make_cli_err(oss.str()));
   }
 
-  // TODO: better just to store paths at this stage, and evaluate the total
-  // set of args before we start opening files.
-  PLOGD << "Opening alignment file";
-  {
-    AlnFile aln;
-    aln.o_fh = hts_open(alnFp.c_str(), "r");
-    if (!aln.o_fh)
-      return std::unexpected(make_htslib_err(-1, std::format("Could not open alignment file at {}", alnFp)));
-    aln.o_hdr = sam_hdr_read(aln.o_fh);
-    if (!aln.o_hdr)
-      return std::unexpected(make_htslib_err(-1, "Could not read header from alignment file"));
-    aln.o_idx = sam_index_load(aln.o_fh, alnFp.c_str());
-    if (!aln.o_idx)
-      return std::unexpected(make_htslib_err(-1, std::format("Could not load index for {}", alnFp)));
-    args.aln = std::move(aln);
+  if (cli.is_subcommand_used("demo")) {
+    return StartupArgs{
+        DemoModeArgs{scmdSam.present<std::string>("--dump")},
+        logPath
+    };
   }
 
-  PLOGD << "Parsing region string";
-  PileupPosition userRegion{};
-  const auto regionStr = cli.present<std::string>("region").value_or("");
-  if (regionStr.empty()) {
-    std::ostringstream oss;
-    oss << "region argument required when not using --demo\n" << cli;
-    return std::unexpected(make_cli_err(oss.str()));
+  if (cli.is_subcommand_used("db")) {
+    return StartupArgs{
+        DbModeArgs{scmdDb.get<std::string>("DB")}, logPath
+    };
   }
-  {
-    hts_pos_t _pend=1; // required by htslib
-    if (hts_parse_region(regionStr.c_str(), &userRegion.tid, &userRegion.pos,
-                         &_pend, reinterpret_cast<hts_name2id_f>(sam_hdr_name2tid),
-                         args.aln->o_hdr, HTS_PARSE_ONE_COORD) == NULL) {
-      return std::unexpected(make_htslib_err(-1, std::format("Could not parse region string {}", regionStr)));
-    }
-  }
-  args.start = userRegion;
 
-  return args;
+  if (cli.is_subcommand_used("sam")) {
+    return StartupArgs{
+        AlnModeArgs{
+            scmdSam.get<std::string>("SAM"),
+            scmdSam.get<std::string>("locus"),
+            scmdSam.present<std::string>("--dump"),
+        },
+        logPath
+    };
+  }
+
+  std::ostringstream oss;
+  oss << "a subcommand is required "
+         "(sam|db|demo)\n"
+      << cli;
+  return std::unexpected(make_cli_err(oss.str()));
 }

@@ -9,36 +9,33 @@
 #include "extb/extb.hpp"
 #include "input.hpp"
 
-
-enum class app_state : uint8_t {
-  pileup
-};
+enum class app_state : uint8_t { pileup };
 
 struct GlobalContext : ctx::Context {
+  struct {
+    app_state state = app_state::pileup;
+    size_t frame = 0;
+  } data;
+  struct {
     struct {
-        app_state state = app_state::pileup;
-        size_t frame = 0;
-    } data;
+      extb::box::GlobalBox viewport;
+      extb::box::GlobalBox frame;
+    } main;
     struct {
-        struct {
-            extb::box::GlobalBox viewport;
-            extb::box::GlobalBox frame;
-        } main;
-        struct {
-            extb::box::GlobalBox display_line;
-            extb::GlobalCell caret;
-            extb::box::GlobalBox frame;
-            input::EditBuf buf;
-        } cmd;
-        struct {
-            extb::box::GlobalBox display_line;
-            extb::box::GlobalBox frame;
-            std::string buf;
-        } status;
-    } ui;
+      extb::box::GlobalBox display_line;
+      extb::GlobalCell caret;
+      extb::box::GlobalBox frame;
+      input::EditBuf buf;
+    } cmd;
     struct {
-        bool run = true;
-        bool demo = true;
-        std::list<std::string> debug_request;
-    } conf;
+      extb::box::GlobalBox display_line;
+      extb::box::GlobalBox frame;
+      std::string buf;
+    } status;
+  } ui;
+  struct {
+    bool run = true;
+    bool demo = true;
+    std::list<std::string> debug_request;
+  } conf;
 };

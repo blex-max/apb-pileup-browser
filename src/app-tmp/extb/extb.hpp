@@ -1,7 +1,7 @@
 #pragma once
 
 extern "C" {
-    #include "termbox2.h"
+#include "termbox2.h"
 }
 
 #include <string_view>
@@ -27,14 +27,13 @@ extern "C" {
 namespace extb {
 
 struct Cell {
-    int
-    i=-1,
-    j=-1;
+  int i = -1, j = -1;
 };
 struct GlobalCell : public Cell {};
-struct LocalCell : public Cell {};  // For operations local to a shape abstraction
+struct LocalCell : public Cell {
+};  // For operations local to a shape abstraction
 
-bool valid (const Cell& c) noexcept;
+bool valid(const Cell& c) noexcept;
 
 // all functions may operate on a
 // single global cell, a range of global cells,
@@ -45,17 +44,16 @@ bool valid (const Cell& c) noexcept;
 template <typename R>
 concept GlobalCellRange =
     std::ranges::input_range<R> &&
-    std::convertible_to<std::ranges::range_value_t<R>, GlobalCell>;
+    std::convertible_to<
+        std::ranges::range_value_t<R>, GlobalCell>;
 template <typename T>
-concept ConvertsToGlobalCellRange =
-    requires(T&& t) {
-        { cell_source (std::forward<T>(t)) } -> GlobalCellRange;
-    };
+concept ConvertsToGlobalCellRange = requires(T&& t) {
+  { cell_source(std::forward<T>(t)) } -> GlobalCellRange;
+};
 template <typename T>
 concept GlobalCellSource =
     std::same_as<std::remove_cvref_t<T>, GlobalCell> ||
-    GlobalCellRange<T> ||
-    ConvertsToGlobalCellRange<T>;
+    GlobalCellRange<T> || ConvertsToGlobalCellRange<T>;
 
 // TODO templatise and use ADL
 // for any shape abstraction which has e.g.
@@ -67,17 +65,17 @@ concept GlobalCellSource =
 // for styling cells
 using tb_attr = unsigned short;
 struct Style {
-    private:
-    tb_attr fg_attr;
-    tb_attr bg_attr;
+ private:
+  tb_attr fg_attr;
+  tb_attr bg_attr;
 
-    public:
-    tb_attr fg () const noexcept { return fg_attr; }
-    tb_attr bg () const noexcept { return bg_attr; }
+ public:
+  tb_attr fg() const noexcept { return fg_attr; }
+  tb_attr bg() const noexcept { return bg_attr; }
 
-    Style (tb_attr fg, tb_attr bg) : fg_attr(fg), bg_attr(bg) {}
-    Style (tb_attr attr) : fg_attr(attr), bg_attr(attr) {}
-    Style () = delete;
+  Style(tb_attr fg, tb_attr bg) : fg_attr(fg), bg_attr(bg) {}
+  Style(tb_attr attr) : fg_attr(attr), bg_attr(attr) {}
+  Style() = delete;
 };
 
 // NOTE: shared error space now
@@ -96,36 +94,28 @@ struct Style {
 //     // extb_err
 // };
 
-
 template <GlobalCellSource S>
-int set
-(S&& gcs, uint32_t ch, const Style& style={0});
+int set(S&& gcs, uint32_t ch, const Style& style = {0});
 
 // set cells to an empty space
 // with no styling, i.e. blank
 template <GlobalCellSource S>
-int clear
-(S&& gcs);
+int clear(S&& gcs);
 
 template <GlobalCellSource S>
-int set_attr
-(S&& gcs, const Style& style);
+int set_attr(S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int add_attr
-(S&& gcs, const Style& style);
+int add_attr(S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int rm_attr
-(S&& gcs, const Style& style);
+int rm_attr(S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int reset_atrr
-(S&& gcs);
+int reset_atrr(S&& gcs);
 
 template <GlobalCellSource S>
-bool check_attr_all_back
-(S&& gcs, const Style& style);
+bool check_attr_all_back(S&& gcs, const Style& style);
 // template <GlobalCellSource S>
 // bool check_attr_all_front
 // (S&& gcs, const Style& style);
@@ -137,13 +127,13 @@ bool check_attr_all_back
 // bool check_attr_any_front
 // (S&& gcs, const Style& style);
 
-
 // implementation TODO
-size_t write_string
-(const GlobalCell& start, int j_bound, std::string_view s, const Style& style={0});
+size_t write_string(
+    const GlobalCell& start, int j_bound, std::string_view s,
+    const Style& style = {0}
+);
 
-} // end namespace extb
-
+}  // end namespace extb
 
 // template definitions
 #include "extb.impl"
