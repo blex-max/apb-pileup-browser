@@ -67,7 +67,7 @@ ArgsOrErr parse_args (int argc, char** argv)
 
   if (cli.is_subcommand_used ("demo")) {
     return StartupArgs{
-        DemoModeArgs{scmdSam.present<std::string> ("--dump")},
+        DemoModeArgs{scmdDemo.present<std::string> ("--dump")},
         logPath
     };
   }

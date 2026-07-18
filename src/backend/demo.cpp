@@ -3,13 +3,14 @@
 #include <htslib/sam.h>
 
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <random>
 #include <string>
 
-#include "core/PileupDB.hpp"
-#include "core/PileupDB_internal.hpp"
-#include "core/err.hpp"
+#include "backend/PileupDB.hpp"
+#include "backend/PileupDB_internal.hpp"
+#include "shared/err.hpp"
 
 static std::string random_base_seq (size_t len)
 {
@@ -35,18 +36,16 @@ VoidOrErr insert_demo_data (
   std::uniform_int_distribution<size_t> gstartGen (0, qLen);
 
   // demo data has no real alignment file / contigs; placeholder
-  // sample + loci rows just satisfy the reads table's FK constraints.
+  // metadata + loci rows just satisfy the reads table's loci_id FK.
   AlnFile dummyAln;
-  auto isRet = insert_sample (db, dummyAln);
-  if (!isRet) {
-    return std::unexpected{isRet.error()};
+  auto imRet = insert_metadata (db, dummyAln);
+  if (!imRet) {
+    return std::unexpected{imRet.error()};
   }
-  const int alnId = *isRet;
 
-  auto ilRet =
-      insert_loci (db, PileupPosition{0, 0}, alnId, [] (int) {
-        return "demo";
-      });
+  auto ilRet = insert_loci (db, PileupPosition{0, 0}, [] (int) {
+    return "demo";
+  });
   if (!ilRet) {
     return std::unexpected{ilRet.error()};
   }
@@ -65,6 +64,10 @@ VoidOrErr insert_demo_data (
     goto err_db;
   }
 
+  ru_pf.rawCig = {
+      static_cast<uint32_t> (bam_cigar_gen (qLen, BAM_CMATCH))
+  };
+  ru_pf.nCig = 1;
   ru_pf.cig = std::to_string (qLen) + "M";  // always same
   ru_pf.qualAscii = std::string (qLen, 'F');
   ru_pf.baseQual = 'F' - 33;
@@ -85,7 +88,7 @@ VoidOrErr insert_demo_data (
     ru_pf.isHead = (ru_pf.qPos == 0);
     ru_pf.isTail = (ru_pf.qPos == (qLen - 1));
 
-    if (sqlRc = bind_pileup_fields (stmt, alnId, lociId, ru_pf);
+    if (sqlRc = bind_pileup_fields (stmt, lociId, ru_pf);
         sqlRc != SQLITE_OK) {
       if (const int rollbackRc =
               sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);

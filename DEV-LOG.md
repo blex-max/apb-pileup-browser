@@ -268,3 +268,33 @@ target via `catch_discover_tests`. It also bumped the sqlite3
 dependency to `>=3.38`, noted as the version where `json_valid()` (used
 by the `reads.tags` CHECK constraint) became built-in rather than
 requiring the separate JSON1 extension.
+
+## 14-07-26
+*(the following is a Claude-generated summary of progress since the last
+devlog entry, produced at the user's request against the commit history
+— four commits, `minor cleanup` through `clang-format change`, dated
+10-07-26 and 13-07-26.)*
+
+The db schema gained a `sample` table and a `loci` table (`sample_id`
+FK, `contig`, `pos`), both `ON DELETE CASCADE` with covering indexes;
+`reads` now carries matching `sample_id`/`loci_id` FKs, and `PRAGMA
+foreign_keys = ON` is set at db-open. New `insert_sample()`/
+`insert_loci()` populate the two tables, and `insert_pileup()` now
+takes an `alnId` to tie its reads back to a sample. Implementation-only
+types (`PileupFields`, statement-prep helpers, etc.) moved out of
+`PileupDB.hpp` into a new `PileupDB_internal.hpp`, and the three
+per-statement `prepare_insert_*` functions collapsed into one templated
+`prepare<StmtT>(db)`.
+
+The CLI moved from flat `--demo`/positional args to `sam`/`db`/`demo`
+subcommands. `parse_args()` (renamed from `init_cli`) now returns a
+`std::variant<AlnModeArgs, DbModeArgs, DemoModeArgs>`, and `main.cpp`
+is reduced to a `std::visit` over new `run_mode()` overloads in
+`src/subcommands.{hpp,cpp}`. The `db` mode's `run_mode` is currently a
+stub; the other two still end in a `// load frontend` comment, not yet
+wired up.
+
+`.clang-format` and a `.githooks/pre-commit` hook (`git clang-format
+--staged`) were added, and the whole tree reformatted to match
+(including a follow-up tweak to `SpaceBeforeParens`).
+

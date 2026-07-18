@@ -92,11 +92,19 @@ if(NOT HTSLIB_TARGET)
 endif()
 
 add_executable(pileup-browser
-  src/core/PileupDB.cpp
-  src/main.cpp
-  src/cli.cpp
-  src/demo.cpp
-  src/subcommands.cpp
+  src/backend/PileupDB.cpp
+  src/backend/demo.cpp
+  src/app/main.cpp
+  src/app/cli.cpp
+  src/app/subcommands.cpp
+  src/app/tui.cpp
+  src/app/widgets.cpp
+  src/frontend/extb/extb.cpp
+  src/frontend/extb/widgets/table.cpp
+  src/frontend/extb/widgets/box.cpp
+  src/frontend/tb2_impl.cpp
+  src/frontend/input.cpp
+  src/app/cmd.cpp
 )
 target_compile_options(pileup-browser
   PRIVATE

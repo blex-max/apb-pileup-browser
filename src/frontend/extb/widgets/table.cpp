@@ -3,13 +3,12 @@
 #include <cassert>
 #include <cstddef>
 
-#include "extb/extb.hpp"
-#include "plog/Log.h"
+#include "frontend/extb/extb.hpp"
 
 namespace table {
 
 void draw_table (
-    const extb::box::GlobalBox& b,
+    const extb::Box& b,
     std::vector<std::vector<std::string>> cols,
     std::vector<std::string> headers
 )
@@ -21,10 +20,7 @@ void draw_table (
     return;
   }
 
-  // PLOGD << "made it";
-
-  const auto iavail = b.ispan.size();
-  const auto javail = b.jspan.size();
+  const auto javail = extb::size (b.jspan);
   const auto nrow = cols[0].size();
   int jcurs = 0;
 
@@ -70,14 +66,9 @@ void draw_table (
     }
 
     // set sep behind cursor
-    for (int i = 0; i < iavail; ++i) {
-      extb::set (
-          extb::GlobalCell{
-              b.ispan.first + i, b.jspan.first + jcurs - 1
-          },
-          0x2502
-      );
-    }
+    extb::set (
+        extb::ILine{b.ispan, b.jspan.first + jcurs - 1}, 0x2502
+    );
   }
 }
 

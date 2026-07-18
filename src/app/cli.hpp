@@ -5,7 +5,7 @@
 #include <string>
 #include <variant>
 
-#include "core/err.hpp"
+#include "shared/err.hpp"
 
 struct AlnModeArgs {
   std::string alnPath;

@@ -2,9 +2,7 @@
 
 #include <format>
 
-namespace input {
-
-std::string EditBuf_to_string (const EditBuf& b)
+static std::string to_string (const EditBuf& b)
 {
   return std::format (
       "contents: {}, len: {}, curs: {}", b.text, b.text.size(),
@@ -20,24 +18,13 @@ bool valid (const EditBuf& b)
   return true;
 }
 
-void throw_if_invalid (const EditBuf& b)
-{
-  if (!valid (b)) {
-    throw std::runtime_error (
-        "EditBuf corrupted! " + EditBuf_to_string (b)
-    );
-  }
-}
-
 void insert (EditBuf& b, char c)
 {
-  throw_if_invalid (b);
   b.text.insert (b.curs, 1, c);
   ++b.curs;
 }
 void del_back (EditBuf& b)
 {
-  throw_if_invalid (b);
   if (b.curs == 0) {
     return;
   }
@@ -48,7 +35,5 @@ void del_back (EditBuf& b)
 void clear (EditBuf& b)
 {
   b.curs = 0;
-  b.text.clear();  // n.b. won't release memory
+  b.text.clear();  // n.b. won't release memory/change capacity
 }
-
-}  // namespace input

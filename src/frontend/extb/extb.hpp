@@ -22,7 +22,12 @@ extern "C" {
 // error space is greatly reduced
 
 // NOTE:
-// coordinates are 0-based END-INCLUSIVE.
+// range coordinates (Span/Box bounds, and any
+// bound derived from them, e.g. write_string's
+// j_bound) are 0-based END-EXCLUSIVE: `last` is
+// one past the last valid index. Point coordinates
+// (Cell/GlobalCell/LocalCell) are unaffected, as a
+// single cell has no "end".
 
 namespace extb {
 
@@ -127,7 +132,6 @@ bool check_attr_all_back (S&& gcs, const Style& style);
 // bool check_attr_any_front
 // (S&& gcs, const Style& style);
 
-// implementation TODO
 size_t write_string (
     const GlobalCell& start, int j_bound, std::string_view s,
     const Style& style = {0}

@@ -6,15 +6,15 @@
 #include <functional>
 #include <string_view>
 
-#include "core/PileupDB.hpp"
-#include "core/err.hpp"
-#include "core/hts_types.hpp"
-#include "core/sql.hpp"
-#include "core/sql_types.hpp"
+#include "backend/PileupDB.hpp"
+#include "backend/hts_types.hpp"
+#include "backend/sql.hpp"
+#include "backend/sql_types.hpp"
+#include "shared/err.hpp"
 
-struct InsertSampleStmt : public SqliteStmt {
+struct InsertMetadataStmt : public SqliteStmt {
   static inline const std::string_view rsql_stmt =
-      rsql_InsertSample;
+      rsql_InsertMetadata;
 };
 struct InsertLociStmt : public SqliteStmt {
   static inline const std::string_view rsql_stmt =
@@ -24,7 +24,7 @@ struct InsertReadsStmt : public SqliteStmt {
   static inline const std::string_view rsql_stmt =
       rsql_InsertReads;
 };
-using SampleStmtOrErr = std::expected<InsertSampleStmt, Err>;
+using MetadataStmtOrErr = std::expected<InsertMetadataStmt, Err>;
 using LociStmtOrErr = std::expected<InsertLociStmt, Err>;
 using ReadsStmtOrErr = std::expected<InsertReadsStmt, Err>;
 
@@ -69,6 +69,9 @@ struct PileupFields {
   hts_pos_t mStart;
 
   std::string auxJson;
+
+  std::vector<uint32_t> rawCig;
+  size_t nCig;
 };
 
 /* htslib PILEUP MACHINERY */
@@ -122,25 +125,24 @@ using Tid2StrFn = std::function<const char*(int)>;
 
 // insert pileup loci into database, returning id.
 [[nodiscard]] IntOrErr insert_loci (
-    PileupDB& db, const PileupPosition& pos, int alnId,
-    Tid2StrFn tid2str
+    PileupDB& db, const PileupPosition& pos, Tid2StrFn tid2str
 );
 
 // Insert reads covering a pileup position into database.
-// plpArr/nPlp: the pileup array produced by prepare_pileup, for the (sample, locus)
-// identified by alnId/lociId.
+// plpArr/nPlp: the pileup array produced by prepare_pileup, for the
+// locus identified by lociId.
 [[nodiscard]] VoidOrErr insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* plpArr, size_t nPlp,
-    int alnId, int lociId, Tid2StrFn tid2str
+    int lociId, Tid2StrFn tid2str
 );
 
 // Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads. sampleId/lociId identify the tranche (sample, locus)
-// this read belongs to. Returns the sqlite3 result code of the first
-// failing bind call, or SQLITE_OK if all columns bound successfully.
+// stmt_str_InsertReads. lociId identifies the locus this read belongs
+// to. Returns the sqlite3 result code of the first failing bind call,
+// or SQLITE_OK if all columns bound successfully.
 [[nodiscard]] int bind_pileup_fields (
-    InsertReadsStmt& stmt, sqlite3_int64 sampleId,
-    sqlite3_int64 lociId, const PileupFields& pf
+    InsertReadsStmt& stmt, sqlite3_int64 lociId,
+    const PileupFields& pf
 );
 
 // convert to database-facing interface type

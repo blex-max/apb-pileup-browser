@@ -4,15 +4,15 @@
 #include <string>
 #include <string_view>
 
-namespace cmd {
+#include "app/state.hpp"
 
 struct CmdResult {
   bool success;
   std::string msg;
 };
-CmdResult exec_cmd (std::string_view call);
-std::optional<std::string> get_debug_text (
-    std::string_view name
-);
 
-}  // namespace cmd
+CmdResult exec_cmd (std::string_view call, AppState& state);
+
+std::optional<std::string> get_debug_text (
+    std::string_view name, AppState& state
+);

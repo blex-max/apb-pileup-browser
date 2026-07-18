@@ -19,10 +19,11 @@ inline constexpr std::string_view rsql_SetTempStoreMemory =
 )sql";
 
 // metadata table storing provenance data, possibly
-// information retreived from the header
+// information retreived from the header. Deliberately unlinked to
+// loci/reads: one alignment file (and therefore one metadata row) per db.
 inline constexpr std::string_view rsql_CreateMetaDataTable =
     R"sql(
-CREATE TABLE sample (
+CREATE TABLE metadata (
     id     INTEGER PRIMARY KEY,
     field1 INT NOT NULL -- placeholder
 )
@@ -32,17 +33,9 @@ inline constexpr std::string_view rsql_CreateLociTable =
     R"sql(
 CREATE TABLE loci (
     id        INTEGER PRIMARY KEY,
-    sample_id INTEGER NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
     contig    TEXT NOT NULL,
     pos       INTEGER NOT NULL  -- 0-based pileup position
 )
-)sql";
-
-// Cascade deletes (sample -> loci) walk this table looking for matching
-// sample_id rows; without an index that's a full table scan.
-inline constexpr std::string_view rsql_CreateLociSampleIdIndex =
-    R"sql(
-CREATE INDEX idx_loci_sample_id ON loci(sample_id);
 )sql";
 
 // One row per read overlapping pileup reference position.
@@ -50,8 +43,7 @@ inline constexpr std::string_view rsql_CreateReadsTable =
     R"sql(
 CREATE TABLE reads (
     id          INTEGER PRIMARY KEY,
-    sample_id   INTEGER NOT NULL REFERENCES sample(id) ON DELETE CASCADE,  -- foreign key one, likely rarely used
-    loci_id     INTEGER NOT NULL REFERENCES loci(id) ON DELETE CASCADE,    -- foreign key two, very commonly queried
+    loci_id     INTEGER NOT NULL REFERENCES loci(id) ON DELETE CASCADE,
 
     -- pileup position fields
     qname       TEXT,  -- Query template NAME
@@ -80,8 +72,11 @@ CREATE TABLE reads (
     -- Aux tags serialized as a JSON
     -- e.g. {"NM":2,"MD":"76","RG":"sample1"}. Query individual tags with
     -- json_extract(tags, '$.NM'). NULL if the read has no aux tags.
-    tags        TEXT CHECK (json_valid (tags))
-    -- NOTE: may add cigar as uint8_t blob for iterating/aligning on the query side
+    tags        TEXT CHECK (json_valid (tags)),
+
+    -- for frontend alignment purposes
+    cig_uint32     BLOB NOT NULL,
+    ncig        INTEGER NOT NULL
 
 );
 )sql";
@@ -93,27 +88,20 @@ inline constexpr std::string_view rsql_CreateReadsLociIdIndex =
 CREATE INDEX idx_reads_loci_id ON reads(loci_id);
 )sql";
 
-// Cascade deletes (sample -> reads) walk this table looking for matching
-// sample_id rows; without an index that's a full table scan.
-inline constexpr std::string_view rsql_CreateReadsSampleIdIndex =
-    R"sql(
-CREATE INDEX idx_reads_sample_id ON reads(sample_id);
-)sql";
-
 // --- STATEMENTS ---
-inline constexpr std::string_view rsql_InsertSample = R"sql(
-INSERT INTO sample (field1) VALUES (?);
+inline constexpr std::string_view rsql_InsertMetadata = R"sql(
+INSERT INTO metadata (field1) VALUES (?);
 )sql";
 
 inline constexpr std::string_view rsql_InsertLoci = R"sql(
-INSERT INTO loci (sample_id, contig, pos) VALUES (?,?,?);
+INSERT INTO loci (contig, pos) VALUES (?,?);
 )sql";
 
 inline constexpr std::string_view rsql_InsertReads = R"sql(
 INSERT INTO reads (
-  sample_id, loci_id,
+  loci_id,
   qname, flag, rstart, rend, mapq,
   base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
-  cigar, seq, qual, mtid, mstart, tags
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+  cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
 )sql";

@@ -4,18 +4,19 @@
 
 #include <format>
 
-#include "core/PileupDB.hpp"
-#include "core/hts_types.hpp"
-#include "demo.hpp"
+#include "app/tui.hpp"
+#include "backend/PileupDB.hpp"
+#include "backend/demo.hpp"
+#include "backend/hts_types.hpp"
 
 VoidOrErr run_mode (const DemoModeArgs& args)
 {
   PLOGD << "Creating database";
-  auto dbRet = make_db();
-  if (!dbRet) {
-    return std::unexpected (dbRet.error());
+  PileupDB db;
+  auto initRet = init_db (db);
+  if (!initRet) {
+    return std::unexpected (initRet.error());
   }
-  PileupDB db = std::move (*dbRet);
 
   PLOGD << "Inserting demo data into pileup db";
   auto demoRet = insert_demo_data (db, 300, 100);
@@ -39,13 +40,30 @@ VoidOrErr run_mode (const DemoModeArgs& args)
 
 VoidOrErr run_mode (const DbModeArgs& args)
 {
-  return std::unexpected (make_internal_err (
-      std::format (
-          "db subcommand not yet "
-          "implemented (path: {})",
-          args.dbPath
-      )
-  ));
+  PLOGD << "Creating database";
+  PileupDB db;
+  auto initRet = init_db (db);
+  if (!initRet) {
+    return std::unexpected (initRet.error());
+  }
+
+  PLOGD << "Loading db from disk";
+  auto loadRet = load_from_disk (db, args.dbPath);
+  if (!loadRet) {
+    return std::unexpected (loadRet.error());
+  }
+
+  // load frontend
+  auto stateRet = init();
+  if (!stateRet) {
+    return std::unexpected{initRet.error()};
+  }
+  AppState state = *stateRet;
+
+  loop (state);
+  shutdown (state);
+
+  return {};
 }
 
 VoidOrErr run_mode (const AlnModeArgs& args)
@@ -93,21 +111,20 @@ VoidOrErr run_mode (const AlnModeArgs& args)
   }
 
   PLOGD << "Creating database";
-  auto dbRet = make_db();
-  if (!dbRet) {
-    return std::unexpected (dbRet.error());
+  PileupDB db;
+  auto initRet = init_db (db);
+  if (!initRet) {
+    return std::unexpected (initRet.error());
   }
-  PileupDB db = std::move (*dbRet);
 
   PLOGD << "Inserting alignment pileup into "
            "pileup db";
-  auto isRet = insert_sample (db, aln);
-  if (!isRet) {
-    return std::unexpected (isRet.error());
+  auto imRet = insert_metadata (db, aln);
+  if (!imRet) {
+    return std::unexpected (imRet.error());
   }
-  auto alnId = *isRet;
 
-  auto irRet = insert_pileup (db, aln, pos, alnId);
+  auto irRet = insert_pileup (db, aln, pos);
   if (!irRet) {
     return std::unexpected (irRet.error());
   }
