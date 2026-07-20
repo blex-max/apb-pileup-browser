@@ -6,9 +6,9 @@
 #include "frontend/extb/extb.hpp"
 #include "shared/err.hpp"
 
-inline VoidOrErr handle_resize (TopUI& ui)
+inline VoidOrErr handle_resize (AppState& state)
 {
-  calc_widgets (ui);
+  calc_widgets (state.ui, state.conf);
 
   return {};
 }
@@ -27,14 +27,19 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
   switch (ev.key) {
     case TB_KEY_ENTER:
       // execute user command
-      cmdWgt.msgBuf = exec_cmd (cmdWgt.inputBuf.text, state)
-                          .msg;  // return msg
-      clear (cmdWgt.inputBuf);
+      if (!cmdWgt.inputBuf.text.empty()) {
+        cmdWgt.msgBuf = exec_cmd (cmdWgt.inputBuf.text, state)
+                            .msg;  // return msg
+        clear (cmdWgt.inputLine);
+        clear (cmdWgt.msgLine);
+        clear (cmdWgt.inputBuf);
+      }
       break;
 
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
       del_back (cmdWgt.inputBuf);
+      clear (cmdWgt.inputLine);
       break;
 
     // TODO: more cases
@@ -70,9 +75,7 @@ inline VoidOrErr handle_event (
     handle_key_event (state, ev);
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    // NOTE: this function
-    // only takes what it needs
-    handle_resize (state.ui);
+    handle_resize (state);
   }
 
   return {};

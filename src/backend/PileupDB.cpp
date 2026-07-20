@@ -171,6 +171,8 @@ std::expected<std::string, Err> schema_fingerprint (PileupDB& db)
   return out;
 }
 
+// NOTE: unnecessary usage of
+// prepare - replace with sqlite3_exec
 std::expected<int, Err> pragma_int (
     PileupDB& db, const char* pragmaSql
 )

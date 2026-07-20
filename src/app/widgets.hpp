@@ -3,5 +3,5 @@
 #include "shared/err.hpp"
 #include "state.hpp"
 
-VoidOrErr calc_widgets (TopUI& ui);
+VoidOrErr calc_widgets (TopUI& ui, const AppConfig& conf);
 VoidOrErr draw_widgets (AppState& state);

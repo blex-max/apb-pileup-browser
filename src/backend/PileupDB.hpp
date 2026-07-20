@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 #include "backend/hts_types.hpp"
 #include "backend/sql_types.hpp"
@@ -31,3 +32,10 @@ VoidOrErr init_db (PileupDB& db);
 [[nodiscard]] VoidOrErr load_from_disk (
     PileupDB& db, const std::string& path
 );
+
+void select_all (const PileupDB&);
+void select (
+    const PileupDB& db, std::string_view where,
+    std::string_view order_by
+);
+void count (const PileupDB& db, std::string_view where);

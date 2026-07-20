@@ -24,7 +24,7 @@ static void init_tb2()
 VoidOrErr draw_screen (AppState& state)
 {
   PLOGD << "Drawing screen";
-  tb_clear();
+  // tb_clear();
 
   /* draw frame */
   auto dwRet = draw_widgets (state);
@@ -37,14 +37,13 @@ VoidOrErr draw_screen (AppState& state)
   return {};
 }
 
-// TODO: OrErr?
 AppStateOrErr init()
 {
   PLOGD << "Initialising TUI";
 
   AppState state{};
   init_tb2();
-  calc_widgets (state.ui);
+  calc_widgets (state.ui, state.conf);
   draw_screen (state);
   return state;
 }

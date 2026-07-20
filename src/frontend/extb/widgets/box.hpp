@@ -16,6 +16,7 @@ size_t size (const Span& s) noexcept;
 bool contains (const Span& s, int p) noexcept;
 bool contains (const Span& outer, const Span& inner) noexcept;
 Span section (const Span& s, size_t from, size_t to) noexcept;
+Span body (const Span& s) noexcept;
 bool valid (const Span& s) noexcept;
 
 struct JLine {
@@ -28,6 +29,7 @@ GlobalCell last (const JLine& l) noexcept;
 JLine section (
     const JLine& l, size_t from, size_t to
 ) noexcept;  // local coordinates
+JLine body (const JLine& l) noexcept;
 bool valid (const JLine& l) noexcept;
 
 struct ILine {
@@ -40,6 +42,7 @@ GlobalCell last (const ILine& l) noexcept;
 ILine section (
     const ILine& l, size_t from, size_t to
 ) noexcept;  // local coordinates
+ILine body (const ILine& l) noexcept;
 bool valid (const ILine& l) noexcept;
 
 struct Box {

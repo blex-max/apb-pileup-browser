@@ -1,5 +1,6 @@
 #pragma once
 
+#include "backend/PileupDB.hpp"
 #include "frontend/extb/extb.hpp"
 #include "frontend/extb/widgets/box.hpp"
 #include "frontend/input.hpp"
@@ -10,13 +11,19 @@ namespace e2 = extb;
 struct PileupWidg {
   e2::Box frame;
   e2::JLine refLine;
+  e2::JLine refSep;
   e2::Box queryBox;
-  e2::JLine statusLine;
+  e2::ILine vSep;
   e2::Box dataBox;
+  e2::JLine querySep;
+  e2::JLine statusLine;
   int rowStart = 0; // TODO move?
 };
 struct CmdWidg {
   e2::Box frame;
+  // NOTE: these two may be desirable, revisit later
+  // e2::JLine curQuery;  // for displaying current filter applied to records
+  // e2::GlobalCell curCaret;
   e2::JLine inputLine;
   e2::GlobalCell inputCaret;
   EditBuf inputBuf;  // namespace?
@@ -46,4 +53,6 @@ struct AppState {
   TopUI ui;
   AppConfig conf;
   Metadata mData;
+  // PileupDB db;
+  // std::optional<FastaFile> ref;  // TODO!
 };

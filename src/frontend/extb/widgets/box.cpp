@@ -55,6 +55,10 @@ Span section (const Span& s, size_t from, size_t to) noexcept
       s.first + static_cast<int> (to)
   };
 }
+Span body (const Span& s) noexcept
+{
+  return section (s, 1, size (s) - 1);
+}
 
 // JLine / ILine methods
 size_t size (const JLine& l) noexcept { return size (l.jspan); }
@@ -82,6 +86,10 @@ JLine section (const JLine& l, size_t from, size_t to) noexcept
            }
   };
 }
+JLine body (const JLine& l) noexcept
+{
+  return section (l, 1, size (l) - 1);
+}
 
 size_t size (const ILine& l) noexcept { return size (l.ispan); }
 GlobalCell first (const ILine& l) noexcept
@@ -108,6 +116,10 @@ ILine section (const ILine& l, size_t from, size_t to) noexcept
       },
       l.j
   };
+}
+ILine body (const ILine& l) noexcept
+{
+  return section (l, 1, size (l) - 1);
 }
 
 GlobalCell to_global (const Box& b, const LocalCell& c)

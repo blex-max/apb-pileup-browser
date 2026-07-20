@@ -1,11 +1,15 @@
 #include "widgets.hpp"
 
+#include <cmath>
+
+#include "app/state.hpp"
+#include "frontend/box_drawing_chars.hpp"
 #include "frontend/extb/extb.hpp"
 #include "frontend/extb/widgets/box.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
-VoidOrErr calc_widgets (TopUI& ui)
+VoidOrErr calc_widgets (TopUI& ui, const AppConfig& conf)
 {
   PLOGD << "Calculating widget size";
 
@@ -28,10 +32,7 @@ VoidOrErr calc_widgets (TopUI& ui)
   }
 
   // widgets to calc
-  auto& pileupWgt = ui.main;
   auto& cmdWgt = ui.cmd;
-
-  pileupWgt.frame = e2::Box{mainI, screenJ};
   cmdWgt.frame = e2::Box{cmdI, screenJ};
 
   {
@@ -60,39 +61,116 @@ VoidOrErr calc_widgets (TopUI& ui)
     };
   }
 
+  auto& pileupWgt = ui.main;
+  pileupWgt.frame = e2::Box{mainI, screenJ};
+
+  auto vSplitJ = static_cast<int> (
+      ceil ((size (screenJ) - 2) * conf.query_box_frac)
+  );
+  pileupWgt.vSep = {
+      section (mainI, 0, size (mainI) - 1), vSplitJ
+  };
+  pileupWgt.refLine = {
+      first (mainI) + 1, section (screenJ, 1, vSplitJ)
+  };
+  pileupWgt.refSep = {
+      first (mainI) + 2, section (screenJ, 0, vSplitJ + 1)
+  };  // overlapping, to set connectors
+  pileupWgt.queryBox = {
+      section (mainI, 3, size (mainI) - 1),
+      section (screenJ, 1, vSplitJ)
+  };
+  pileupWgt.querySep = {mainI.last - 2, screenJ};
+
   return {};
 }
 
 VoidOrErr draw_widgets (AppState& state)
 {
+  // NOTE: set order does matter,
+  // since some places just overwrite
+  // previous draw calls
+
+  // NOTE: Worry about border stylisation last!
+
   PLOGD << "Drawing widgets";
 
-  auto& pWgt = state.ui.main;
   auto& cWgt = state.ui.cmd;
 
   auto& cFrame = cWgt.frame;
-  set (top_left (cFrame), 0x256D);
-  set (top_right (cFrame), 0x256E);
-  set (bottom_left (cFrame), 0x2570);
-  set (bottom_right (cFrame), 0x256F);
-  // top border
-  // set (e2::JLine {first (cFrame.ispan), section (cFrame.jspan, 1, size (cFrame.jspan) - 1)}, 0x2500);
+  set (top_left (cFrame), ch::topLeftRoundCorner, TB_DIM);
+  set (top_right (cFrame), ch::topRightRoundCorner, TB_DIM);
+  set (bottom_left (cFrame), ch::bottomLeftRoundCorner, TB_DIM);
+  set (
+      bottom_right (cFrame), ch::bottomRightRoundCorner, TB_DIM
+  );
+
+  // TODO: add line for displaying current filter (i.e. last query made)
+  set (
+      e2::JLine{first (cFrame.ispan), body (cFrame.jspan)},
+      ch::horzHeavy, TB_DIM
+  );
+  set (
+      e2::ILine{body (cFrame.ispan), first (cFrame.jspan)},
+      ch::vertLine, TB_DIM
+  );
+  set (
+      e2::ILine{body (cFrame.ispan), last (cFrame.jspan) - 1},
+      ch::vertLine, TB_DIM
+  );
 
   set (cWgt.inputCaret, ':');
-  set (
-      section (cWgt.sepLine, 1, size (cWgt.sepLine) - 1), 0x2500,
-      TB_DIM
-  );
-  // set (first(cWgt.sepLine), 0x251C);
-  // set (last(cWgt.sepLine), 0x2524);
+  set (body (cWgt.sepLine), ch::horzLine, TB_DIM);
 
   e2::write_string (
       first (cWgt.inputLine), last (cWgt.inputLine).j,
       cWgt.inputBuf.text
   );
   e2::write_string (
-      first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf
+      first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf,
+      TB_DIM
   );
+
+  auto& pWgt = state.ui.main;
+  auto& pFrame = pWgt.frame;
+
+  set (top_left (pFrame), ch::topLeftRoundCorner, TB_DIM);
+  set (top_right (pFrame), ch::topRightRoundCorner, TB_DIM);
+
+  set (
+      e2::JLine{
+          first (pFrame.ispan),
+          section (pFrame.jspan, 1, size (pFrame.jspan) - 1)
+      },
+      ch::horzLine, TB_DIM
+  );
+  set (
+      e2::ILine{
+          section (pFrame.ispan, 1, size (pFrame.ispan)),
+          first (pFrame.jspan)
+      },
+      ch::vertLine, TB_DIM
+  );
+  set (
+      e2::ILine{
+          section (pFrame.ispan, 1, size (pFrame.ispan)),
+          last (pFrame.jspan) - 1
+      },
+      ch::vertLine, TB_DIM
+  );
+
+  set (body (pWgt.refSep), ch::horzLine, TB_DIM);
+  set (first (pWgt.refSep), ch::rightTConnect, TB_DIM);
+
+  set (body (pWgt.querySep), ch::horzLine, TB_DIM);
+  set (first (pWgt.querySep), ch::rightTConnect, TB_DIM);
+  set (last (pWgt.querySep), ch::leftTConnect, TB_DIM);
+
+  set (body (pWgt.vSep), ch::vertLine, TB_DIM);
+  set (first (pWgt.vSep), ch::downTConnect, TB_DIM);
+  set (last (pWgt.vSep), ch::upTConnect, TB_DIM);
+
+  set (last (pWgt.refSep), ch::leftTConnect, TB_DIM);
 
   return {};
 }
