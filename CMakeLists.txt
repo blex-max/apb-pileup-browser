@@ -134,6 +134,7 @@ target_link_libraries(pileup-browser
 if(MAKE_TEST)
   enable_testing()
   add_executable(pileup-browser-tests
+    src/backend/PileupDB.cpp
     tests/test_PileupDb.cpp
   )
   target_include_directories(pileup-browser-tests PRIVATE src)
@@ -141,6 +142,8 @@ if(MAKE_TEST)
     PRIVATE
     Catch2::Catch2WithMain
     ${HTSLIB_TARGET}
+    PkgConfig::DEPS
+    plog::plog
   )
   list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
   include(Catch)

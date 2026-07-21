@@ -33,7 +33,6 @@ struct SqliteConn {
 /* STATEMENTS */
 
 struct SqliteStmt {
-  static inline std::string_view rsql_stmt;
   sqlite3_stmt* o_ptr = nullptr;
   operator sqlite3_stmt*() const { return o_ptr; }
 
@@ -45,7 +44,17 @@ struct SqliteStmt {
   {
     other.o_ptr = nullptr;
   }
-  SqliteStmt& operator= (SqliteStmt&& other) = delete;
+  SqliteStmt& operator= (SqliteStmt&& other) noexcept
+  {
+    if (this != &other) {
+      if (o_ptr) {
+        sqlite3_finalize (o_ptr);
+      }
+    }
+    o_ptr = other.o_ptr;
+    other.o_ptr = nullptr;
+    return *this;
+  }
 
   ~SqliteStmt()
   {

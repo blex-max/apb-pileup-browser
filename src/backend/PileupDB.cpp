@@ -998,3 +998,17 @@ VoidOrErr fill_fields (
 
   return {};
 }
+
+BoolOrErr next_read (sqlite3_stmt* stmt, const PileupDB& db)
+{
+  int rc = sqlite3_step (stmt);
+  if (rc == SQLITE_DONE) {
+    return false;
+  }
+  if (rc != SQLITE_ROW) {
+    return std::unexpected{
+        make_sqlite3_err (rc, sqlite3_errmsg (db))
+    };
+  }
+  return true;
+}

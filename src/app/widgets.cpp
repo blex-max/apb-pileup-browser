@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "app/state.hpp"
-#include "frontend/box_drawing_chars.hpp"
+#include "frontend/drawing_chars.hpp"
 #include "frontend/extb/extb.hpp"
 #include "frontend/extb/widgets/box.hpp"
 #include "plog/Log.h"
@@ -32,70 +32,82 @@ VoidOrErr calc_widgets (TopUI& ui, const AppConfig& conf)
   }
 
   // widgets to calc
-  auto& cmdWgt = ui.cmd;
-  cmdWgt.frame = e2::Box{cmdI, screenJ};
-
-  {
-    // cmd input
-    cmdWgt.inputLine = e2::JLine{
-        cmdI.first + 1,
-        {
-            screenJ.first +
-                2,  // skip border, leave space for caret :
-            screenJ.last - 1  // exclude border
-        }
-    };
-    cmdWgt.inputCaret =
-        e2::GlobalCell{cmdI.first + 1, screenJ.first + 1};
-
-    cmdWgt.sepLine = e2::JLine{
-        cmdI.first + 2,  // skip input
-        {
-            screenJ.first, screenJ.last
-        }  // include frame, to draw pipe connectors at line ends
-    };
-
-    cmdWgt.msgLine = e2::JLine{
-        cmdI.first + 3,  // skip input, separator line
-        {screenJ.first + 1, screenJ.last - 1}
-    };
-  }
-
-  auto& pileupWgt = ui.main;
-  pileupWgt.frame = e2::Box{mainI, screenJ};
+  auto& pWgt = ui.main;
+  pWgt.frame = e2::Box{mainI, screenJ};
 
   auto vSplitJ = static_cast<int> (
       ceil ((size (screenJ) - 2) * conf.query_box_frac)
   );
-  pileupWgt.vSep = {
-      section (mainI, 0, size (mainI) - 1), vSplitJ
-  };
-  pileupWgt.refLine = {
+  pWgt.vSep = {section (mainI, 0, size (mainI) - 1), vSplitJ};
+  pWgt.refLine = {
       first (mainI) + 1, section (screenJ, 1, vSplitJ)
   };
-  pileupWgt.refSep = {
-      first (mainI) + 2, section (screenJ, 0, vSplitJ + 1)
+  pWgt.headerLine = {
+      first (mainI) + 1, {vSplitJ + 1, last (screenJ) - 1}
+  };
+  pWgt.headerSep = {
+      first (mainI) + 2, screenJ
   };  // overlapping, to set connectors
-  pileupWgt.queryBox = {
+  pWgt.queryBox = {
       section (mainI, 3, size (mainI) - 1),
       section (screenJ, 1, vSplitJ)
   };
-  pileupWgt.querySep = {mainI.last - 2, screenJ};
+  pWgt.dataBox = {
+      section (mainI, 3, size (mainI) - 1),
+      {vSplitJ + 1, last (screenJ) - 1}
+  };
+  pWgt.querySep = {mainI.last - 2, screenJ};
+
+  auto& cWgt = ui.cmd;
+  cWgt.frame = e2::Box{cmdI, screenJ};
+
+  // TODO possibly richer subdivision
+  cWgt.queryStatusLine = e2::JLine{
+      cmdI.first + 1,
+      {
+          screenJ.first + 1,  // skip border
+          screenJ.last - 1  // exclude border
+      }
+  };
+  cWgt.statusSep = e2::JLine{
+      cmdI.first + 2,  // skip input
+      {
+          screenJ.first, screenJ.last
+      }  // include frame, to draw pipe connectors at line ends
+  };
+
+  // cmd input
+  cWgt.inputLine = e2::JLine{
+      cmdI.first + 3,
+      {
+          screenJ.first +
+              2,  // skip border, leave space for caret :
+          screenJ.last - 1  // exclude border
+      }
+  };
+  cWgt.inputCaret =
+      e2::GlobalCell{cmdI.first + 3, screenJ.first + 1};
+
+  cWgt.sepLine = e2::JLine{
+      cmdI.first + 4,  // skip input
+      {
+          screenJ.first, screenJ.last
+      }  // include frame, to draw pipe connectors at line ends
+  };
+
+  cWgt.msgLine = e2::JLine{
+      cmdI.first + 5,  // skip input, separator line
+      {screenJ.first + 1, screenJ.last - 1}
+  };
 
   return {};
 }
 
-VoidOrErr draw_widgets (AppState& state)
+void draw_chrome (TopUI& ui)
 {
-  // NOTE: set order does matter,
-  // since some places just overwrite
-  // previous draw calls
-
-  // NOTE: Worry about border stylisation last!
-
   PLOGD << "Drawing widgets";
 
-  auto& cWgt = state.ui.cmd;
+  auto& cWgt = ui.cmd;
 
   auto& cFrame = cWgt.frame;
   set (top_left (cFrame), ch::topLeftRoundCorner, TB_DIM);
@@ -105,7 +117,6 @@ VoidOrErr draw_widgets (AppState& state)
       bottom_right (cFrame), ch::bottomRightRoundCorner, TB_DIM
   );
 
-  // TODO: add line for displaying current filter (i.e. last query made)
   set (
       e2::JLine{first (cFrame.ispan), body (cFrame.jspan)},
       ch::horzHeavy, TB_DIM
@@ -118,20 +129,14 @@ VoidOrErr draw_widgets (AppState& state)
       e2::ILine{body (cFrame.ispan), last (cFrame.jspan) - 1},
       ch::vertLine, TB_DIM
   );
+  // line for displaying current filter (i.e. last query made)
+  // e.g | WHERE: <...> | ORDER BY: <...> |
+  set (body (cWgt.statusSep), ch::horzLine, TB_DIM);
 
   set (cWgt.inputCaret, ':');
   set (body (cWgt.sepLine), ch::horzLine, TB_DIM);
 
-  e2::write_string (
-      first (cWgt.inputLine), last (cWgt.inputLine).j,
-      cWgt.inputBuf.text
-  );
-  e2::write_string (
-      first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf,
-      TB_DIM
-  );
-
-  auto& pWgt = state.ui.main;
+  auto& pWgt = ui.main;
   auto& pFrame = pWgt.frame;
 
   set (top_left (pFrame), ch::topLeftRoundCorner, TB_DIM);
@@ -159,8 +164,8 @@ VoidOrErr draw_widgets (AppState& state)
       ch::vertLine, TB_DIM
   );
 
-  set (body (pWgt.refSep), ch::horzLine, TB_DIM);
-  set (first (pWgt.refSep), ch::rightTConnect, TB_DIM);
+  set (body (pWgt.headerSep), ch::horzLine, TB_DIM);
+  set (first (pWgt.headerSep), ch::rightTConnect, TB_DIM);
 
   set (body (pWgt.querySep), ch::horzLine, TB_DIM);
   set (first (pWgt.querySep), ch::rightTConnect, TB_DIM);
@@ -170,7 +175,55 @@ VoidOrErr draw_widgets (AppState& state)
   set (first (pWgt.vSep), ch::downTConnect, TB_DIM);
   set (last (pWgt.vSep), ch::upTConnect, TB_DIM);
 
-  set (last (pWgt.refSep), ch::leftTConnect, TB_DIM);
+  set (last (pWgt.headerSep), ch::leftTConnect, TB_DIM);
+}
 
-  return {};
+void draw_content (AppState& state)
+{
+  auto& cWgt = state.ui.cmd;
+  e2::write_string (
+      first (cWgt.inputLine), last (cWgt.inputLine).j,
+      cWgt.inputBuf.text
+  );
+  e2::write_string (
+      first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf,
+      TB_DIM
+  );
+
+  // stringify query
+  auto& userClause = state.query.userClause;
+  std::string userClauseString;
+
+  if (!userClause.where.empty()) {
+    userClauseString.append ("WHERE ");
+    for (size_t i = 0; i < userClause.where.size(); ++i) {
+      userClauseString.append (userClause.where[i]);
+      if (i != (userClause.where.size() - 1)) {
+        userClauseString.append (" ");
+      }
+    }
+  }
+
+  if (!userClause.orderBy.empty()) {
+    userClauseString.append (" ORDER BY ");
+    userClauseString.append (userClause.orderBy);
+  }
+
+  e2::write_string (
+      first (cWgt.queryStatusLine),
+      last (cWgt.queryStatusLine).j, userClauseString, TB_DIM
+  );
+}
+
+void draw_widgets (AppState& state)
+{
+  // NOTE: set order does matter,
+  // since some places just overwrite
+  // previous draw calls
+
+  // NOTE: Worry about border stylisation last!
+  draw_chrome (state.ui);
+  draw_content (state);
+
+  PLOGD << "Drawing widgets";
 }

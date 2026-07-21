@@ -30,8 +30,6 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
       if (!cmdWgt.inputBuf.text.empty()) {
         cmdWgt.msgBuf = exec_cmd (cmdWgt.inputBuf.text, state)
                             .msg;  // return msg
-        clear (cmdWgt.inputLine);
-        clear (cmdWgt.msgLine);
         clear (cmdWgt.inputBuf);
       }
       break;
@@ -39,7 +37,6 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
       del_back (cmdWgt.inputBuf);
-      clear (cmdWgt.inputLine);
       break;
 
     // TODO: more cases
@@ -56,9 +53,11 @@ inline void handle_key_event (
 )
 {
   if (ev.key == 0 && ev.ch) {
+    PLOGD << "Recieved character input event";
     handle_character_entry (state, ev);
   }
   else {
+    PLOGD << "Recieved navigation event";
     handle_nav (state, ev);
   }
 }
@@ -71,6 +70,7 @@ inline VoidOrErr handle_event (
     AppState& state, const tb_event& ev
 )
 {
+  PLOGD << "Recieved event";
   if (ev.type == TB_EVENT_KEY) {
     handle_key_event (state, ev);
   }

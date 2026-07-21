@@ -12,4 +12,5 @@ enum ch {
   upTConnect = 0x2534,
   leftTConnect = 0x2524,
   rightTConnect = 0x251C,
+  cross = 0x253C,
 };

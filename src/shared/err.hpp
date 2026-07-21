@@ -21,6 +21,7 @@ struct Err {
 
 using VoidOrErr = std::expected<void, Err>;
 using IntOrErr = std::expected<int, Err>;
+using BoolOrErr = std::expected<bool, Err>;
 
 inline Err make_htslib_err (const int code, std::string msg)
 {

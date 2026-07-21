@@ -3,9 +3,12 @@
 #include <expected>
 
 #include "app/state.hpp"
+#include "backend/PileupDB.hpp"
 #include "shared/err.hpp"
 
 using AppStateOrErr = std::expected<AppState, Err>;
-AppStateOrErr init();  // caller owns state, to be passed through
+AppStateOrErr init (
+    PileupDB& db
+);  // caller owns state, to be passed through
 VoidOrErr loop (AppState& state);
-void shutdown (AppState& state);
+void shutdown();

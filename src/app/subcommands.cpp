@@ -54,14 +54,15 @@ VoidOrErr run_mode (const DbModeArgs& args)
   }
 
   // load frontend
-  auto stateRet = init();
+  auto stateRet = init (db);
   if (!stateRet) {
-    return std::unexpected{initRet.error()};
+    shutdown();  // would be nice if shutdown was run on state going out of scope...
+    return std::unexpected{stateRet.error()};
   }
-  AppState state = *stateRet;
+  AppState state = std::move (*stateRet);
 
   loop (state);
-  shutdown (state);
+  shutdown();
 
   return {};
 }

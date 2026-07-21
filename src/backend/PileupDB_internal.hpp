@@ -3,24 +3,32 @@
 #include <htslib/sam.h>
 
 #include <expected>
+#include <format>
 #include <functional>
 #include <string_view>
+#include <type_traits>
 
 #include "backend/PileupDB.hpp"
 #include "backend/hts_types.hpp"
 #include "backend/sql.hpp"
 #include "backend/sql_types.hpp"
+#include "plog/Log.h"
 #include "shared/err.hpp"
 
-struct InsertMetadataStmt : public SqliteStmt {
+// All these types might be overkill
+struct SqliteStmtStatic : public SqliteStmt {
+  static inline const std::string_view rsql_stmt;
+};
+
+struct InsertMetadataStmt : public SqliteStmtStatic {
   static inline const std::string_view rsql_stmt =
       rsql_InsertMetadata;
 };
-struct InsertLociStmt : public SqliteStmt {
+struct InsertLociStmt : public SqliteStmtStatic {
   static inline const std::string_view rsql_stmt =
       rsql_InsertLoci;
 };
-struct InsertReadsStmt : public SqliteStmt {
+struct InsertReadsStmt : public SqliteStmtStatic {
   static inline const std::string_view rsql_stmt =
       rsql_InsertReads;
 };
@@ -29,6 +37,7 @@ using LociStmtOrErr = std::expected<InsertLociStmt, Err>;
 using ReadsStmtOrErr = std::expected<InsertReadsStmt, Err>;
 
 template <typename StmtT>
+  requires std::is_base_of_v<SqliteStmtStatic, StmtT>
 inline std::expected<StmtT, Err> prepare (PileupDB& db)
 {
   StmtT stmt;
@@ -45,6 +54,83 @@ inline std::expected<StmtT, Err> prepare (PileupDB& db)
   }
   return stmt;
 }
+
+struct SqliteStmtDynamic : public SqliteStmt {
+  static inline const std::string_view rsql_prefix;
+};
+struct DynamicSelectReadsStmt : public SqliteStmtDynamic {
+  static inline const std::string_view rsql_prefix =
+      "SELECT * FROM reads";
+};
+struct DynamicFragments {
+  std::vector<std::string> where;
+  std::string orderBy;
+  size_t offset;
+};
+inline std::expected<DynamicSelectReadsStmt, Err>
+prepare_select_reads (
+    const PileupDB& db, const DynamicFragments& frags
+)
+{
+  DynamicSelectReadsStmt stmt;
+
+  std::string rsql_builtStmt{stmt.rsql_prefix};
+
+  // build WHERE
+  std::string fragWhere;
+  for (size_t i = 0; i < frags.where.size(); ++i) {
+    fragWhere.append (frags.where[i]);
+    if (i != (frags.where.size() - 1)) {
+      fragWhere.append (" ");
+    }
+  }
+
+  if (!fragWhere.empty()) {
+    rsql_builtStmt.append (" WHERE ");
+    rsql_builtStmt.append (fragWhere);
+  }
+
+  if (!frags.orderBy.empty()) {
+    rsql_builtStmt.append (" ORDER BY ");
+    rsql_builtStmt.append (frags.orderBy);
+  }
+
+  // SQLite requires LIMIT whenever OFFSET is present; -1 means unbounded.
+  if (frags.offset) {
+    rsql_builtStmt.append (" LIMIT -1 OFFSET ");
+    rsql_builtStmt.append (std::to_string (frags.offset));
+  }
+
+  rsql_builtStmt.append (";");  // end stmt
+
+  PLOGD << "Compiling user query: " + rsql_builtStmt;
+
+  // Either of the following cases should be surfaced to the user
+
+  int rc;
+  if (rc = sqlite3_prepare_v2 (
+          db, rsql_builtStmt.c_str(),
+          static_cast<int> (rsql_builtStmt.size()), &stmt.o_ptr,
+          NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected{make_sqlite3_err (
+        rc, std::format (
+                "Could not compile statement: {} - {}",
+                rsql_builtStmt, sqlite3_errmsg (db)
+            )
+    )};
+  }
+
+  if (!sqlite3_stmt_readonly (stmt)) {
+    // TODO: proper err
+    return std::unexpected{
+        make_internal_err ("Statement would modify database.")
+    };
+  }
+
+  return stmt;
+};
 
 // for use as a buffer during conversion
 struct PileupFields {

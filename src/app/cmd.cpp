@@ -4,6 +4,11 @@
 #include <functional>
 #include <unordered_map>
 
+#include "app/fields.hpp"
+#include "app/state.hpp"
+#include "backend/PileupDB_internal.hpp"
+#include "plog/Log.h"
+
 static std::string debug_print_frame (const AppState& state)
 {
   return std::format ("frame: {}", state.mData.c_frame);
@@ -129,70 +134,148 @@ CmdResult quit (std::string_view, AppState& state)
 //   };
 // }
 
-// CmdResult pileup_show (std::string_view names)
-// {
-//   auto& show_requested =
-//       ctx::get<PileupContext>().config.bam_props_request;
+CmdResult pileup_show (std::string_view names, AppState& state)
+{
+  auto& existingRequests = state.conf.dataFieldsRequested;
 
-//   // split args
-//   const auto new_reqs = split_whitespace (names);
-//   if (new_reqs.empty()) {
-//     return {false, "needs args"};
-//   }
+  // split args
+  const auto newRequests = split_whitespace (names);
+  if (newRequests.empty()) {
+    return {false, "needs args"};
+  }
 
-//   for (const auto& req : new_reqs) {
-//     auto cb = get_pileup_text_callback (req);
-//     if (!cb) {
-//       return {
-//           false, std::format (
-//                      "Cannot show unknown "
-//                      "property \"{}\"",
-//                      req
-//                  )
-//       };
-//     }
-//     auto already = std::find_if (
-//         begin (show_requested), end (show_requested),
-//         [&req] (const auto& p) { return p.name == req; }
-//     );
-//     if (already != end (show_requested)) {
-//       continue;
-//     }
-//     show_requested.push_back ({std::string{req}, cb});
-//   }
+  for (const auto& req : newRequests) {
+    auto it = TABLE_FIELD_LOOKUP.find (req);
+    if (it == TABLE_FIELD_LOOKUP.end()) {
+      return {
+          false, std::format (
+                     "Cannot show unknown "
+                     "property \"{}\"",
+                     req
+                 )
+      };
+    }
+    const auto* field = it->second;
+    if (std::find (
+            begin (existingRequests), end (existingRequests),
+            field
+        ) != end (existingRequests)) {
+      continue;
+    }
+    existingRequests.push_back (field);
+  }
 
-//   PLOGD << std::format (
-//       "User requesting to view properties: {}", new_reqs
-//   );
-//   return {
-//       true,
-//       std::format ("Showing query properties: {}", new_reqs)
-//   };
-// }
-// CmdResult pileup_hide (std::string_view names)
-// {
-//   auto& show_requested =
-//       ctx::get<PileupContext>().config.bam_props_request;
+  return {
+      true,
+      std::format ("Showing query properties: {}", newRequests)
+  };
+}
 
-//   // split args
-//   const auto new_reqs = split_whitespace (names);
-//   if (new_reqs.empty()) {
-//     return {false, "needs args"};
-//   }
+CmdResult pileup_hide (std::string_view names, AppState& state)
+{
+  auto& existingRequests = state.conf.dataFieldsRequested;
 
-//   for (const auto& req : new_reqs) {
-//     show_requested.remove_if ([&req] (const auto& p) {
-//       return p.name == req;
-//     });
-//   }
+  // split args
+  const auto reqsToRemove = split_whitespace (names);
+  if (reqsToRemove.empty()) {
+    return {false, "needs args"};
+  }
 
-//   PLOGD << std::format (
-//       "User requesting to hide properties: {}", new_reqs
-//   );
-//   return {
-//       true, std::format ("Hiding query properties {}", new_reqs)
-//   };
-// }
+  for (const auto& req : reqsToRemove) {
+    auto it = TABLE_FIELD_LOOKUP.find (req);
+    if (it == TABLE_FIELD_LOOKUP.end()) {
+      // NOTE: silent noop
+      continue;
+    }
+    existingRequests.remove (it->second);
+  }
+
+  return {
+      true,
+      std::format ("Hiding query properties {}", reqsToRemove)
+  };
+}
+
+// The exact repl syntax for usage of
+// these is tbd.
+CmdResult append_where (
+    std::string_view rsql_clause, AppState& state
+)
+{
+  if (rsql_clause.empty()) {
+    return {true, ""};
+  }
+
+  PLOGD << std::format (
+      "Appending {} to WHERE clause", rsql_clause
+  );
+
+  auto& stmt = state.query.stmt;
+  auto copy_clause = state.query.userClause;
+
+  copy_clause.where.emplace_back (rsql_clause);
+
+  PLOGD << "Attempting to compile statement";
+
+  auto prepRet = prepare_select_reads (state.db, copy_clause);
+  if (!prepRet) {
+    return {false, prepRet.error().msg};
+  }
+  state.query.userClause = copy_clause;
+  stmt = std::move (*prepRet);
+
+  return {true, "OK!"};
+}
+
+CmdResult remove_last_where (std::string_view _, AppState& state)
+{
+  if (!_.empty()) {
+    return {false, "Does not take args"};
+  }
+
+  auto& whereClause = state.query.userClause.where;
+  if (whereClause.empty()) {
+    return {true, ""};
+  }
+  auto rmClause = state.query.userClause.where.back();
+  state.query.userClause.where.pop_back();
+
+  auto prepRet =
+      prepare_select_reads (state.db, state.query.userClause);
+  if (!prepRet) {
+    return {false, prepRet.error().msg};
+  }
+  state.query.stmt = std::move (*prepRet);
+
+  return {true, std::format ("Removed clause: {}", rmClause)};
+};
+
+CmdResult order_by (
+    std::string_view rsql_clause, AppState& state
+)
+{
+  if (rsql_clause.empty()) {
+    return {true, "No args"};
+  }
+
+  PLOGD << std::format ("User requesting sort: {}", rsql_clause);
+
+  auto& stmt = state.query.stmt;
+  auto copy_clause = state.query.userClause;
+
+  copy_clause.orderBy = rsql_clause;
+
+  PLOGD << "Attempting to compile statement";
+
+  auto prepRet = prepare_select_reads (state.db, copy_clause);
+  if (!prepRet) {
+    return {false, prepRet.error().msg};
+  }
+  state.query.userClause = copy_clause;
+  stmt = std::move (*prepRet);
+
+  return {true, "OK!"};
+}
 
 static std::unordered_map<
     std::string_view,
@@ -202,8 +285,11 @@ static std::unordered_map<
         {"quit", &quit},
         // {"debug-show", &debug_show},
         // {"debug-hide", &debug_hide},
-        // {"show", &pileup_show},
-        // {"hide", &pileup_hide}
+        {"show", &pileup_show},
+        {"hide", &pileup_hide},
+        {"where", &append_where},
+        {"back", &remove_last_where},
+        {"sort", &order_by},
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)
