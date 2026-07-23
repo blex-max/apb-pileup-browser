@@ -4,9 +4,9 @@
 
 #include "app/fields.hpp"
 #include "backend/PileupDB.hpp"
-#include "backend/PileupDB_internal.hpp"
 #include "frontend/extb/extb.hpp"
 #include "frontend/extb/widgets/box.hpp"
+#include "frontend/history.hpp"
 #include "frontend/input.hpp"
 
 namespace e2 = extb;
@@ -32,6 +32,7 @@ struct CmdWidg {
   e2::JLine inputLine;
   e2::GlobalCell inputCaret;
   EditBuf inputBuf;  // namespace?
+  CmdHistory history;
   e2::JLine sepLine;
   e2::JLine msgLine;
   std::string msgBuf;
@@ -46,7 +47,11 @@ struct TopUI {
 struct AppConfig {
   bool run = true;
   std::list<const TableField*> dataFieldsRequested{
-      &fields::basequal, &fields::flag, &fields::cigar,
+      &fields::basequal,
+      &fields::rstart,
+      &fields::rend,
+      &fields::flag,
+      &fields::cigar,
       &fields::qname
   };  // preseves insertion order, allows removal by val
   double query_box_frac = 0.4;
@@ -62,9 +67,11 @@ struct AppState {
   AppConfig conf;
   Metadata mData;
   PileupDB db;
+  LocusData
+      locus;  // cached loci-table row; queried once at init(),
+  // not re-queried per frame.
   struct {
     DynamicSelectReadsStmt stmt;
     DynamicFragments userClause{.offset = 0};
   } query;
-  // std::optional<FastaFile> ref;  // TODO!
 };

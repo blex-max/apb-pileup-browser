@@ -32,9 +32,12 @@ CREATE TABLE metadata (
 inline constexpr std::string_view rsql_CreateLociTable =
     R"sql(
 CREATE TABLE loci (
-    id        INTEGER PRIMARY KEY,
-    contig    TEXT NOT NULL,
-    pos       INTEGER NOT NULL  -- 0-based pileup position
+    id         INTEGER PRIMARY KEY,
+    contig     TEXT NOT NULL,
+    pos        INTEGER NOT NULL, -- 0-based pileup position
+    start      INTEGER,
+    end        INTEGER,
+    ref        TEXT              -- reference slice spanned by pileup
 )
 )sql";
 
@@ -94,7 +97,11 @@ INSERT INTO metadata (field1) VALUES (?);
 )sql";
 
 inline constexpr std::string_view rsql_InsertLoci = R"sql(
-INSERT INTO loci (contig, pos) VALUES (?,?);
+INSERT INTO loci (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
+)sql";
+
+inline constexpr std::string_view rsql_SelectLoci = R"sql(
+SELECT contig, pos, start, end, ref FROM loci;
 )sql";
 
 inline constexpr std::string_view rsql_InsertReads = R"sql(

@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "app/screen_projection.hpp"
 #include "app/state.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/extb.hpp"
@@ -9,7 +10,7 @@
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
-VoidOrErr calc_widgets (TopUI& ui, const AppConfig& conf)
+VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
 {
   PLOGD << "Calculating widget size";
 
@@ -48,15 +49,19 @@ VoidOrErr calc_widgets (TopUI& ui, const AppConfig& conf)
   pWgt.headerSep = {
       first (mainI) + 2, screenJ
   };  // overlapping, to set connectors
+  // stop one row short of querySep's row (mainI.last - 2), so content
+  // rows and the separator below them don't share a row -- mirrors
+  // headerLine/headerSep/content-start-at-+3 above.
   pWgt.queryBox = {
-      section (mainI, 3, size (mainI) - 1),
+      section (mainI, 3, size (mainI) - 2),
       section (screenJ, 1, vSplitJ)
   };
   pWgt.dataBox = {
-      section (mainI, 3, size (mainI) - 1),
+      section (mainI, 3, size (mainI) - 2),
       {vSplitJ + 1, last (screenJ) - 1}
   };
   pWgt.querySep = {mainI.last - 2, screenJ};
+  pWgt.infoLine = {mainI.last - 1, body (screenJ)};
 
   auto& cWgt = ui.cmd;
   cWgt.frame = e2::Box{cmdI, screenJ};
@@ -103,7 +108,7 @@ VoidOrErr calc_widgets (TopUI& ui, const AppConfig& conf)
   return {};
 }
 
-void draw_chrome (TopUI& ui)
+void draw_static_chrome (TopUI& ui)
 {
   PLOGD << "Drawing widgets";
 
@@ -178,13 +183,47 @@ void draw_chrome (TopUI& ui)
   set (last (pWgt.headerSep), ch::leftTConnect, TB_DIM);
 }
 
-void draw_content (AppState& state)
+void draw_dynamic_content (AppState& state)
 {
+  auto& pWgt = state.ui.main;
+
+  if (state.locus.refSlice) {
+    const auto& locus = state.locus;
+    auto proj = project_onto_box (
+        locus.pos, size (pWgt.refLine), locus.start
+    );
+
+    e2::write_string (
+        {pWgt.refLine.i,
+         first (pWgt.refLine.jspan) + proj.jOffset},
+        last (pWgt.refLine.jspan),
+        locus.refSlice->substr (proj.skipChars)
+    );
+  }
+
+  // TODO chrome out properly
+  // e2::write_string(first (pWgt.infoLine), last (pWgt.infoLine.jspan), std::string_view s)
+  auto lociInfoStr = std::format (
+      "LOCUS: {}:{} | SPAN: {}-{} |", state.locus.contig,
+      state.locus.pos, state.locus.start, state.locus.end
+  );
+  e2::write_string (
+      first (pWgt.infoLine), last (pWgt.infoLine.jspan),
+      lociInfoStr
+  );
+
   auto& cWgt = state.ui.cmd;
   e2::write_string (
       first (cWgt.inputLine), last (cWgt.inputLine).j,
       cWgt.inputBuf.text
   );
+  auto cursorJ = first (cWgt.inputLine).j +
+                 static_cast<int> (cWgt.inputBuf.curs);
+  if (cursorJ < last (cWgt.inputLine).j) {
+    e2::add_attr (
+        e2::GlobalCell{cWgt.inputLine.i, cursorJ}, TB_REVERSE
+    );
+  }
   e2::write_string (
       first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf,
       TB_DIM
@@ -222,8 +261,8 @@ void draw_widgets (AppState& state)
   // previous draw calls
 
   // NOTE: Worry about border stylisation last!
-  draw_chrome (state.ui);
-  draw_content (state);
+  draw_static_chrome (state.ui);
+  draw_dynamic_content (state);
 
   PLOGD << "Drawing widgets";
 }

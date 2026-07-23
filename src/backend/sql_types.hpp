@@ -2,8 +2,6 @@
 
 #include <sqlite3.h>
 
-#include <string_view>
-
 struct SqliteConn {
   sqlite3* o_ptr = nullptr;
   operator sqlite3*() const

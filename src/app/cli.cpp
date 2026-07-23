@@ -19,6 +19,9 @@ ArgsOrErr parse_args (int argc, char** argv)
   scmdSam.add_argument ("locus").help (
       "genomic locus in the form tid:position"
   );
+  scmdSam.add_argument ("--ref")
+      .help ("path to reference fasta")
+      .metavar ("PATH");
   scmdSam.add_argument ("--dump")
       .help (
           "convert pileup to sqlite3 database, "
@@ -32,9 +35,6 @@ ArgsOrErr parse_args (int argc, char** argv)
       "path to a previously dumped sqlite3 "
       "database file"
   );
-  // TODO: locus select (in frontend?)
-  // scmdDb.add_argument ("locus")
-  //   .help ("genomic locus in the form tid:position");
 
   argparse::ArgumentParser scmdDemo ("demo");
   scmdDemo.add_description ("run in demo mode");
@@ -81,9 +81,10 @@ ArgsOrErr parse_args (int argc, char** argv)
   if (cli.is_subcommand_used ("sam")) {
     return StartupArgs{
         AlnModeArgs{
-            scmdSam.get<std::string> ("SAM"),
-            scmdSam.get<std::string> ("locus"),
-            scmdSam.present<std::string> ("--dump"),
+            .alnPath = scmdSam.get<std::string> ("SAM"),
+            .locus = scmdSam.get<std::string> ("locus"),
+            .refPath = scmdSam.present<std::string> ("--ref"),
+            .dumpPath = scmdSam.present<std::string> ("--dump")
         },
         logPath
     };

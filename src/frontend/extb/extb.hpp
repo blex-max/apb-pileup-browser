@@ -117,7 +117,7 @@ template <GlobalCellSource S>
 int rm_attr (S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
-int reset_atrr (S&& gcs);
+int reset_attr (S&& gcs, const Style& style);
 
 template <GlobalCellSource S>
 bool check_attr_all_back (S&& gcs, const Style& style);

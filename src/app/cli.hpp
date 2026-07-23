@@ -11,6 +11,7 @@ struct AlnModeArgs {
   std::string alnPath;
   std::string
       locus;  // raw locus string (e.g. "chr1:12345"); resolved to a PileupPosition once the alignment file is opened
+  std::optional<std::string> refPath;  // fasta reference
   std::optional<std::string> dumpPath;
 };
 struct DbModeArgs {

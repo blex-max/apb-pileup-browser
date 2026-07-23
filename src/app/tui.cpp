@@ -1,5 +1,6 @@
 #include "app/tui.hpp"
 
+#include <cstdint>
 #include <expected>
 #include <format>
 #include <list>
@@ -7,26 +8,43 @@
 
 #include "app/event.hpp"
 #include "app/fields.hpp"
+#include "app/screen_projection.hpp"
+#include "app/stringify_alignment.hpp"
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
-#include "backend/PileupDB_internal.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
 void draw_sequence (
-    const e2::Box& queryBox, size_t boxRow, sqlite3_stmt* dbRow
+    const e2::Box& queryBox, size_t boxRow, sqlite3_stmt* dbRow,
+    const LocusData& locus
 )
 {
-  // pull cigar blob, n cigar operations, sequence text, and quality text
-  // using accessors.
-  // draw (unaligned for now) read to screen
-  auto rSeq = get_seq (dbRow);
+  auto cig = get_cigar_blob (dbRow);
+  auto nCig = get_ncig (dbRow);
+  auto readStart = get_rstart (dbRow);
+  std::optional<ExpandSequenceRefArgs> refArgs;
+  if (locus.refSlice) {
+    refArgs.emplace (readStart - locus.start, *(locus.refSlice));
+  }
+  auto alignmentSeq =
+      expand_sequence (get_seq (dbRow), cig, nCig, refArgs);
+  auto softClips = get_soft_clips (cig, nCig);
+
+  // If query begins before displayed region, we need to subset the
+  // string to keep it aligned with the displayed reference. If it
+  // overruns to the right, write_string will just discard those chars.
+  auto proj = project_onto_box (
+      locus.pos, width (queryBox),
+      static_cast<int64_t> (get_rstart (dbRow))
+  );
+
   e2::write_string (
       {first (queryBox.ispan) + static_cast<int> (boxRow),
-       first (queryBox.jspan)},
-      last (queryBox.jspan), rSeq
+       first (queryBox.jspan) + proj.jOffset},
+      last (queryBox.jspan), alignmentSeq.substr (proj.skipChars)
   );
 }
 
@@ -123,18 +141,24 @@ VoidOrErr run_query (AppState& state)
   draw_data_table_header (hLine, displayFields);
 
   auto nRow = height (qBox);
-  for (size_t j = 0; (j < (nRow - 1)); j++) {
+
+  size_t iRead = 0;
+  size_t iRow = 0;
+  for (; iRow < nRow; iRead++) {
     // NOTE: crash?
     auto nrRet = next_read (stmt, db);
     if (!nrRet) {
       return std::unexpected{nrRet.error()};
     }
-    const auto readAvail = *nrRet;
-    if (!readAvail) {
-      break;
+    if (!(*nrRet)) {
+      break;  // reads exhausted
     }
-    draw_sequence (qBox, j, stmt);
-    draw_data_table_row (dBox, j, stmt, displayFields);
+    if (iRead < state.ui.main.rowStart) {
+      continue;  // scrolling
+    }
+    draw_sequence (qBox, iRow, stmt, state.locus);
+    draw_data_table_row (dBox, iRow, stmt, displayFields);
+    ++iRow;
   }
 
   return {};
@@ -148,10 +172,23 @@ static void init_tb2()
 
   tb_init();
   tb_set_input_mode (
-      TB_INPUT_ESC
+      TB_INPUT_ALT
   );  // | TB_INPUT_MOUSE for mouse ev
   tb_clear();
 };
+
+void draw_crosshair (const PileupWidg& pWgt)
+{
+  auto& queryBox = pWgt.queryBox;
+  // ILine.j is a global column (see extb/widgets/box.cpp), unlike JLine's
+  // jspan -- so the box-local center column must be offset by the box's
+  // own global start to land on the same column draw_sequence treats as
+  // pileupPos (first(queryBox.jspan) + boxWidth/2).
+  auto pileupJ = first (queryBox.jspan) +
+                 static_cast<int> (width (queryBox) / 2);
+  add_attr (e2::ILine{queryBox.ispan, pileupJ}, TB_REVERSE);
+  set (e2::GlobalCell{first (queryBox.ispan) - 1, pileupJ}, '|');
+}
 
 VoidOrErr draw_screen (AppState& state)
 {
@@ -170,6 +207,7 @@ VoidOrErr draw_screen (AppState& state)
   if (!dsRet) {
     return std::unexpected{dsRet.error()};
   }
+  draw_crosshair (state.ui.main);
 
   tb_present();
 
@@ -182,6 +220,12 @@ AppStateOrErr init (PileupDB& db)
 
   AppState state{.db = std::move (db)};
 
+  auto locusRet = get_locus_data (state.db);
+  if (!locusRet) {
+    return std::unexpected{locusRet.error()};
+  }
+  state.locus = std::move (*locusRet);
+
   auto prepRet =
       prepare_select_reads (state.db, state.query.userClause);
   if (!prepRet) {
@@ -190,7 +234,7 @@ AppStateOrErr init (PileupDB& db)
   state.query.stmt = std::move (*prepRet);
 
   init_tb2();
-  auto calcRet = calc_widgets (state.ui, state.conf);
+  auto calcRet = calc_static_widgets (state.ui, state.conf);
   if (!calcRet) {
     return std::unexpected{calcRet.error()};
   }

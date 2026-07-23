@@ -34,6 +34,15 @@ VoidOrErr run_mode (const DemoModeArgs& args)
   }
 
   // load frontend
+  auto stateRet = init (db);
+  if (!stateRet) {
+    shutdown();  // would be nice if shutdown was run on state going out of scope...
+    return std::unexpected{stateRet.error()};
+  }
+  AppState state = std::move (*stateRet);
+
+  loop (state);
+  shutdown();
 
   return {};
 }
@@ -70,31 +79,11 @@ VoidOrErr run_mode (const DbModeArgs& args)
 VoidOrErr run_mode (const AlnModeArgs& args)
 {
   PLOGD << "Opening alignment file";
-  AlnFile aln;
-  aln.o_fh = hts_open (args.alnPath.c_str(), "r");
-  if (!aln.o_fh) {
-    return std::unexpected (make_htslib_err (
-        -1,
-        std::format (
-            "Could not open alignment file at {}", args.alnPath
-        )
-    ));
+  auto alnRet = load_aln (args.alnPath.c_str());
+  if (!alnRet) {
+    return std::unexpected (alnRet.error());
   }
-  aln.o_hdr = sam_hdr_read (aln.o_fh);
-  if (!aln.o_hdr) {
-    return std::unexpected (make_htslib_err (
-        -1,
-        "Could not read header "
-        "from alignment file"
-    ));
-  }
-  aln.o_idx = sam_index_load (aln.o_fh, args.alnPath.c_str());
-  if (!aln.o_idx) {
-    return std::unexpected (make_htslib_err (
-        -1,
-        std::format ("Could not load index for {}", args.alnPath)
-    ));
-  }
+  auto aln = std::move (*alnRet);
 
   PLOGD << "Parsing locus string";
   PileupPosition pos{};
@@ -111,6 +100,16 @@ VoidOrErr run_mode (const AlnModeArgs& args)
     ));
   }
 
+  std::optional<FastaFile> ff;
+  if (args.refPath) {
+    PLOGD << "Opening reference fasta file";
+    auto ffRet = load_fasta ((*(args.refPath)).c_str());
+    if (!ffRet) {
+      return std::unexpected (ffRet.error());
+    }
+    ff.emplace (std::move (*ffRet));
+  }
+
   PLOGD << "Creating database";
   PileupDB db;
   auto initRet = init_db (db);
@@ -118,14 +117,14 @@ VoidOrErr run_mode (const AlnModeArgs& args)
     return std::unexpected (initRet.error());
   }
 
-  PLOGD << "Inserting alignment pileup into "
-           "pileup db";
+  PLOGD << "Inserting metadata";
   auto imRet = insert_metadata (db, aln);
   if (!imRet) {
     return std::unexpected (imRet.error());
   }
 
-  auto irRet = insert_pileup (db, aln, pos);
+  PLOGD << "Inserting pileup";
+  auto irRet = insert_pileup (db, aln, pos, ff);
   if (!irRet) {
     return std::unexpected (irRet.error());
   }
@@ -140,6 +139,15 @@ VoidOrErr run_mode (const AlnModeArgs& args)
   }
 
   // load frontend
+  auto stateRet = init (db);
+  if (!stateRet) {
+    shutdown();  // would be nice if shutdown was run on state going out of scope...
+    return std::unexpected{stateRet.error()};
+  }
+  AppState state = std::move (*stateRet);
+
+  loop (state);
+  shutdown();
 
   return {};
 }

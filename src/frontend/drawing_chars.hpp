@@ -13,4 +13,7 @@ enum ch {
   leftTConnect = 0x2524,
   rightTConnect = 0x251C,
   cross = 0x253C,
+  heavyCross = 0x254B,
+  doubleVertCross = 0x256B,
+  downCaret = 0x2304,
 };

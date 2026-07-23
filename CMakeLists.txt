@@ -93,6 +93,7 @@ endif()
 
 add_executable(pileup-browser
   src/backend/PileupDB.cpp
+  src/backend/pileup_ingest.cpp
   src/backend/demo.cpp
   src/app/main.cpp
   src/app/cli.cpp
@@ -100,11 +101,12 @@ add_executable(pileup-browser
   src/app/tui.cpp
   src/app/widgets.cpp
   src/frontend/extb/extb.cpp
-  src/frontend/extb/widgets/table.cpp
   src/frontend/extb/widgets/box.cpp
   src/frontend/tb2_impl.cpp
   src/frontend/input.cpp
+  src/frontend/history.cpp
   src/app/cmd.cpp
+  src/backend/hts_types.cpp
 )
 target_compile_options(pileup-browser
   PRIVATE

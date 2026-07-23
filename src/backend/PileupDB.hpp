@@ -1,10 +1,16 @@
 #pragma once
 
+#include <htslib/sam.h>
+
 #include <cstdint>
+#include <expected>
+#include <format>
 #include <string>
+#include <string_view>
 
 #include "backend/hts_types.hpp"
 #include "backend/sql_types.hpp"
+#include "plog/Log.h"
 #include "shared/err.hpp"
 
 struct PileupDB : public SqliteConn {};
@@ -18,7 +24,8 @@ VoidOrErr init_db (PileupDB& db);
 
 // insert reads at pileup position into database
 [[nodiscard]] VoidOrErr insert_pileup (
-    PileupDB& db, const AlnFile& aln, const PileupPosition& pos
+    PileupDB& db, const AlnFile& aln, const PileupPosition& pos,
+    const std::optional<FastaFile>& ff
 );
 
 // Copy the in-memory database out to a file on disk, using
@@ -32,6 +39,36 @@ VoidOrErr init_db (PileupDB& db);
 [[nodiscard]] VoidOrErr load_from_disk (
     PileupDB& db, const std::string& path
 );
+
+// Plain {contig, pos} pair read back from the loci table. Distinct from
+// PileupPosition (backend/hts_types.hpp), which stores a numeric htslib
+// tid rather than a resolved contig name -- that type is only meaningful
+// while an AlnFile/header is open (AlnModeArgs ingest path); this one is
+// read directly out of sqlite, with no htslib dependency, so it works
+// equally when the db was loaded from disk with no header in scope.
+struct LocusData {
+  std::string contig;
+  int64_t pos;  // 0-based pileup position, per loci.pos
+  int64_t start;
+  int64_t end;
+  std::optional<std::string> refSlice;
+};
+using LocusOrErr = std::expected<LocusData, Err>;
+
+// The single point where a resolved contig name + pileup span becomes a
+// persisted LocusData. Callers must resolve the contig name themselves
+// (e.g. via sam_hdr_tid2name) -- PileupPosition's tid is only meaningful
+// while the originating AlnFile/header is open.
+LocusData make_locus_data (
+    std::string contigName, hts_pos_t pos,
+    const GenomicSpan& span, std::optional<std::string> refSlice
+);
+
+// Read back the single row of the loci table. Every PileupDB has exactly
+// one locus for its lifetime (one pileup position per invocation, written
+// once by insert_loci) -- this assumes that invariant rather than
+// defensively checking for zero or multiple rows.
+[[nodiscard]] LocusOrErr get_locus_data (const PileupDB& db);
 
 // TIED TO SCHEMA CREATE ORDER
 enum SelectFields {
@@ -238,3 +275,80 @@ inline uint64_t get_ncig (sqlite3_stmt* row)
 [[nodiscard]] BoolOrErr next_read (
     sqlite3_stmt* stmt, const PileupDB& db
 );
+
+struct SqliteStmtDynamic : public SqliteStmt {
+  static inline const std::string_view rsql_prefix;
+};
+struct DynamicSelectReadsStmt : public SqliteStmtDynamic {
+  static inline const std::string_view rsql_prefix =
+      "SELECT * FROM reads";
+};
+struct DynamicFragments {
+  std::vector<std::string> where;
+  std::string orderBy;
+  size_t offset;
+};
+inline std::expected<DynamicSelectReadsStmt, Err>
+prepare_select_reads (
+    const PileupDB& db, const DynamicFragments& frags
+)
+{
+  DynamicSelectReadsStmt stmt;
+
+  std::string rsql_builtStmt{stmt.rsql_prefix};
+
+  // build WHERE
+  std::string fragWhere;
+  for (size_t i = 0; i < frags.where.size(); ++i) {
+    fragWhere.append (frags.where[i]);
+    if (i != (frags.where.size() - 1)) {
+      fragWhere.append (" ");
+    }
+  }
+
+  if (!fragWhere.empty()) {
+    rsql_builtStmt.append (" WHERE ");
+    rsql_builtStmt.append (fragWhere);
+  }
+
+  if (!frags.orderBy.empty()) {
+    rsql_builtStmt.append (" ORDER BY ");
+    rsql_builtStmt.append (frags.orderBy);
+  }
+
+  // SQLite requires LIMIT whenever OFFSET is present; -1 means unbounded.
+  if (frags.offset) {
+    rsql_builtStmt.append (" LIMIT -1 OFFSET ");
+    rsql_builtStmt.append (std::to_string (frags.offset));
+  }
+
+  rsql_builtStmt.append (";");  // end stmt
+
+  PLOGD << "Compiling user query: " + rsql_builtStmt;
+
+  // Either of the following cases should be surfaced to the user
+
+  int rc;
+  if (rc = sqlite3_prepare_v2 (
+          db, rsql_builtStmt.c_str(),
+          static_cast<int> (rsql_builtStmt.size()), &stmt.o_ptr,
+          NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected{make_sqlite3_err (
+        rc, std::format (
+                "Could not compile statement: {} - {}",
+                rsql_builtStmt, sqlite3_errmsg (db)
+            )
+    )};
+  }
+
+  if (!sqlite3_stmt_readonly (stmt)) {
+    // TODO: proper err
+    return std::unexpected{
+        make_internal_err ("Statement would modify database.")
+    };
+  }
+
+  return stmt;
+};

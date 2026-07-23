@@ -9,7 +9,7 @@
 #include <string>
 
 #include "backend/PileupDB.hpp"
-#include "backend/PileupDB_internal.hpp"
+#include "backend/pileup_ingest.hpp"
 #include "shared/err.hpp"
 
 static std::string random_base_seq (size_t len)
@@ -43,25 +43,22 @@ VoidOrErr insert_demo_data (
     return std::unexpected{imRet.error()};
   }
 
-  auto ilRet = insert_loci (db, PileupPosition{0, 0}, [] (int) {
-    return "demo";
-  });
+  auto ilRet =
+      insert_loci (db, LocusData{"demo", 0, 0, 0, std::nullopt});
   if (!ilRet) {
     return std::unexpected{ilRet.error()};
   }
   const int lociId = *ilRet;
 
-  auto stmtRet = prepare<InsertReadsStmt> (db);
+  auto stmtRet = prepare_insert_reads_stmt (db);
   if (!stmtRet) {
     return std::unexpected{stmtRet.error()};
   }
   auto stmt{std::move (*stmtRet)};
   PileupFields ru_pf;
 
-  int sqlRc = SQLITE_OK;
-  if (sqlRc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
-      sqlRc != SQLITE_OK) {
-    goto err_db;
+  if (auto beginRet = begin_transaction (db); !beginRet) {
+    return std::unexpected{beginRet.error()};
   }
 
   ru_pf.rawCig = {
@@ -88,26 +85,17 @@ VoidOrErr insert_demo_data (
     ru_pf.isHead = (ru_pf.qPos == 0);
     ru_pf.isTail = (ru_pf.qPos == (qLen - 1));
 
-    if (sqlRc = bind_pileup_fields (stmt, lociId, ru_pf);
+    if (int sqlRc = bind_pileup_fields (stmt, lociId, ru_pf);
         sqlRc != SQLITE_OK) {
-      if (const int rollbackRc =
-              sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
-          rollbackRc != SQLITE_OK) {
-        return std::unexpected{make_sqlite3_err (
-            sqlRc, (std::string (sqlite3_errstr (sqlRc)) +
-                    " (additionally, ROLLBACK failed "
-                    "with code " +
-                    std::to_string (rollbackRc) +
-                    " and msg: " + sqlite3_errmsg (db) + ")")
-        )};
-      }
-      return std::unexpected{
-          make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))
-      };
+      Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
+      rollback_on_err (db, err);
+      return std::unexpected{err};
     }
 
-    if (sqlRc = sqlite3_step (stmt); sqlRc != SQLITE_DONE) {
-      goto err_db;
+    if (int sqlRc = sqlite3_step (stmt); sqlRc != SQLITE_DONE) {
+      Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
+      rollback_on_err (db, err);
+      return std::unexpected{err};
     }
     sqlite3_reset (
         stmt
@@ -117,26 +105,10 @@ VoidOrErr insert_demo_data (
     );  // cannot fail per sqlite3 docs
   }
 
-  if (sqlRc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
-      sqlRc != SQLITE_OK) {
-    goto err_db;
+  auto comRet = commit (db);
+  if (!comRet) {
+    return std::unexpected{comRet.error()};
   }
 
   return {};
-
-err_db: {
-  const std::string errMsg = sqlite3_errmsg (db);
-  if (const int rollbackRc =
-          sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
-      rollbackRc != SQLITE_OK) {
-    return std::unexpected{make_sqlite3_err (
-        sqlRc, (errMsg +
-                " (additionally, ROLLBACK failed "
-                "with code " +
-                std::to_string (rollbackRc) +
-                " and msg: " + sqlite3_errmsg (db) + ")")
-    )};
-  }
-  return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
-}
 }

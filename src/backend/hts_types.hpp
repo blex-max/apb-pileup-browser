@@ -1,7 +1,26 @@
 #pragma once
 
+#include <htslib/faidx.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
+
+#include <expected>
+#include <functional>
+#include <string>
+
+#include "shared/err.hpp"
+
+struct GenomicSpan {
+  hts_pos_t start;
+  hts_pos_t end;
+};
+struct PileupPosition {
+  int32_t tid;
+  hts_pos_t pos;
+};
+
+// resolve tid to name
+using Tid2StrFn = std::function<const char*(int)>;
 
 struct AlnFile {
   htsFile* o_fh = NULL;
@@ -56,11 +75,48 @@ struct AlnFile {
   }
 };
 
-struct GenomeSpan {
-  hts_pos_t start;
-  hts_pos_t end;
+using AlnOrErr = std::expected<AlnFile, Err>;
+[[nodiscard]] AlnOrErr load_aln (const char* fn);
+
+struct FastaFile {
+  faidx_t* o_fai;
+
+  operator faidx_t*() const noexcept { return o_fai; }
+
+  FastaFile() = default;
+  FastaFile (const FastaFile& o) = delete;
+  FastaFile& operator= (const FastaFile& o) = delete;
+
+  FastaFile (FastaFile&& o) noexcept : o_fai{o.o_fai}
+  {
+    o.o_fai = nullptr;
+  }
+
+  FastaFile& operator= (FastaFile&& o) noexcept
+  {
+    if (this != &o) {
+      if (o_fai) {
+        fai_destroy (o_fai);
+      }
+      o_fai = o.o_fai;
+      o.o_fai = nullptr;
+    }
+    return *this;
+  }
+
+  ~FastaFile()
+  {
+    if (o_fai) {
+      fai_destroy (o_fai);
+    }
+  }
 };
-struct PileupPosition {
-  int32_t tid;
-  hts_pos_t pos;
-};
+
+using FastaOrErr = std::expected<FastaFile, Err>;
+[[nodiscard]] FastaOrErr load_fasta (const char* fn);
+
+using RefSliceOrErr = std::expected<std::string, Err>;
+[[nodiscard]] RefSliceOrErr fetch_region (
+    const FastaFile& ff, const std::string_view contigName,
+    hts_pos_t regStart, hts_pos_t regEnd
+);

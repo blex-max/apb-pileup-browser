@@ -8,7 +8,7 @@
 
 inline VoidOrErr handle_resize (AppState& state)
 {
-  calc_widgets (state.ui, state.conf);
+  calc_static_widgets (state.ui, state.conf);
 
   return {};
 }
@@ -23,11 +23,13 @@ inline void handle_character_entry (
 inline bool handle_nav (AppState& state, const tb_event& ev)
 {
   auto& cmdWgt = state.ui.cmd;
+  auto& scrollRow = state.ui.main.rowStart;
 
   switch (ev.key) {
     case TB_KEY_ENTER:
       // execute user command
       if (!cmdWgt.inputBuf.text.empty()) {
+        history_push (cmdWgt.history, cmdWgt.inputBuf.text);
         cmdWgt.msgBuf = exec_cmd (cmdWgt.inputBuf.text, state)
                             .msg;  // return msg
         clear (cmdWgt.inputBuf);
@@ -39,7 +41,39 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
       del_back (cmdWgt.inputBuf);
       break;
 
-    // TODO: more cases
+    case TB_KEY_ARROW_LEFT:
+      move_left (cmdWgt.inputBuf);
+      break;
+
+    case TB_KEY_ARROW_RIGHT:
+      move_right (cmdWgt.inputBuf);
+      break;
+
+    case TB_KEY_CTRL_A:
+      move_start (cmdWgt.inputBuf);
+      break;
+
+    case TB_KEY_CTRL_E:
+      move_end (cmdWgt.inputBuf);
+      break;
+
+    case TB_KEY_ARROW_DOWN:
+      if (ev.mod & TB_MOD_SHIFT) {
+        history_next (cmdWgt.history, cmdWgt.inputBuf);
+      }
+      else {
+        scrollRow++;
+      }
+      break;
+
+    case TB_KEY_ARROW_UP:
+      if (ev.mod & TB_MOD_SHIFT) {
+        history_prev (cmdWgt.history, cmdWgt.inputBuf);
+      }
+      else {
+        scrollRow = std::max (scrollRow - 1, 0);
+      }
+      break;
 
     default:
       return false;
@@ -53,11 +87,26 @@ inline void handle_key_event (
 )
 {
   if (ev.key == 0 && ev.ch) {
-    PLOGD << "Recieved character input event";
-    handle_character_entry (state, ev);
+    // annoyingly, outside of handle_nav
+    if ((ev.mod & TB_MOD_ALT) && ev.ch == 'b') {
+      PLOGD << "Recieved alt-b (word-left) event";
+      move_word_left (state.ui.cmd.inputBuf);
+    }
+    else if ((ev.mod & TB_MOD_ALT) && ev.ch == 'f') {
+      PLOGD << "Recieved alt-f (word-right) event";
+      move_word_right (state.ui.cmd.inputBuf);
+    }
+    else {
+      PLOGD << std::format (
+          "Recieved character input event: {}", ev.ch
+      );
+      handle_character_entry (state, ev);
+    }
   }
   else {
-    PLOGD << "Recieved navigation event";
+    PLOGD << std::format (
+        "Recieved navigation event: {}", ev.key
+    );
     handle_nav (state, ev);
   }
 }

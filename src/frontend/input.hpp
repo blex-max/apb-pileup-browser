@@ -9,13 +9,14 @@ struct EditBuf {
 
 // TODO: consider error strategy,
 // if any really needed
-// NOTE: several undefined/unimplemented!
 bool valid (const EditBuf& b);
 void insert (EditBuf& b, char c);
 void del_back (EditBuf& b);
-void del_forward (EditBuf& b);
-void move_curs_r (EditBuf& b, size_t i);
-void move_curs_l (EditBuf& b, size_t i);
-void curs_to_start (EditBuf& b);
-void curs_to_end (EditBuf& b);
 void clear (EditBuf& b);
+void move_start (EditBuf& b);
+void move_end (EditBuf& b);
+void move_left (EditBuf& b);
+void move_right (EditBuf& b);
+void move_word_left (EditBuf& b);
+void move_word_right (EditBuf& b);
+void set_text (EditBuf& b, std::string s);
