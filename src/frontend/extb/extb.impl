@@ -104,8 +104,8 @@ int rm_attr
 }
 
 template <GlobalCellSource S>
-int reset_attr
-(S&& gcs, const Style& style) {
+int clear_attrs
+(S&& gcs) {
   tb_cell *tbc;
   int rc;
   for (const auto& gc : detail::as_global_cell_range (gcs)) {

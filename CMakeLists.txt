@@ -32,6 +32,7 @@ FetchContent_Declare(
   GIT_PROGRESS   TRUE
   GIT_SHALLOW    TRUE
   EXCLUDE_FROM_ALL
+  SYSTEM
 )
 FetchContent_MakeAvailable(termbox2)
 FetchContent_Declare(
@@ -39,12 +40,14 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/SergiusTheBest/plog
     GIT_TAG        1.1.10
     GIT_SHALLOW    true
+    SYSTEM
 )
 FetchContent_MakeAvailable(plog)
 FetchContent_Declare(
     argparse
     GIT_REPOSITORY https://github.com/p-ranav/argparse.git
     GIT_TAG v3.2
+    SYSTEM
 )
 FetchContent_MakeAvailable(argparse)
 
@@ -54,12 +57,13 @@ if(MAKE_TEST)
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
     GIT_TAG        v3.8.1
     GIT_SHALLOW    TRUE
+    SYSTEM
   )
   FetchContent_MakeAvailable(Catch2)
 endif()
 
 add_library(termbox2 INTERFACE)
-target_include_directories(termbox2 INTERFACE "${termbox2_SOURCE_DIR}")
+target_include_directories(termbox2 SYSTEM INTERFACE "${termbox2_SOURCE_DIR}")
 
 
 set(HTSLIB_TARGET "")
@@ -137,7 +141,12 @@ if(MAKE_TEST)
   enable_testing()
   add_executable(pileup-browser-tests
     src/backend/PileupDB.cpp
-    tests/test_PileupDb.cpp
+    src/backend/pileup_ingest.cpp
+    src/backend/hts_types.cpp
+    tests/test_stringify.cpp
+    tests/test_schema.cpp
+    tests/test_ingest.cpp
+    tests/test_query.cpp
   )
   target_include_directories(pileup-browser-tests PRIVATE src)
   target_link_libraries(pileup-browser-tests

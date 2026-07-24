@@ -134,6 +134,23 @@ VoidOrErr fill_fields (
     const char* mTidName
 );
 
+// Render a CIGAR array as its textual form (e.g. "10S40M5I2D").
+std::string stringify_cigar (const uint32_t* cig, size_t nCig);
+
+// Escape a raw aux string value for embedding in a JSON string literal.
+void append_json_escaped (
+    const char* p_data, size_t len, std::string& out
+);
+
+// Convert one raw htslib aux tag into a `"TAG":value` JSON fragment,
+// appended to entryOut. p_aux1 must point at the tag's type-char byte
+// (the 2-byte tag name occupies the two bytes immediately before it);
+// p_auxEnd bounds the whole aux buffer.
+[[nodiscard]] VoidOrErr aux1_to_json (
+    const uint8_t* p_aux1, const uint8_t* p_auxEnd,
+    std::string& entryOut
+);
+
 // Begin a transaction on `db`. Pair with commit()/rollback() below.
 [[nodiscard]] VoidOrErr begin_transaction (PileupDB& db);
 

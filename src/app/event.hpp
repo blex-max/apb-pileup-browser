@@ -38,7 +38,12 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
 
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
-      del_back (cmdWgt.inputBuf);
+      if (ev.mod & TB_MOD_ALT) {
+        clear (cmdWgt.inputBuf);
+      }
+      else {
+        del_back (cmdWgt.inputBuf);
+      }
       break;
 
     case TB_KEY_ARROW_LEFT:
@@ -59,19 +64,19 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
 
     case TB_KEY_ARROW_DOWN:
       if (ev.mod & TB_MOD_SHIFT) {
-        history_next (cmdWgt.history, cmdWgt.inputBuf);
+        scrollRow++;
       }
       else {
-        scrollRow++;
+        history_next (cmdWgt.history, cmdWgt.inputBuf);
       }
       break;
 
     case TB_KEY_ARROW_UP:
       if (ev.mod & TB_MOD_SHIFT) {
-        history_prev (cmdWgt.history, cmdWgt.inputBuf);
+        scrollRow = std::max (scrollRow - 1, 0);
       }
       else {
-        scrollRow = std::max (scrollRow - 1, 0);
+        history_prev (cmdWgt.history, cmdWgt.inputBuf);
       }
       break;
 

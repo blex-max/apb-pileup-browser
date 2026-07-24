@@ -57,6 +57,17 @@ std::expected<SqliteStmt, Err> prepare_insert_reads_stmt (
   return stmt;
 }
 
+std::string stringify_cigar (const uint32_t* cig, size_t nCig)
+{
+  std::string out;
+  for (size_t opi = 0; opi < nCig; opi++) {
+    const auto cigel = cig[opi];
+    out += std::to_string (bam_cigar_oplen (cigel));
+    out += bam_cigar_opchr (cigel);
+  }
+  return out;
+}
+
 /* TAG CONVERSION */
 
 // Escape a raw aux string value for embedding in a JSON string literal.
@@ -121,18 +132,29 @@ VoidOrErr aux1_to_json (
   if (typeCh == 'B') {
     entryOut += '[';  // open array
     // handle array
-    const size_t valStartOffset = 7;
-    const char* p_valStart = p_str + valStartOffset;
-    // all allowed array types are numeric
-    // no need to check type
-    ks_tokaux_t tokAux;
-    const char* p_tok;
-    for (p_tok = kstrtok (p_valStart, ",", &tokAux); p_tok;
-         p_tok = kstrtok (NULL, NULL, &tokAux)) {
-      const size_t tokLen =
-          static_cast<size_t> (tokAux.p - p_tok);
-      entryOut.append (p_tok, tokLen);
-      entryOut += ',';
+    // header is always "TAG:B:<subtype>" (2 + 1 + 2 + 1 = 6 chars);
+    // htslib only emits the first ',' -- and therefore anything past
+    // the header -- once there's at least one element, so an empty
+    // array (ks_len == headerLen) must short-circuit here rather than
+    // read past the end of the formatted buffer.
+    const size_t headerLen = 6;
+    if (ks_len (&o_kstr) > headerLen) {
+      const char* p_valStart = p_str + headerLen + 1;
+      // all allowed array types are numeric
+      // no need to check type
+      ks_tokaux_t tokAux;
+      const char* p_tok;
+      bool firstTok = true;
+      for (p_tok = kstrtok (p_valStart, ",", &tokAux); p_tok;
+           p_tok = kstrtok (NULL, NULL, &tokAux)) {
+        const size_t tokLen =
+            static_cast<size_t> (tokAux.p - p_tok);
+        if (!firstTok) {
+          entryOut += ',';
+        }
+        entryOut.append (p_tok, tokLen);
+        firstTok = false;
+      }
     }
     entryOut += ']';
   }
@@ -639,17 +661,7 @@ VoidOrErr fill_fields (
   {
     /* stringify cigar */
     // ASSUMPTION: cigar available and correct.
-    auto& cig = pf.cig;
-    cig.clear();  // final len unknown, can't resize directly.
-
-    // stringify cigar
-    for (size_t opi = 0; opi < nCig; opi++) {
-      const auto cigel = p_cig[opi];
-      const auto len = bam_cigar_oplen (cigel);
-      const auto opc = bam_cigar_opchr (cigel);
-      cig += std::to_string (len);
-      cig += opc;
-    }
+    pf.cig = stringify_cigar (p_cig, nCig);
     pf.end = pf.start +
              bam_cigar2rlen (static_cast<int> (nCig), p_cig);
   }

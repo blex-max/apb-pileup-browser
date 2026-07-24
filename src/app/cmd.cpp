@@ -143,21 +143,65 @@ static CmdResult apply_query_clause (
 
 // The exact repl syntax for usage of
 // these is tbd.
-CmdResult append_where (std::string_view args, AppState& state)
+CmdResult init_where (std::string_view args, AppState& state)
 {
   if (args.empty()) {
     return {true, ""};
   }
 
-  if (!state.query.userClause.where.empty()) {
-    auto connective = split_first_space (args).first;
-    if (!VALID_CONJUNCTIONS.contains (connective)) {
-      return {false, "Clause is missing conjunction (and/or)!"};
-    }
+  auto& clauses = state.query.userClause;
+
+  if (!clauses.where.empty()) {
+    return {false, "Query present, reset to start a new query"};
   }
 
-  auto newClause = state.query.userClause;
+  auto newClause = clauses;
   newClause.where.emplace_back (args);
+
+  PLOGD << std::format (
+      "Attempting to compile statement with updated WHERE "
+      "clause {}",
+      args
+  );
+
+  return apply_query_clause (
+      state, std::move (newClause), "OK!"
+  );
+}
+
+CmdResult and_where (std::string_view args, AppState& state)
+{
+  if (args.empty()) {
+    return {true, ""};
+  }
+
+  std::string clause{"AND "};
+  clause.append (args);
+
+  auto newClause = state.query.userClause;
+  newClause.where.emplace_back (clause);
+
+  PLOGD << std::format (
+      "Attempting to compile statement with updated WHERE "
+      "clause {}",
+      args
+  );
+
+  return apply_query_clause (
+      state, std::move (newClause), "OK!"
+  );
+}
+CmdResult or_where (std::string_view args, AppState& state)
+{
+  if (args.empty()) {
+    return {true, ""};
+  }
+
+  std::string clause{"OR "};
+  clause.append (args);
+
+  auto newClause = state.query.userClause;
+  newClause.where.emplace_back (clause);
 
   PLOGD << std::format (
       "Attempting to compile statement with updated WHERE "
@@ -227,15 +271,20 @@ CmdResult count (std::string_view rsql_clause, AppState& state)
 {
   auto where = state.query.userClause.where;
   if (!rsql_clause.empty()) {
+    std::string clause{"AND "};
     if (!where.empty()) {
       auto connective = split_first_space (rsql_clause).first;
-      if (!VALID_CONJUNCTIONS.contains (connective)) {
+      if (VALID_CONJUNCTIONS.contains (connective)) {
         return {
-            false, "Clause is missing conjunction (and/or)!"
+            false,
+            "Count clauses should not be prepended with "
+            "conjuctions (and/or). They are interpreted as AND "
+            "with the existing statement."
         };
       }
     }
-    where.emplace_back (rsql_clause);
+    clause.append (rsql_clause);
+    where.emplace_back (clause);
   }
 
   auto stmtRet = prepare_count_reads (state.db, where);
@@ -285,15 +334,17 @@ static std::unordered_map<
         {"quit", &quit},
         {"show", &pileup_show},
         {"hide", &pileup_hide},
-        {"where", &append_where},
-        {"w", &append_where},
+        {"where", &init_where},
+        {"w", &init_where},
+        {"and", &and_where},
+        {"or", &or_where},
         {"back", &remove_last_where},
         {"order", &order_by},
         {"o", &order_by},
         {"clear-where", &clear_where},
         {"cw", &clear_where},
+        {"clear", &reset_query},
         {"count", &count},
-        {"reset", &reset_query}
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)

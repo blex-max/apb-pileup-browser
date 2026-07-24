@@ -70,8 +70,11 @@ inline std::pair<std::string, std::string> get_soft_clips (
 )
 {
   std::pair<std::string, std::string> out;
+  if (nCig == 0) {
+    return out;
+  }
   const auto firstOp = cig[0];
-  const auto lastOp = cig[nCig];
+  const auto lastOp = cig[nCig - 1];
   if (bam_cigar_op (firstOp) == BAM_CSOFT_CLIP) {
     const auto opSz = bam_cigar_oplen (firstOp);
     out.first = "s(" + std::to_string (opSz) + ")";
