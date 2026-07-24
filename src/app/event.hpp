@@ -8,7 +8,10 @@
 
 inline VoidOrErr handle_resize (AppState& state)
 {
-  calc_static_widgets (state.ui, state.conf);
+  auto calcRet = calc_static_widgets (state.ui, state.conf);
+  if (!calcRet) {
+    return std::unexpected (calcRet.error());
+  }
 
   return {};
 }
@@ -80,6 +83,20 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
       }
       break;
 
+    case TB_KEY_PGUP: {
+      auto pageSize =
+          static_cast<int> (height (state.ui.main.queryBox));
+      scrollRow = std::max (scrollRow - pageSize, 0);
+      break;
+    }
+
+    case TB_KEY_PGDN: {
+      auto pageSize =
+          static_cast<int> (height (state.ui.main.queryBox));
+      scrollRow += pageSize;
+      break;
+    }
+
     default:
       return false;
   }
@@ -129,7 +146,10 @@ inline VoidOrErr handle_event (
     handle_key_event (state, ev);
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    handle_resize (state);
+    auto rszRet = handle_resize (state);
+    if (!rszRet) {
+      return std::unexpected (rszRet.error());
+    }
   }
 
   return {};

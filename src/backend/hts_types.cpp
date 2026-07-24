@@ -69,7 +69,9 @@ RefSliceOrErr fetch_region (
     else {
       msg += "unspecified htslib error";
     }
-    return std::unexpected (make_htslib_err (rc, msg));
+    return std::unexpected (
+        make_htslib_err (static_cast<int> (rc), msg)
+    );
   }
 
   std::string out{p_fetch, static_cast<size_t> (rc)};

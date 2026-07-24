@@ -32,7 +32,7 @@ int main (int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  std::cerr << "Bye!";
+  std::cerr << "Bye!" << std::endl;
 
   return EXIT_SUCCESS;
 }

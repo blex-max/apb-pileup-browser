@@ -37,17 +37,51 @@ void draw_sequence (
   // string to keep it aligned with the displayed reference. If it
   // overruns to the right, write_string will just discard those chars.
   auto proj = project_onto_box (
-      locus.pos, width (queryBox),
-      static_cast<int64_t> (get_rstart (dbRow))
+      locus.pos, width (queryBox), get_rstart (dbRow)
   );
+  auto seqStart = translate (
+      top_left (queryBox),
+      {static_cast<int> (boxRow), proj.jOffset}
+  );
+  auto jBound = last (queryBox.jspan);
 
-  e2::write_string (
-      translate (
-          top_left (queryBox),
-          {static_cast<int> (boxRow), proj.jOffset}
-      ),
-      last (queryBox.jspan), alignmentSeq.substr (proj.skipChars)
-  );
+  auto visible = alignmentSeq.substr (proj.skipChars);
+  auto written = e2::write_string (seqStart, jBound, visible);
+
+  // Dim reference-matching bases ('=') so mismatches/indels stand out.
+  for (size_t k = 0; k < written; ++k) {
+    if (visible[k] == '=') {
+      e2::add_attr (
+          translate (seqStart, e2::J (static_cast<int> (k))),
+          TB_DIM
+      );
+    }
+  }
+
+  // Soft-clip indicators go in any blank space left over on either
+  // side of the drawn read, anchored against the read edge (so a
+  // truncated label loses its outer end, not the end nearest the read).
+  if (proj.skipChars == 0 && proj.jOffset > 0 &&
+      !softClips.first.empty()) {
+    auto avail = static_cast<size_t> (proj.jOffset);
+    std::string_view label = softClips.first;
+    auto shown = label.size() > avail
+                     ? label.substr (label.size() - avail)
+                     : label;
+    e2::write_string (
+        translate (
+            seqStart, e2::J (-static_cast<int> (shown.size()))
+        ),
+        seqStart.j, shown, TB_DIM
+    );
+  }
+
+  auto rightEdge = seqStart.j + static_cast<int> (written);
+  if (rightEdge < jBound && !softClips.second.empty()) {
+    e2::write_string (
+        {seqStart.i, rightEdge}, jBound, softClips.second, TB_DIM
+    );
+  }
 }
 
 // Draws `text` padded/truncated to exactly `width` characters at {i, j},

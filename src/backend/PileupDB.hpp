@@ -125,17 +125,13 @@ inline uint16_t get_flag (sqlite3_stmt* row)
       sqlite3_column_int (row, SelectFields::flag)
   );
 }
-inline uint64_t get_rstart (sqlite3_stmt* row)
+inline int64_t get_rstart (sqlite3_stmt* row)
 {
-  return static_cast<uint64_t> (
-      sqlite3_column_int64 (row, SelectFields::rstart)
-  );
+  return sqlite3_column_int64 (row, SelectFields::rstart);
 }
-inline uint64_t get_rend (sqlite3_stmt* row)
+inline int64_t get_rend (sqlite3_stmt* row)
 {
-  return static_cast<uint64_t> (
-      sqlite3_column_int64 (row, SelectFields::rend)
-  );
+  return sqlite3_column_int64 (row, SelectFields::rend);
 }
 inline uint8_t get_mapq (sqlite3_stmt* row)
 {

@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.22)
 
-project(pileup-browser
+project(apb
   LANGUAGES CXX
   VERSION 0.0.0
 )
@@ -95,7 +95,7 @@ if(NOT HTSLIB_TARGET)
   )
 endif()
 
-add_executable(pileup-browser
+add_executable(apb
   src/backend/PileupDB.cpp
   src/backend/pileup_ingest.cpp
   src/backend/demo.cpp
@@ -112,7 +112,7 @@ add_executable(pileup-browser
   src/app/cmd.cpp
   src/backend/hts_types.cpp
 )
-target_compile_options(pileup-browser
+target_compile_options(apb
   PRIVATE
   -Wall
   -Wextra
@@ -124,11 +124,11 @@ target_compile_options(pileup-browser
   -Wnull-dereference
   -Wformat=2
 )
-target_include_directories(pileup-browser
+target_include_directories(apb
   PRIVATE
   src
 )
-target_link_libraries(pileup-browser
+target_link_libraries(apb
   PRIVATE
   termbox2
   plog::plog
@@ -139,7 +139,7 @@ target_link_libraries(pileup-browser
 
 if(MAKE_TEST)
   enable_testing()
-  add_executable(pileup-browser-tests
+  add_executable(apb-tests
     src/backend/PileupDB.cpp
     src/backend/pileup_ingest.cpp
     src/backend/hts_types.cpp
@@ -148,8 +148,8 @@ if(MAKE_TEST)
     tests/test_ingest.cpp
     tests/test_query.cpp
   )
-  target_include_directories(pileup-browser-tests PRIVATE src)
-  target_link_libraries(pileup-browser-tests
+  target_include_directories(apb-tests PRIVATE src)
+  target_link_libraries(apb-tests
     PRIVATE
     Catch2::Catch2WithMain
     ${HTSLIB_TARGET}
@@ -158,5 +158,5 @@ if(MAKE_TEST)
   )
   list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
   include(Catch)
-  catch_discover_tests(pileup-browser-tests)
+  catch_discover_tests(apb-tests)
 endif()

@@ -21,7 +21,6 @@ BraceWrapping:
   AfterFunction: true
   BeforeCatch: true
   BeforeElse: true
-  BeforeWhile: true
 
 InsertBraces: true
 

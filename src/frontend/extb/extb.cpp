@@ -26,7 +26,8 @@ size_t write_string (
   int nout = 0;
   for (size_t j = 0; j < jlim; ++j) {
     const auto rc = set (
-        translate (start, J (static_cast<int> (j))), s[j], style
+        translate (start, J (static_cast<int> (j))),
+        static_cast<unsigned char> (s[j]), style
     );
     if (rc != TB_OK) {
       break;

@@ -36,9 +36,10 @@ VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
   auto& pWgt = ui.main;
   pWgt.frame = e2::Box{mainI, screenJ};
 
-  auto vSplitJ = static_cast<int> (
-      ceil ((size (screenJ) - 2) * conf.query_box_frac)
-  );
+  auto vSplitJ = static_cast<int> (ceil (
+      static_cast<double> (size (screenJ) - 2) *
+      conf.query_box_frac
+  ));
   pWgt.vSep = {section (mainI, 0, size (mainI) - 1), vSplitJ};
   pWgt.refLine = {
       first (mainI) + 1, section (screenJ, 1, vSplitJ)

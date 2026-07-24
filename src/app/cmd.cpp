@@ -39,12 +39,14 @@ static std::vector<std::string_view> split_whitespace (
 }
 
 // Commands
-CmdResult quit (std::string_view, AppState& state)
+static CmdResult quit (std::string_view, AppState& state)
 {
   state.conf.run = false;
   return {true, "Bye!"};
 }
-CmdResult pileup_show (std::string_view names, AppState& state)
+static CmdResult pileup_show (
+    std::string_view names, AppState& state
+)
 {
   auto& existingRequests = state.conf.dataFieldsRequested;
 
@@ -81,7 +83,9 @@ CmdResult pileup_show (std::string_view names, AppState& state)
   };
 }
 
-CmdResult pileup_hide (std::string_view names, AppState& state)
+static CmdResult pileup_hide (
+    std::string_view names, AppState& state
+)
 {
   auto& existingRequests = state.conf.dataFieldsRequested;
 
@@ -143,7 +147,9 @@ static CmdResult apply_query_clause (
 
 // The exact repl syntax for usage of
 // these is tbd.
-CmdResult init_where (std::string_view args, AppState& state)
+static CmdResult init_where (
+    std::string_view args, AppState& state
+)
 {
   if (args.empty()) {
     return {true, ""};
@@ -169,7 +175,9 @@ CmdResult init_where (std::string_view args, AppState& state)
   );
 }
 
-CmdResult and_where (std::string_view args, AppState& state)
+static CmdResult and_where (
+    std::string_view args, AppState& state
+)
 {
   if (args.empty()) {
     return {true, ""};
@@ -191,7 +199,9 @@ CmdResult and_where (std::string_view args, AppState& state)
       state, std::move (newClause), "OK!"
   );
 }
-CmdResult or_where (std::string_view args, AppState& state)
+static CmdResult or_where (
+    std::string_view args, AppState& state
+)
 {
   if (args.empty()) {
     return {true, ""};
@@ -214,7 +224,9 @@ CmdResult or_where (std::string_view args, AppState& state)
   );
 }
 
-CmdResult remove_last_where (std::string_view _, AppState& state)
+static CmdResult remove_last_where (
+    std::string_view _, AppState& state
+)
 {
   if (!_.empty()) {
     return {false, "Does not take args"};
@@ -233,7 +245,9 @@ CmdResult remove_last_where (std::string_view _, AppState& state)
   );
 };
 
-CmdResult clear_where (std::string_view _, AppState& state)
+static CmdResult clear_where (
+    std::string_view _, AppState& state
+)
 {
   if (!_.empty()) {
     return {false, "Expected no args"};
@@ -247,7 +261,7 @@ CmdResult clear_where (std::string_view _, AppState& state)
   );
 }
 
-CmdResult order_by (
+static CmdResult order_by (
     std::string_view rsql_clause, AppState& state
 )
 {
@@ -267,7 +281,9 @@ CmdResult order_by (
   );
 }
 
-CmdResult count (std::string_view rsql_clause, AppState& state)
+static CmdResult count (
+    std::string_view rsql_clause, AppState& state
+)
 {
   auto where = state.query.userClause.where;
   if (!rsql_clause.empty()) {
@@ -310,7 +326,9 @@ CmdResult count (std::string_view rsql_clause, AppState& state)
   };
 }
 
-CmdResult reset_query (std::string_view _, AppState& state)
+static CmdResult reset_query (
+    std::string_view _, AppState& state
+)
 {
   if (!_.empty()) {
     return {false, "Expected no args"};
@@ -324,6 +342,25 @@ CmdResult reset_query (std::string_view _, AppState& state)
   return apply_query_clause (
       state, std::move (newClause), "Reset query"
   );
+}
+
+// Dump the in-memory db to a file on disk.
+// NOTE: does not do any kind of query preservation. Possible
+// future feature, but unlikely.
+static CmdResult dump (std::string_view args, AppState& state)
+{
+  const auto tokens = split_whitespace (args);
+  if (tokens.size() != 1) {
+    return {false, "dump takes a single file path argument"};
+  }
+
+  const std::string path{tokens[0]};
+  auto dumpRet = dump_to_disk (state.db, path);
+  if (!dumpRet) {
+    return {false, dumpRet.error().msg};
+  }
+
+  return {true, std::format ("Dumped database to {}", path)};
 }
 
 static std::unordered_map<
@@ -345,6 +382,7 @@ static std::unordered_map<
         {"cw", &clear_where},
         {"clear", &reset_query},
         {"count", &count},
+        {"dump", &dump}
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)

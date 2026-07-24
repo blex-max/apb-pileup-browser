@@ -253,8 +253,10 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
     const auto b1 = plp.plpArr[i].b;
     const auto rStart = b1->core.pos;
     const auto rEnd =
-        rStart +
-        bam_cigar2rlen (b1->core.n_cigar, bam_get_cigar (b1));
+        rStart + bam_cigar2rlen (
+                     static_cast<int> (b1->core.n_cigar),
+                     bam_get_cigar (b1)
+                 );
     if (rStart < out.start) {
       out.start = rStart;
     }
