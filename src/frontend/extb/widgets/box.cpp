@@ -125,7 +125,9 @@ ILine body (const ILine& l) noexcept
 GlobalCell to_global (const Box& b, const LocalCell& c)
 {
   if (contains_local (b, c)) {
-    return {c.i + b.ispan.first, c.j + b.jspan.first};
+    const auto moved =
+        translate (c, {b.ispan.first, b.jspan.first});
+    return {moved.i, moved.j};
   }
   else {
     return {};

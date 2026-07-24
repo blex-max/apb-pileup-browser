@@ -72,6 +72,6 @@ struct AppState {
   // not re-queried per frame.
   struct {
     DynamicSelectReadsStmt stmt;
-    DynamicFragments userClause{.offset = 0};
+    DynamicFragments userClause{};
   } query;
 };

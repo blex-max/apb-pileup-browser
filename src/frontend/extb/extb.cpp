@@ -26,15 +26,14 @@ size_t write_string (
   int nout = 0;
   for (size_t j = 0; j < jlim; ++j) {
     const auto rc = set (
-        GlobalCell{start.i, static_cast<int> (start.j + j)},
-        s[j], style
+        translate (start, J (static_cast<int> (j))), s[j], style
     );
     if (rc != TB_OK) {
       break;
     }
     ++nout;
   }
-  return nout;
+  return static_cast<size_t> (nout);
 }
 
 }  // end namespace extb

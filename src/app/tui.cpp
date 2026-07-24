@@ -42,8 +42,10 @@ void draw_sequence (
   );
 
   e2::write_string (
-      {first (queryBox.ispan) + static_cast<int> (boxRow),
-       first (queryBox.jspan) + proj.jOffset},
+      translate (
+          top_left (queryBox),
+          {static_cast<int> (boxRow), proj.jOffset}
+      ),
       last (queryBox.jspan), alignmentSeq.substr (proj.skipChars)
   );
 }
@@ -187,7 +189,10 @@ void draw_crosshair (const PileupWidg& pWgt)
   auto pileupJ = first (queryBox.jspan) +
                  static_cast<int> (width (queryBox) / 2);
   add_attr (e2::ILine{queryBox.ispan, pileupJ}, TB_REVERSE);
-  set (e2::GlobalCell{first (queryBox.ispan) - 1, pileupJ}, '|');
+  set (
+      e2::GlobalCell{first (queryBox.ispan) - 1, pileupJ}, '|',
+      TB_DIM
+  );
 }
 
 VoidOrErr draw_screen (AppState& state)

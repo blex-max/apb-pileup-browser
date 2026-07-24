@@ -69,11 +69,10 @@ inline auto cell_source (Box box)
   return std::views::iota (std::size_t{0}, count) |
          std::views::transform ([box,
                                  width] (std::size_t index) {
-           return GlobalCell{
-               box.ispan.first +
-                   static_cast<int> (index / width),
-               box.jspan.first + static_cast<int> (index % width)
-           };
+           return translate (
+               top_left (box), {static_cast<int> (index / width),
+                                static_cast<int> (index % width)}
+           );
          });
 }
 
@@ -82,9 +81,9 @@ inline auto cell_source (JLine l)
   const std::size_t width = size (l.jspan);
   return std::views::iota (std::size_t{0}, width) |
          std::views::transform ([l] (std::size_t index) {
-           return GlobalCell{
-               l.i, l.jspan.first + static_cast<int> (index)
-           };
+           return translate (
+               first (l), J (static_cast<int> (index))
+           );
          });
 }
 
@@ -93,9 +92,9 @@ inline auto cell_source (ILine l)
   const std::size_t height = size (l.ispan);
   return std::views::iota (std::size_t{0}, height) |
          std::views::transform ([l] (std::size_t index) {
-           return GlobalCell{
-               l.ispan.first + static_cast<int> (index), l.j
-           };
+           return translate (
+               first (l), I (static_cast<int> (index))
+           );
          });
 }
 

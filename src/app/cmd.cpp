@@ -7,6 +7,7 @@
 
 #include "app/fields.hpp"
 #include "app/state.hpp"
+#include "backend/PileupDB.hpp"
 #include "plog/Log.h"
 
 static std::pair<std::string_view, std::string_view>
@@ -108,6 +109,20 @@ CmdResult pileup_hide (std::string_view names, AppState& state)
 static const std::unordered_set<std::string_view>
     VALID_CONJUNCTIONS{"AND", "and", "OR", "or"};
 
+static std::string stringify_where (
+    const std::vector<std::string>& where
+)
+{
+  std::string out;
+  for (size_t i = 0; i < where.size(); ++i) {
+    out.append (where[i]);
+    if (i != (where.size() - 1)) {
+      out.append (" ");
+    }
+  }
+  return out;
+}
+
 // Recompile `newClause` and, on success, install it as the active query
 // and reset the scroll position. Callers own their own clause mutation
 // and success message; this only owns the repeated recompile/swap tail.
@@ -208,6 +223,44 @@ CmdResult order_by (
   );
 }
 
+CmdResult count (std::string_view rsql_clause, AppState& state)
+{
+  auto where = state.query.userClause.where;
+  if (!rsql_clause.empty()) {
+    if (!where.empty()) {
+      auto connective = split_first_space (rsql_clause).first;
+      if (!VALID_CONJUNCTIONS.contains (connective)) {
+        return {
+            false, "Clause is missing conjunction (and/or)!"
+        };
+      }
+    }
+    where.emplace_back (rsql_clause);
+  }
+
+  auto stmtRet = prepare_count_reads (state.db, where);
+  if (!stmtRet) {
+    return {false, stmtRet.error().msg};
+  }
+
+  auto& stmt = *stmtRet;
+  if (int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
+    return {
+        false, std::format (
+                   "Could not execute count: {}",
+                   sqlite3_errmsg (state.db)
+               )
+    };
+  }
+
+  return {
+      true, std::format (
+                "{}: {} reads", stringify_where (where),
+                sqlite3_column_int64 (stmt, 0)
+            )
+  };
+}
+
 CmdResult reset_query (std::string_view _, AppState& state)
 {
   if (!_.empty()) {
@@ -239,6 +292,7 @@ static std::unordered_map<
         {"o", &order_by},
         {"clear-where", &clear_where},
         {"cw", &clear_where},
+        {"count", &count},
         {"reset", &reset_query}
     };
 

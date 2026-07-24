@@ -276,20 +276,18 @@ inline uint64_t get_ncig (sqlite3_stmt* row)
     sqlite3_stmt* stmt, const PileupDB& db
 );
 
-struct SqliteStmtDynamic : public SqliteStmt {
-  static inline const std::string_view rsql_prefix;
-};
-struct DynamicSelectReadsStmt : public SqliteStmtDynamic {
+struct DynamicSelectReadsStmt : public SqliteStmt {
   static inline const std::string_view rsql_prefix =
       "SELECT * FROM reads";
 };
 struct DynamicFragments {
   std::vector<std::string> where;
   std::string orderBy;
-  size_t offset;
 };
-inline std::expected<DynamicSelectReadsStmt, Err>
-prepare_select_reads (
+
+using SelectStmtOrErr =
+    std::expected<DynamicSelectReadsStmt, Err>;
+inline SelectStmtOrErr prepare_select_reads (
     const PileupDB& db, const DynamicFragments& frags
 )
 {
@@ -298,28 +296,19 @@ prepare_select_reads (
   std::string rsql_builtStmt{stmt.rsql_prefix};
 
   // build WHERE
-  std::string fragWhere;
-  for (size_t i = 0; i < frags.where.size(); ++i) {
-    fragWhere.append (frags.where[i]);
-    if (i != (frags.where.size() - 1)) {
-      fragWhere.append (" ");
-    }
-  }
-
-  if (!fragWhere.empty()) {
+  if (!frags.where.empty()) {
     rsql_builtStmt.append (" WHERE ");
-    rsql_builtStmt.append (fragWhere);
+    for (size_t i = 0; i < frags.where.size(); ++i) {
+      rsql_builtStmt.append (frags.where[i]);
+      if (i != (frags.where.size() - 1)) {
+        rsql_builtStmt.append (" ");
+      }
+    }
   }
 
   if (!frags.orderBy.empty()) {
     rsql_builtStmt.append (" ORDER BY ");
     rsql_builtStmt.append (frags.orderBy);
-  }
-
-  // SQLite requires LIMIT whenever OFFSET is present; -1 means unbounded.
-  if (frags.offset) {
-    rsql_builtStmt.append (" LIMIT -1 OFFSET ");
-    rsql_builtStmt.append (std::to_string (frags.offset));
   }
 
   rsql_builtStmt.append (";");  // end stmt
@@ -344,7 +333,6 @@ prepare_select_reads (
   }
 
   if (!sqlite3_stmt_readonly (stmt)) {
-    // TODO: proper err
     return std::unexpected{
         make_internal_err ("Statement would modify database.")
     };
@@ -352,3 +340,58 @@ prepare_select_reads (
 
   return stmt;
 };
+
+struct DynamicCountReadsStmt : public SqliteStmt {
+  static inline const std::string_view rsql_prefix =
+      "SELECT COUNT(*) FROM reads";
+};
+
+using CountStmtOrErr = std::expected<DynamicCountReadsStmt, Err>;
+inline CountStmtOrErr prepare_count_reads (
+    const PileupDB& db, const std::vector<std::string>& where
+)
+{
+  DynamicCountReadsStmt stmt;
+
+  std::string rsql_builtStmt{stmt.rsql_prefix};
+
+  // build WHERE
+  if (!where.empty()) {
+    rsql_builtStmt.append (" WHERE ");
+    for (size_t i = 0; i < where.size(); ++i) {
+      rsql_builtStmt.append (where[i]);
+      if (i != (where.size() - 1)) {
+        rsql_builtStmt.append (" ");
+      }
+    }
+  }
+
+  rsql_builtStmt.append (";");  // end stmt
+
+  PLOGD << "Compiling user query: " + rsql_builtStmt;
+
+  // Either of the following cases should be surfaced to the user
+
+  int rc;
+  if (rc = sqlite3_prepare_v2 (
+          db, rsql_builtStmt.c_str(),
+          static_cast<int> (rsql_builtStmt.size()), &stmt.o_ptr,
+          NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected{make_sqlite3_err (
+        rc, std::format (
+                "Could not compile statement: {} - {}",
+                rsql_builtStmt, sqlite3_errmsg (db)
+            )
+    )};
+  }
+
+  if (!sqlite3_stmt_readonly (stmt)) {
+    return std::unexpected{
+        make_internal_err ("Statement would modify database.")
+    };
+  }
+
+  return stmt;
+}

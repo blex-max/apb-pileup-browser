@@ -201,28 +201,54 @@ void draw_dynamic_content (AppState& state)
     );
   }
 
-  // TODO chrome out properly
-  // e2::write_string(first (pWgt.infoLine), last (pWgt.infoLine.jspan), std::string_view s)
-  auto lociInfoStr = std::format (
-      "LOCUS: {}:{} | SPAN: {}-{} |", state.locus.contig,
-      state.locus.pos, state.locus.start, state.locus.end
-  );
-  e2::write_string (
-      first (pWgt.infoLine), last (pWgt.infoLine.jspan),
-      lociInfoStr
-  );
+  // locus info
+  {
+    const auto& locus = state.locus;
+    int jCurs = 1;  // initial space
+    const auto lineStart = first (pWgt.infoLine);
+    const auto lineEnd = last (pWgt.infoLine.jspan);
+    jCurs += e2::write_string (
+        translate (lineStart, e2::J (jCurs)), lineEnd,
+        "LOCUS:", TB_DIM
+    );
+    jCurs++;  // space
+    jCurs += e2::write_string (
+        translate (lineStart, e2::J (jCurs)), lineEnd,
+        std::format ("{}:{}", locus.contig, locus.pos)
+    );
+    jCurs++;  // space
+    set (
+        translate (lineStart, e2::J (jCurs++)), ch::vertLine,
+        TB_DIM
+    );
+    jCurs++;  // space
+    jCurs += e2::write_string (
+        translate (lineStart, e2::J (jCurs)), lineEnd,
+        "SPAN:", TB_DIM
+    );
+    jCurs++;  // space
+    jCurs += e2::write_string (
+        translate (lineStart, e2::J (jCurs)), lineEnd,
+        std::format ("{}-{}", locus.start, locus.end)
+    );
+    jCurs++;  // space
+    set (
+        translate (lineStart, e2::J (jCurs++)), ch::vertLine,
+        TB_DIM
+    );
+  }
 
   auto& cWgt = state.ui.cmd;
   e2::write_string (
       first (cWgt.inputLine), last (cWgt.inputLine).j,
       cWgt.inputBuf.text
   );
-  auto cursorJ = first (cWgt.inputLine).j +
-                 static_cast<int> (cWgt.inputBuf.curs);
-  if (cursorJ < last (cWgt.inputLine).j) {
-    e2::add_attr (
-        e2::GlobalCell{cWgt.inputLine.i, cursorJ}, TB_REVERSE
-    );
+  auto cursorCell = translate (
+      first (cWgt.inputLine),
+      e2::J (static_cast<int> (cWgt.inputBuf.curs))
+  );
+  if (cursorCell.j < last (cWgt.inputLine).j) {
+    e2::add_attr (cursorCell, TB_REVERSE);
   }
   e2::write_string (
       first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf,

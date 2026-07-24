@@ -40,6 +40,24 @@ struct LocalCell : public Cell {
 
 bool valid (const Cell& c) noexcept;
 
+struct Delta {
+  int di = 0, dj = 0;
+};
+
+inline Delta I (int n) noexcept { return {n, 0}; }
+inline Delta J (int n) noexcept { return {0, n}; }
+
+template <typename C>
+concept CellType = std::derived_from<C, Cell>;
+
+template <CellType C>
+C translate (C c, Delta d) noexcept
+{
+  c.i += d.di;
+  c.j += d.dj;
+  return c;
+}
+
 // all functions may operate on a
 // single global cell, a range of global cells,
 // or an object for which a function
