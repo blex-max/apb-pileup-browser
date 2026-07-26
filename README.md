@@ -8,6 +8,7 @@ The command line is capable of highly complex queries, but tuned to make explora
 
 <!-- TODO: use case examples - basically, variant assessment and tool assessment -->
 
+<!-- these are bit scrappy -->
 Advantages:
 - Right there in the terminal, no spinning up genome browser instances or navigating via web browser. Can be installed on clusters and used right wehre the data is.
 - Fast
@@ -16,7 +17,7 @@ Advantages:
 
 This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
 
-<!-- TODO must include an image/s -->
+<!-- TODO must include an image/s - does tmux have screencap capabilities? -->
 
 ## Install
 
@@ -33,11 +34,12 @@ The compiled binary can be found at `build/apb`.
 
 The CLI is in a demo state - the subcommand approach might not be long term.
 
-```sh
-apb sam <alignment-file> <locus> [--ref reference.fasta] [--dump out.db]
-apb db <dumped.db>
-apb demo [--dump out.db]
-```
+`apb sam <alignment-file> <locus> [--ref reference.fasta] [--dump out.db]`  
+
+`apb db <dumped.db>`  
+
+`apb demo [--dump out.db]`  
+
 
 `sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI entirely: it builds the pileup, writes it straight to a sqlite3 database file, and exits — useful for headless/batch use.
 
@@ -45,21 +47,23 @@ apb demo [--dump out.db]
 
 `demo` runs against synthetic data, no alignment file required — good for a first look at the tool.
 
-All subcommands accept `--log PATH` to write debug output to a file.
+`apb --log <path.txt>` (`--log` comes before the subcommand) enables debug logging. Valuable to turn on during this early development stage in case any crashes are encountered!
 
 ## TUI Usage
 
 Note that this is all subject to change pending user feedback.
 
-<!-- Not well structured. The ability for a column to be shown in the data view should be separated from field meaning into a separate table for one, and more generally each section should be checked such that they naturally build on each other and everythign is introduced in the right order -->
+<!-- Not well structured. The ability for a column to be shown in the data view should be separated from field meaning into a separate table, and more generally each section should be checked such that they naturally build on each other and everythign is introduced in the right order -->
 
-### How It Works
+### How It Works 
+<!-- This section perhaps comes before the cli usage even? Again the order is bad, needs rethinking -->
 
 Point `apb` at an alignment file and a locus (`apb sam <file> <locus>`), and it builds the pileup at that single position with htslib, then loads every overlapping read into a `reads` table in an in-memory sqlite database — one row per read. That table is the single source of truth for everything else: the alignment pane on the right renders it, and the command line queries it directly with plain SQL `WHERE`/`ORDER BY`. `--dump` (or the in-TUI `dump` command) writes that database out to a file, and `apb db <path>` reopens one later without needing the original alignment file again.
 
 Here's every column in the `reads` table — what it means, and whether it can also be shown in the alignment pane with `show`/`hide`:
 
 <!-- NOTE: There are other fields, but those are for backend use only -->
+<!-- For advanced users, might be worth a note commenting that these map to htslib's bam_pileup1_t and bam1_t struct fields -->
 | Column | Meaning | show/hide? |
 |---|---|---|
 | `qname` | read/template name (QNAME) | Yes |
@@ -182,6 +186,7 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 - Indication of insertion sites (easily implemented, but the best way to display them is unclear).
 - Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).
 - Fold-out display of quality string below each aligned read.
+- Minor UX/UI improvments
 
 ### Speculative
 These are items that I think might be useful,
@@ -200,16 +205,14 @@ find them desirable.
 
 ### Dependencies
 
-| Dependency | Version | Brought in via | Used for |
+| Dependency | Version | Found via | Used for |
 |---|---|---|---|
-| sqlite3 | ≥3.38 | system, `pkg-config` | the whole query/storage layer — `reads`/`loci`/`metadata` tables, the WHERE/ORDER BY REPL, `--dump`/`db` |
-| htslib | ≥1.14 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) | reading SAM/BAM/CRAM and reference FASTAs, building the pileup |
-| termbox2 | pinned commit | vendored, CMake FetchContent | terminal rendering and raw input events |
-| plog | v1.1.10 | vendored, CMake FetchContent | debug logging to `--log` |
-| argparse | v3.2 | vendored, CMake FetchContent | CLI subcommands/flags |
-| Catch2 | v3.8.1 | vendored, CMake FetchContent, only with `-DMAKE_TEST=ON` | test framework |
-
-The vendored ones are pinned to an exact tag/commit in `CMakeLists.txt` and fetched fresh on first configure — nothing's vendored into the repo itself.
+| sqlite3 | ≥3.38 | system, `pkg-config` | query/storage layer |
+| htslib | ≥1.14 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) | Handling sequence data |
+| termbox2 | 605398fa | CMake FetchContent | terminal rendering and raw input events |
+| plog | v1.1.10 | CMake FetchContent | debug logging |
+| argparse | v3.2 | CMake FetchContent | CLI |
+| Catch2 [optional] | v3.8.1 | CMake FetchContent | test framework |
 
 ### Tests
 
@@ -223,5 +226,5 @@ Coverage is concentrated on the backend: schema/pragma setup, pileup-to-row inge
 
 ### AI Usage Policy
 
-This repo has been developed by hand, with use of Claude Code as a second line — for design discussion, bug hunting, and basic stub implementation. Architecture, the design of all primitives, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new logical unit — a new subsystem, a new abstraction — is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to. Contributions would ideally follow this standard.
+This repo has been developed by hand, with use of Claude Code as a second line — for design discussion, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new logical unit — a new subsystem, a new abstraction — is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to. Contributions would ideally follow this standard.
 

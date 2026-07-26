@@ -98,7 +98,7 @@ endif()
 add_executable(apb
   src/backend/PileupDB.cpp
   src/backend/pileup_ingest.cpp
-  src/backend/demo.cpp
+  src/demo/demo.cpp
   src/app/main.cpp
   src/app/cli.cpp
   src/app/subcommands.cpp

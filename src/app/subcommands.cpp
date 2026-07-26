@@ -6,8 +6,8 @@
 
 #include "app/tui.hpp"
 #include "backend/PileupDB.hpp"
-#include "backend/demo.hpp"
 #include "backend/hts_types.hpp"
+#include "demo/demo.hpp"
 
 VoidOrErr run_mode (const DemoModeArgs& args)
 {
