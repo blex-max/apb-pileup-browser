@@ -61,6 +61,15 @@ inline bool handle_nav (AppState& state, const tb_event& ev)
       move_start (cmdWgt.inputBuf);
       break;
 
+    case TB_KEY_CTRL_C:
+      if (!cmdWgt.inputBuf.text.empty()) {
+        clear (cmdWgt.inputBuf);
+      }
+      else {
+        state.conf.run = false;
+      }
+      break;
+
     case TB_KEY_CTRL_E:
       move_end (cmdWgt.inputBuf);
       break;
