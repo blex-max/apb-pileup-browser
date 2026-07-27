@@ -76,7 +76,7 @@ struct PreparedPileup {
   PreparedPileup() = default;
   PreparedPileup (PreparedPileup&) = delete;
   PreparedPileup& operator= (PreparedPileup&) = delete;
-  PreparedPileup (PreparedPileup&& o)
+  PreparedPileup (PreparedPileup&& o) noexcept
       : o_cap (o.o_cap),
         o_plp (o.o_plp),
         plpArr (o.plpArr),
@@ -115,7 +115,7 @@ prepare_insert_reads_stmt (PileupDB& db);
 // locus identified by lociId.
 [[nodiscard]] VoidOrErr insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* plpArr, size_t nPlp,
-    int lociId, Tid2StrFn tid2str
+    int lociId, const Tid2StrFn& tid2str
 );
 
 // Bind one pileup row's fields into `stmt`, in column order matching

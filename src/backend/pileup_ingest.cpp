@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
-#include <functional>
 #include <string>
 
 #include "backend/hts_types.hpp"
@@ -240,7 +239,7 @@ PileupOrErr prepare_pileup (
     PLOGD << "Position found";
     out.plpArr = const_cast<const bam_pileup1_t*> (plpArr);
     out.nPlp = static_cast<size_t> (nPlp);
-    return std::move (out);
+    return out;
   }
   PLOGD << "Position not covered by alignment file";
   return {};
@@ -528,7 +527,7 @@ VoidOrErr commit (PileupDB& db)
 
 VoidOrErr insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* plpArr, size_t nPlp,
-    int lociId, Tid2StrFn tid2str
+    int lociId, const Tid2StrFn& tid2str
 )
 {
   if (nPlp == 0) {

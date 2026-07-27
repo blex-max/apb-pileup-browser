@@ -4,7 +4,7 @@
 #include <optional>
 #include <string>
 
-enum class ErrSrc { htslib, sqlite3, argparse, internal };
+enum class ErrSrc { htslib, sqlite, argparse, internal };
 
 enum class ErrKind {
   fatal  // only kind as of now
@@ -33,7 +33,7 @@ inline Err make_htslib_err (const int code, std::string msg)
 inline Err make_sqlite3_err (const int code, std::string msg)
 {
   return Err{
-      ErrKind::fatal, ErrSrc::sqlite3, code, std::move (msg)
+      ErrKind::fatal, ErrSrc::sqlite, code, std::move (msg)
   };
 }
 
