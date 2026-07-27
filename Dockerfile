@@ -1,4 +1,5 @@
-FROM debian:trixie-slim AS build  # trixie for htslib >= 1.17
+# trixie for htslib >= 1.17
+FROM debian:trixie-slim AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
