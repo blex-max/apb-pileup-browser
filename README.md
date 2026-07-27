@@ -15,7 +15,7 @@ Advantages:
 
 This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
 
-Below is a text screencap of the TUI, with explanatory comments in CAPTIALS. Rendering is richer in the TUI, but the screencap gives the basic idea. Bases which match the provided reference are displayed as `=`, and deletions are displayed as a bold `-`.
+Below is a text screencap of the TUI, with explanatory comments in CAPTIALS. Rendering is richer and better-looking in the TUI, but the screencap gives the basic idea. Bases which match the provided reference are displayed as `=`, and deletions are displayed as a bold `-`.
 ```
      READS ALIGNED TO REFERENCE ↓                              PER READ DATA ↓ 
 ╭─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────╮
@@ -72,6 +72,8 @@ Given an alignment file and a genomic locus `apb` builds the pileup at that sing
 
 ## CLI Usage
 
+There are three modal subcommands available when starting `apb` in the terminal.
+
 The CLI is in a demo state - the subcommand approach might not be long term.
 
 `apb sam <alignment-file> <locus> [--ref reference.fasta] [--dump out.db]`  
@@ -105,7 +107,7 @@ Normal typing goes directly to the command line; `Enter` dispatches it as a comm
 - `←` / `→` move the cursor; `Ctrl-A` / `Ctrl-E` jump to start/end; `Alt+←` / `Alt+→` (or `Alt+b` / `Alt+f`) jump by word.
 - `Backspace` deletes a character; `Alt+Backspace` clears the whole line.
 
-### The Command Line
+### TUI Commands
 
 | Command | Aliases | Args | Effect |
 |---|---|---|---|
@@ -129,7 +131,6 @@ Filtering and sorting uses simple boolean conditions on the columns: `where mapq
 
 ### Querying the Pileup
 
-<!-- TODO: fix. AI took this way too literal -->
 `apb` is built for exploration. Whereas more generic SQL interface programs are structured around dispatching known, predetermined queries, `apb` aims to support a stepwise pattern discovery. By example, a session might look like: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's not informative and back up, filter by mapping quality instead, and so on. 
 
 #### The `reads` Table
@@ -159,7 +160,6 @@ For each read, the database stores the following information. All of these may b
 | `qual` | the read's full quality string (Phred+33 ASCII) |
 | `ncig` | number of CIGAR operations |
 
-<!-- TODO: improve -->
 All columns are queryable in `where`/`and`/`or`/`order` commands — it's a real SQL table. The first twelve (`qname` through `tags`) can also be displayed in the info pane with `show`/`hide` commands; the rest (`indel` through `ncig`) exist for querying but are not directly displayed in tabular format.
 
 For advanced users: most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs, if you want to cross-reference against htslib's own documentation.
