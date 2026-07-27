@@ -99,6 +99,9 @@ VoidOrErr run_mode (const AlnModeArgs& args)
             )
     ));
   }
+  // hts_parse_region takes 1-based input (samtools convention); apb's
+  // locus argument is 0-based (see README), so shift back the -1 it applied.
+  pos.pos += 1;
 
   std::optional<FastaFile> ff;
   if (args.refPath) {

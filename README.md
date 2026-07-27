@@ -80,7 +80,7 @@ The CLI is in a demo state - the subcommand approach might not be long term.
 
 `apb demo [--dump out.db]`  
 
-`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI and writes the resulting database straight to disk instead — useful for headless/batch use. When specifying a locus, it is in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands.
+`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI and writes the resulting database straight to disk instead — useful for headless/batch use. When specifying a locus, it is in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. **The locus coordinate is 0-based**.
 
 `db` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
 
@@ -233,8 +233,7 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 
 `htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, work across 3 (3!!) coordinate systems. This can be tricky to navigate.
 
-
-`apb` uses 0-based half-open coordinates throughout. This has the advantage of being identical to the VCF `POS` field per the VCF specification, but the disadvantage of being different at the command line to `samtools view`, which uses 1-based half-open coordinates. By example, `apb ... chr1:100` is equivalent to `samtools view ... chr1:101`.
+`apb` uses 0-based half-open coordinates throughout. This has the advantage of being identical to the VCF `POS` field per the VCF specification, and `htslib`'s internal alignment representation format; but the disadvantage of being different at the command line to `samtools view`, which uses 1-based half-open coordinates. By example, `apb ... chr1:100` is equivalent to `samtools view ... chr1:101`.
 
 ## Future Roadmap
 
