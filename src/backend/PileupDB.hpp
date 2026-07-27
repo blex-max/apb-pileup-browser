@@ -1,10 +1,10 @@
 #pragma once
 
+#include <fmt/format.h>
 #include <htslib/sam.h>
 
 #include <cstdint>
 #include <expected>
-#include <format>
 #include <string>
 #include <string_view>
 
@@ -321,7 +321,7 @@ inline SelectStmtOrErr prepare_select_reads (
       );
       rc != SQLITE_OK) {
     return std::unexpected{make_sqlite3_err (
-        rc, std::format (
+        rc, fmt::format (
                 "Could not compile statement: {} - {}",
                 rsql_builtStmt, sqlite3_errmsg (db)
             )
@@ -376,7 +376,7 @@ inline CountStmtOrErr prepare_count_reads (
       );
       rc != SQLITE_OK) {
     return std::unexpected{make_sqlite3_err (
-        rc, std::format (
+        rc, fmt::format (
                 "Could not compile statement: {} - {}",
                 rsql_builtStmt, sqlite3_errmsg (db)
             )

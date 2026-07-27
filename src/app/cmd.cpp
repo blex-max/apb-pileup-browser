@@ -1,6 +1,8 @@
 #include "cmd.hpp"
 
-#include <format>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
@@ -60,7 +62,7 @@ static CmdResult pileup_show (
     auto it = TABLE_FIELD_LOOKUP.find (req);
     if (it == TABLE_FIELD_LOOKUP.end()) {
       return {
-          false, std::format (
+          false, fmt::format (
                      "Cannot show unknown "
                      "property \"{}\"",
                      req
@@ -79,7 +81,7 @@ static CmdResult pileup_show (
 
   return {
       true,
-      std::format ("Showing query properties: {}", newRequests)
+      fmt::format ("Showing query properties: {}", newRequests)
   };
 }
 
@@ -106,7 +108,7 @@ static CmdResult pileup_hide (
 
   return {
       true,
-      std::format ("Hiding query properties {}", reqsToRemove)
+      fmt::format ("Hiding query properties {}", reqsToRemove)
   };
 }
 
@@ -164,7 +166,7 @@ static CmdResult init_where (
   auto newClause = clauses;
   newClause.where.emplace_back (args);
 
-  PLOGD << std::format (
+  PLOGD << fmt::format (
       "Attempting to compile statement with updated WHERE "
       "clause {}",
       args
@@ -189,7 +191,7 @@ static CmdResult and_where (
   auto newClause = state.query.userClause;
   newClause.where.emplace_back (clause);
 
-  PLOGD << std::format (
+  PLOGD << fmt::format (
       "Attempting to compile statement with updated WHERE "
       "clause {}",
       args
@@ -213,7 +215,7 @@ static CmdResult or_where (
   auto newClause = state.query.userClause;
   newClause.where.emplace_back (clause);
 
-  PLOGD << std::format (
+  PLOGD << fmt::format (
       "Attempting to compile statement with updated WHERE "
       "clause {}",
       args
@@ -241,7 +243,7 @@ static CmdResult remove_last_where (
 
   return apply_query_clause (
       state, std::move (newClause),
-      std::format ("Removed clause: {}", rmClause)
+      fmt::format ("Removed clause: {}", rmClause)
   );
 };
 
@@ -271,7 +273,7 @@ static CmdResult order_by (
 
   // TODO: check clause validity?
 
-  PLOGD << std::format ("User requesting sort: {}", rsql_clause);
+  PLOGD << fmt::format ("User requesting sort: {}", rsql_clause);
 
   auto newClause = state.query.userClause;
   newClause.orderBy = rsql_clause;
@@ -311,7 +313,7 @@ static CmdResult count (
   auto& stmt = *stmtRet;
   if (int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
     return {
-        false, std::format (
+        false, fmt::format (
                    "Could not execute count: {}",
                    sqlite3_errmsg (state.db)
                )
@@ -319,7 +321,7 @@ static CmdResult count (
   }
 
   return {
-      true, std::format (
+      true, fmt::format (
                 "{}: {} reads", stringify_where (where),
                 sqlite3_column_int64 (stmt, 0)
             )
@@ -360,7 +362,7 @@ static CmdResult dump (std::string_view args, AppState& state)
     return {false, dumpRet.error().msg};
   }
 
-  return {true, std::format ("Dumped database to {}", path)};
+  return {true, fmt::format ("Dumped database to {}", path)};
 }
 
 static std::unordered_map<
@@ -394,7 +396,7 @@ CmdResult exec_cmd (std::string_view call, AppState& state)
   }
   else {
     return {
-        false, std::format ("Command \"{}\" not found!", name)
+        false, fmt::format ("Command \"{}\" not found!", name)
     };
   }
 }

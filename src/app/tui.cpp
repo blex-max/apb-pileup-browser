@@ -1,8 +1,9 @@
 #include "app/tui.hpp"
 
+#include <fmt/format.h>
+
 #include <cstdint>
 #include <expected>
-#include <format>
 #include <list>
 #include <string>
 
@@ -306,7 +307,7 @@ VoidOrErr loop (AppState& state)
       return std::unexpected{drawRet.error()};
     }
 
-    PLOGD << std::format (
+    PLOGD << fmt::format (
         "Processed frame {}", state.mData.c_frame
     );
     ++state.mData.c_frame;

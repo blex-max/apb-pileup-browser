@@ -1,5 +1,7 @@
 #include "widgets.hpp"
 
+#include <fmt/format.h>
+
 #include <cmath>
 
 #include "app/screen_projection.hpp"
@@ -215,7 +217,7 @@ void draw_dynamic_content (AppState& state)
     jCurs++;  // space
     jCurs += e2::write_string (
         translate (lineStart, e2::J (jCurs)), lineEnd,
-        std::format ("{}:{}", locus.contig, locus.pos)
+        fmt::format ("{}:{}", locus.contig, locus.pos)
     );
     jCurs++;  // space
     set (
@@ -230,7 +232,7 @@ void draw_dynamic_content (AppState& state)
     jCurs++;  // space
     jCurs += e2::write_string (
         translate (lineStart, e2::J (jCurs)), lineEnd,
-        std::format ("{}-{}", locus.start, locus.end)
+        fmt::format ("{}-{}", locus.start, locus.end)
     );
     jCurs++;  // space
     set (

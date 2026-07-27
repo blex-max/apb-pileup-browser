@@ -31,7 +31,6 @@ FetchContent_Declare(
   GIT_TAG        605398fa79108412976191e062ea14bd4bd30213
   GIT_PROGRESS   TRUE
   GIT_SHALLOW    TRUE
-  EXCLUDE_FROM_ALL
   SYSTEM
 )
 FetchContent_MakeAvailable(termbox2)
@@ -47,9 +46,18 @@ FetchContent_Declare(
     argparse
     GIT_REPOSITORY https://github.com/p-ranav/argparse.git
     GIT_TAG v3.2
+    GIT_SHALLOW TRUE
     SYSTEM
 )
 FetchContent_MakeAvailable(argparse)
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        12.2.0
+    GIT_SHALLOW    TRUE
+    SYSTEM
+)
+FetchContent_MakeAvailable(fmt)
 
 if(MAKE_TEST)
   FetchContent_Declare(
@@ -68,7 +76,7 @@ target_include_directories(termbox2 SYSTEM INTERFACE "${termbox2_SOURCE_DIR}")
 
 set(HTSLIB_TARGET "")
 if(HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
-  message(STATUS "Using user-specified htslib install. Must be >=1.14, but this is not enforced by the installer.")
+  message(STATUS "Using user-specified htslib install. Must be >=1.17, but this is not enforced by the installer.")
   add_library(htslib UNKNOWN IMPORTED GLOBAL)
   add_library(htslib::htslib ALIAS htslib)
   set_target_properties(htslib PROPERTIES
@@ -81,9 +89,9 @@ endif()
 if(NOT HTSLIB_TARGET)
   message(STATUS "Looking for htslib via PkgConfig")
   # assuming the pkg-config module is called "htslib"
-  pkg_check_modules(HTSLIB QUIET IMPORTED_TARGET htslib>=1.14)
+  pkg_check_modules(HTSLIB QUIET IMPORTED_TARGET htslib>=1.17)
   if(HTSLIB_FOUND)
-    message(STATUS "Located htslib>=1.14 install via pkg-config.")
+    message(STATUS "Located htslib>=1.17 install via pkg-config.")
     set(HTSLIB_TARGET PkgConfig::HTSLIB)
   endif()
 endif()
@@ -133,6 +141,7 @@ target_link_libraries(apb
   termbox2
   plog::plog
   argparse
+  fmt::fmt-header-only
   ${HTSLIB_TARGET}
   PkgConfig::DEPS
 )
@@ -152,6 +161,7 @@ if(MAKE_TEST)
   target_link_libraries(apb-tests
     PRIVATE
     Catch2::Catch2WithMain
+    fmt::fmt-header-only
     ${HTSLIB_TARGET}
     PkgConfig::DEPS
     plog::plog

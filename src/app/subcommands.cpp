@@ -1,8 +1,7 @@
 #include "subcommands.hpp"
 
+#include <fmt/format.h>
 #include <plog/Log.h>
-
-#include <format>
 
 #include "app/tui.hpp"
 #include "backend/PileupDB.hpp"
@@ -87,21 +86,18 @@ VoidOrErr run_mode (const AlnModeArgs& args)
 
   PLOGD << "Parsing locus string";
   PileupPosition pos{};
-  hts_pos_t _pend = 1; // required by htslib
+  hts_pos_t _pend = 1;  // required by htslib, not used here
   if (hts_parse_region (
           args.locus.c_str(), &pos.tid, &pos.pos, &_pend,
           reinterpret_cast<hts_name2id_f> (sam_hdr_name2tid),
           aln.o_hdr, HTS_PARSE_ONE_COORD
       ) == NULL) {
     return std::unexpected (make_htslib_err (
-        -1, std::format (
+        -1, fmt::format (
                 "Could not parse locus string {}", args.locus
             )
     ));
   }
-  // hts_parse_region takes 1-based input (samtools convention); apb's
-  // locus argument is 0-based (see README), so shift back the -1 it applied.
-  pos.pos += 1;
 
   std::optional<FastaFile> ff;
   if (args.refPath) {

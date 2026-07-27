@@ -1,5 +1,7 @@
 #pragma once
 
+#include <fmt/format.h>
+
 #include "app/cmd.hpp"
 #include "app/state.hpp"
 #include "app/widgets.hpp"
@@ -128,14 +130,14 @@ inline void handle_key_event (
       move_word_right (state.ui.cmd.inputBuf);
     }
     else {
-      PLOGD << std::format (
+      PLOGD << fmt::format (
           "Recieved character input event: {}", ev.ch
       );
       handle_character_entry (state, ev);
     }
   }
   else {
-    PLOGD << std::format (
+    PLOGD << fmt::format (
         "Recieved navigation event: {}", ev.key
     );
     handle_nav (state, ev);

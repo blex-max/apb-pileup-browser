@@ -1,8 +1,7 @@
 #include "backend/hts_types.hpp"
 
+#include <fmt/format.h>
 #include <htslib/faidx.h>
-
-#include <format>
 
 #include "backend/PileupDB.hpp"
 #include "shared/err.hpp"
@@ -14,7 +13,7 @@ AlnOrErr load_aln (const char* fn)
   if (!aln.o_fh) {
     return std::unexpected (make_htslib_err (
         -1,
-        std::format ("Could not open alignment file at {}", fn)
+        fmt::format ("Could not open alignment file at {}", fn)
     ));
   }
   aln.o_hdr = sam_hdr_read (aln.o_fh);
@@ -28,7 +27,7 @@ AlnOrErr load_aln (const char* fn)
   aln.o_idx = sam_index_load (aln.o_fh, fn);
   if (!aln.o_idx) {
     return std::unexpected (make_htslib_err (
-        -1, std::format ("Could not load index for {}", fn)
+        -1, fmt::format ("Could not load index for {}", fn)
     ));
   }
 
@@ -45,7 +44,7 @@ FastaOrErr load_fasta (const char* fn)
 
   if (!ff.o_fai) {
     return std::unexpected (make_htslib_err (
-        -1, std::format ("Could not open fasta file at {}", fn)
+        -1, fmt::format ("Could not open fasta file at {}", fn)
     ));
   }
 
@@ -64,7 +63,7 @@ RefSliceOrErr fetch_region (
   if (p_fetch == NULL) {
     std::string msg{"Could not retrieve region from fasta; "};
     if (rc == -2) {
-      msg += std::format ("contig {} not found", contigName);
+      msg += fmt::format ("contig {} not found", contigName);
     }
     else {
       msg += "unspecified htslib error";

@@ -1,5 +1,6 @@
 #include "backend/PileupDB.hpp"
 
+#include <fmt/format.h>
 #include <htslib/sam.h>
 
 #include <expected>
@@ -466,7 +467,7 @@ VoidOrErr insert_pileup (
   std::optional<std::string> refSlice;
   if (reads.nPlp > 0) {
     rSpan = get_pileup_span (reads);
-    PLOGD << std::format (
+    PLOGD << fmt::format (
         "Pileup spans {}-{}", rSpan.start, rSpan.end
     );
     if (ff) {

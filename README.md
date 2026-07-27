@@ -57,7 +57,7 @@ Below is a text screencap of the TUI, with explanatory comments in CAPTIALS. Ren
 
 ## Install
 
-Requires a C++23 compiler, CMake ≥3.22, and `pkg-config`. `sqlite3` (≥3.38) and `htslib` (≥1.14) need to be discoverable via `pkg-config`; if htslib isn't packaged that way on your system, point the build process at it directly with `-DHTSLIB_INCLUDE_DIR` and `-DHTSLIB_LIBRARY`. Everything else (termbox2, plog, argparse) is pulled automatically via CMake FetchContent, so the first configure needs network access.
+Requires a C++23 compiler, CMake ≥3.22, and `pkg-config`. `sqlite3` (≥3.38) and `htslib` (≥1.17) need to be discoverable via `pkg-config`; if htslib isn't packaged that way on your system, point the build process at it directly with `-DHTSLIB_INCLUDE_DIR` and `-DHTSLIB_LIBRARY`. Everything else (termbox2, plog, argparse, fmt) is pulled automatically via CMake FetchContent, so the first configure needs network access.
 
 ```sh
 cmake -S . -B build
@@ -82,7 +82,7 @@ The CLI is in a demo state - the subcommand approach might not be long term.
 
 `apb demo [--dump out.db]`  
 
-`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI and writes the resulting database straight to disk instead — useful for headless/batch use. When specifying a locus, it is in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. **The locus coordinate is 0-based**.
+`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI and writes the resulting database straight to disk instead — useful for headless/batch use. When specifying a locus, it is in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. **The locus coordinate is 1-based**.
 
 `db` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
 
@@ -233,7 +233,7 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 
 `htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, work across 3 (3!!) coordinate systems. This can be tricky to navigate.
 
-`apb` uses 0-based half-open coordinates throughout. This has the advantage of being identical to the VCF `POS` field per the VCF specification, and `htslib`'s internal alignment representation format; but the disadvantage of being different at the command line to `samtools view`, which uses 1-based half-open coordinates. By example, `apb ... chr1:100` is equivalent to `samtools view ... chr1:101`.
+`apb` uses 0-based half-open coordinates throughout, **except for the locus argument when starting `apb` from the command line, which is 1-based**. A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification. However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less bug-prone) to display that information as 0-based. This is an inevitable UX compromise - feedback is appreciated.
 
 ## Future Roadmap
 
@@ -262,10 +262,11 @@ find them desirable.
 | Dependency | Version | Found via | Used for |
 |---|---|---|---|
 | sqlite3 | ≥3.38 | system, `pkg-config` | query/storage layer |
-| htslib | ≥1.14 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) | Handling sequence data |
+| htslib | ≥1.17 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) | Handling sequence data |
 | termbox2 | 605398fa | CMake FetchContent | terminal rendering and raw input events |
 | plog | v1.1.10 | CMake FetchContent | debug logging |
 | argparse | v3.2 | CMake FetchContent | CLI |
+| fmt | v12.2.0 | CMake FetchContent | string formatting |
 | Catch2 [optional] | v3.8.1 | CMake FetchContent | test framework |
 
 ### Tests
