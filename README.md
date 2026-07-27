@@ -1,23 +1,59 @@
-# apb - A Pileup Browser
+# `apb` - A Pileup Browser
 
-`apb` is a terminal genome browser tailored to exploratory viewing and querying of variant loci.
+`apb` is a terminal genome browser tailored to exploratory viewing and querying of pileups of mapped reads at genomic loci.
 It features an SQL-based command line for querying reads at the selected locus,
 coupled with an alignment display showing reads aligned to their genomic positions,
-and their divergence from a reference genome.
-The command line is capable of highly complex queries, but tuned to make exploratory pattern hunting quick and seamless.
+and their divergence from a reference genome. It is chiefly designed for verification and investigation of variant calls, but can be used to inspect the reads at any loci.
+The built-in command line is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
 
-<!-- TODO: use case examples - basically, variant assessment and tool assessment -->
-
-<!-- these are bit scrappy -->
 Advantages:
-- Right there in the terminal, no spinning up genome browser instances or navigating via web browser. Can be installed on clusters and used right wehre the data is.
-- Fast
-- Since the aim is to serve a specific niche (looking at pileup loci), UI is optimised to that end
-- Powerful query language (thanks to sqlite)
+- Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
+- Easily installed, anywhere including on compute cluster nodes.
+- Fast; no network IO, responsive UI.
+- UI optimised for one job — inspecting pileup loci — rather than general-purpose genome browsing.
+- A real, powerful SQL-backed query syntax for fast exploration.
 
 This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
 
-<!-- TODO must include an image/s - does tmux have screencap capabilities? -->
+Below is a text screencap of the TUI, with explanatory comments in CAPTIALS. Rendering is richer in the TUI, but the screencap gives the basic idea. Bases which match the provided reference are displayed as `=`, and deletions are displayed as a bold `-`.
+```
+     READS ALIGNED TO REFERENCE ↓                              PER READ DATA ↓ 
+╭─────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────╮
+│TACGTACGTACGTACGTACGTACGTAAGTACGTACGTACGTACGTACGTACGT│  basequal  │  rstart  │   rend   │ flag │   cigar   │        qname        │    │
+├──────────────────────────|──────────────────────────│────────────────────────────────────────────────────────────────────────────────┤
+│==========================T===                       │33          │6         │153       │0     │2S147M     │read74               │    │
+│==========================T=====                     │26          │6         │155       │0     │149M       │read91               │    │
+│==========================T======                    │33          │7         │156       │0     │149M       │read44               │    │
+│==========================T===                       │27          │15        │153       │0     │11S138M    │read9                │    │
+│==========================T====================      │22          │21        │170       │0     │149M       │read6                │    │
+│==========================T==========================│28          │29        │178       │0     │149M       │read40               │    │
+│==========================T==========================│22          │36        │185       │0     │149M       │read93               │    │
+│==========================T==========================│34          │37        │186       │0     │149M       │read62               │    │
+│==========================T==========================│33          │46        │193       │0     │147M2S     │read8                │    │
+│====================G=====T=======--=================│39          │51        │202       │0     │106M2D43M  │read48               │    │
+│==========================T===G======================│20          │59        │208       │0     │149M       │read26               │    │
+│==========================T==========================│30          │67        │216       │0     │149M       │read84               │    │
+│==========================T==========================│34          │79        │228       │0     │149M       │read68               │    │
+│==========================T==========================│32          │86        │239       │0     │115M4D34M  │read97               │    │
+│==========================T==========================│28          │88        │230       │0     │7S142M     │read81               │    │
+│==========================T==========================│37          │88        │237       │0     │149M       │read78               │    │
+│==========================T==============C===========│22          │93        │229       │0     │136M13S    │read0                │    │
+│==========================T============C=============│39          │119       │268       │0     │149M       │read43               │    │
+│   =======================T==========================│25          │126       │275       │0     │149M       │read94               │    │
+│       ===T===============T==========================│31          │130       │279       │0     │149M       │read3                │    │
+│               ===========T==========================│28          │138       │287       │0     │149M       │read7                │    │
+│                                                     │                                                                                │
+├─────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────┤
+│ LOCUS: demo:149 │ SPAN: 2-296 │   ← LOCUS INFO                                                                                       │
+╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
+│WHERE base != 'A'        ← ACTIVE QUERY                                                                                               │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│:and (flag & 3584) = 0   ← COMMAND LINE                                                                                               │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│OK!                      ← RETURN MESSAGES                                                                                            │
+╰                                                                                                                                      ╯
+```
+
 
 ## Install
 
@@ -25,10 +61,14 @@ Requires a C++23 compiler, CMake ≥3.22, and `pkg-config`. `sqlite3` (≥3.38) 
 
 ```sh
 cmake -S . -B build
-cmake --build build -j
+cmake --build build
 ```
 
 The compiled binary can be found at `build/apb`.
+
+## Overview
+
+Given an alignment file and a genomic locus `apb` builds the pileup at that single position and loads the reads into a fast, queryable database structure - one row per read. The TUI then renders the reads as aligned to a reference genome (if provided), displays user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.) and provides a command line at which you can enter commands to query the reads or change the display. The display is navigated using simple arrow-key navigation.
 
 ## CLI Usage
 
@@ -40,10 +80,9 @@ The CLI is in a demo state - the subcommand approach might not be long term.
 
 `apb demo [--dump out.db]`  
 
+`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI and writes the resulting database straight to disk instead — useful for headless/batch use. When specifying a locus, it is in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands.
 
-`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. `--dump` skips the TUI entirely: it builds the pileup, writes it straight to a sqlite3 database file, and exits — useful for headless/batch use.
-
-`db` reopens a database previously produced by `--dump` (or the in-TUI `dump` command), so you can come back to a pileup without re-reading the original alignment file.
+`db` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
 
 `demo` runs against synthetic data, no alignment file required — good for a first look at the tool.
 
@@ -53,45 +92,9 @@ The CLI is in a demo state - the subcommand approach might not be long term.
 
 Note that this is all subject to change pending user feedback.
 
-<!-- Not well structured. The ability for a column to be shown in the data view should be separated from field meaning into a separate table, and more generally each section should be checked such that they naturally build on each other and everythign is introduced in the right order -->
-
-### How It Works 
-<!-- This section perhaps comes before the cli usage even? Again the order is bad, needs rethinking -->
-
-Point `apb` at an alignment file and a locus (`apb sam <file> <locus>`), and it builds the pileup at that single position with htslib, then loads every overlapping read into a `reads` table in an in-memory sqlite database — one row per read. That table is the single source of truth for everything else: the alignment pane on the right renders it, and the command line queries it directly with plain SQL `WHERE`/`ORDER BY`. `--dump` (or the in-TUI `dump` command) writes that database out to a file, and `apb db <path>` reopens one later without needing the original alignment file again.
-
-Here's every column in the `reads` table — what it means, and whether it can also be shown in the alignment pane with `show`/`hide`:
-
-<!-- NOTE: There are other fields, but those are for backend use only -->
-<!-- For advanced users, might be worth a note commenting that these map to htslib's bam_pileup1_t and bam1_t struct fields -->
-| Column | Meaning | show/hide? |
-|---|---|---|
-| `qname` | read/template name (QNAME) | Yes |
-| `flag` | SAM bitwise FLAG | Yes |
-| `rstart` | 0-based leftmost mapping position | Yes |
-| `rend` | 0-based rightmost mapping position | Yes |
-| `mapq` | mapping quality | Yes |
-| `base` | the read's base at the pileup position | Yes |
-| `basequal` | base quality (Phred) at the pileup position | Yes |
-| `qpos` | 0-based offset into `seq`/`qual` for this position | Yes |
-| `cigar` | full CIGAR string | Yes |
-| `mtid` | reference name of the mate/next read | Yes |
-| `mstart` | mate/next read's leftmost mapping position | Yes |
-| `tags` | aux tags as JSON — able to be individually queried | Yes |
-| `indel` | indel length to the next position (0 none, >0 insertion, <0 deletion) | No |
-| `is_del` | 1 if this position is a deletion | No |
-| `is_head` | 1 if this is the read's first aligned base | No |
-| `is_tail` | 1 if this is the read's last aligned base | No |
-| `is_refskip` | 1 if this position is a reference skip (e.g. a spliced `N` in the CIGAR) | No |
-| `seq` | the read's full sequence | No |
-| `qual` | the read's full quality string (Phred+33 ASCII) | No |
-| `ncig` | number of CIGAR operations | No |
-
-All of these are queryable in `where`/`and`/`or`/`order` clauses — it's a real SQL table. Only the first twelve are also toggleable in the display.
-
 ### Basic Navigation
 
-Normal typing goes to the command line; `Enter` dispatches it as a command (see [The Command Line](#the-command-line) below). Navigation keys navigate the alignment view, and the command line.
+Normal typing goes directly to the command line; `Enter` dispatches it as a command (see [The Command Line](#the-command-line) below). Navigation keys navigate the alignment view, and the command line.
 
 **Browser pane**
 - `Shift+↑` / `Shift+↓` scroll the alignment view by one row.
@@ -103,12 +106,6 @@ Normal typing goes to the command line; `Enter` dispatches it as a command (see 
 - `Backspace` deletes a character; `Alt+Backspace` clears the whole line.
 
 ### The Command Line
-
-<!-- Not a great intro, just dives in too headfirst -->
-Filtering and sorting uses simple boolean conditions on those columns: `where mapq >= 30` keeps only confidently-mapped reads; `where base = 'A' and flag & 16 = 0` narrows to forward-strand reads with an A at the query position. No deep knowledge of SQL is needed for any of this — it's just comparisons (`=`, `!=`, `<`, `>`) joined with `and`/`or`. It happens to compile down to a real SQL `WHERE` clause, which lets things scale up to genuinely complex queries later if you want them (more on that in Query Syntax in Depth, below).
-
-Every line typed at the command line is dispatched as `<command> [args]`. The active query — that WHERE clause plus an ORDER BY — persists across commands and is built up a piece at a time rather than retyped from scratch each time.
-<!-- Doesn't really get across the why of the piecewise build up. It's to support exploration, which raw sql doesn't really do. Normally, sql is structured for firing off a known query and getting back a result. Here, the expected use case is more like, lets see which reads have a different base to the reference. Oh, that's interesting, lets see which of those are low quality. oh, now lets filter by flag. Oh, that's not informative, lets go back to the previous view, and so on -->
 
 | Command | Aliases | Args | Effect |
 |---|---|---|---|
@@ -125,24 +122,73 @@ Every line typed at the command line is dispatched as `<command> [args]`. The ac
 | `dump` | | `<path>` | Write the current in-memory database to a sqlite3 file on disk |
 | `quit` | `q` | | Exit |
 
-### Query Syntax in Depth
+Every line typed at the command line is dispatched like `<command> [args]`. The active query — a WHERE clause plus an ORDER BY — persists across commands and is extended a piece at a time (`where`, then `and`/`or`, then `order`) rather than retyped from scratch each time.
+
+Filtering and sorting uses simple boolean conditions on the columns: `where mapq >= 30` keeps only confidently-mapped reads; `where base = 'A' and flag & 16 = 0` narrows to forward-strand reads with an A at the query position. No deep SQL knowledge is needed for this — it's just comparisons (`=`, `!=`, `<`, `>`) joined with `and`/`or`. FLAG is a bitmask, so `&` is how that example picks out bit 5 (`16`, reverse-strand) — `flag & 4` (bit 2) similarly isolates "unmapped" reads, and any number of bits can be combined into one expression. It all compiles down to a real SQL `WHERE` clause, which lets things scale up to genuinely complex queries later if you want them (more in Query Syntax in Depth, below).
 
 
-<!-- these two intro paragraphs are a great opportunity to give an example of the exploratory mode! trying one thing, then having a new idea and trying the next. Not least because the example can actually be typed in a single where - and that's ok too, and intentionally supported! -->
-Start simple. Say you want to look at non-reference bases from clean reads (no secondary/duplicate/QC-fail), sorted by base quality — three REPL commands, typed one at a time:
+### Querying the Pileup
+
+<!-- TODO: fix. AI took this way too literal -->
+`apb` is built for exploration. Whereas more generic SQL interface programs are structured around dispatching known, predetermined queries, `apb` aims to support a stepwise pattern discovery. By example, a session might look like: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's not informative and back up, filter by mapping quality instead, and so on. 
+
+#### The `reads` Table
+
+For each read, the database stores the following information. All of these may be queried at the command line. Each column can be displayed alongside the reads unless the information is clearly displayed by the alignment view.
+
+| Column | Meaning |
+|---|---|
+| `qname` | read/template name (QNAME) |
+| `flag` | SAM bitwise FLAG |
+| `rstart` | 0-based leftmost mapping position |
+| `rend` | 0-based rightmost mapping position |
+| `mapq` | mapping quality |
+| `base` | the read's base at the pileup position |
+| `basequal` | base quality (Phred) at the pileup position |
+| `qpos` | 0-based offset into `seq`/`qual` for this position |
+| `cigar` | full CIGAR string |
+| `mtid` | reference name of the mate/next read |
+| `mstart` | mate/next read's leftmost mapping position |
+| `tags` | aux tags as JSON — able to be individually queried |
+| `indel` | indel length to the next position (0 none, >0 insertion, <0 deletion) |
+| `is_del` | 1 if this position is a deletion |
+| `is_head` | 1 if this is the read's first aligned base |
+| `is_tail` | 1 if this is the read's last aligned base |
+| `is_refskip` | 1 if this position is a reference skip (e.g. a spliced `N` in the CIGAR) |
+| `seq` | the read's full sequence |
+| `qual` | the read's full quality string (Phred+33 ASCII) |
+| `ncig` | number of CIGAR operations |
+
+<!-- TODO: improve -->
+All columns are queryable in `where`/`and`/`or`/`order` commands — it's a real SQL table. The first twelve (`qname` through `tags`) can also be displayed in the info pane with `show`/`hide` commands; the rest (`indel` through `ncig`) exist for querying but are not directly displayed in tabular format.
+
+For advanced users: most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs, if you want to cross-reference against htslib's own documentation.
+
+#### Query Walkthrough
+
+Say you're looking at a locus and want to check for mismapping artifacts. Start broad — every non-reference base at this position, some of which might just be sequencing noise:
 ```
 where base != 'G'
+```
+Narrow to reads that are more likely trustworthy — FLAG bits 9/10/11: not supplementary, not a duplicate, not failing vendor QC:
+```
 and (flag & 3584) = 0
+```
+Then sort to see the weakest evidence first:
+```
 order basequal
 ```
-Each line is just a command (`where`/`and`/`order`) followed by a plain SQL fragment: an inequality, a bitwise flag check, then a column to sort by. No `SELECT`, no `FROM reads`, no spelling out `ORDER BY` — the REPL supplies all of that; you only ever type the fragment. That covers most day-to-day use.
+Three REPL commands, each a plain SQL fragment — an inequality, a bitwise flag check, a column to sort by. The parser wraps these commands into a complete SQL statement. Note that you could also write the full command as a single statment:
+```
+where base != 'G' AND (flag & 3584) = 0 ORDER BY basequal ASC
+```
+The two styles are equally supported; you can continue to add on further clauses with `and` and `or` as you like.
 
-<!-- Should include a reminder about the count functionality -->
+If you want a count rather than a filtered view, `count [clause]` answers without disturbing the active query. For example, `count mapq < 20` tells you how many low-mapping-quality reads are in the current view without adding a WHERE clause you'd have to undo afterwards with `back`.
 
-<!-- This is important to detail, but is quite randomly placed -->
-FLAG is a bitmask, so `&` is how you pick out specific bits — `3584` above is bits 9/10/11 (not supplementary, not a duplicate, not failing vendor QC); `flag & 4 = 0` (bit 2) keeps only mapped reads. Combine as many bits as you need in one expression.
+#### Further Examples
 
-Beyond plain comparisons, SQLite's full function library is available in these fragments too. A couple of the more useful ones:
+Beyond plain comparisons, SQLite's full function library is available in these fragments too. A few examples:
 
 **Motifs at the query position.** `qpos` is the 0-based offset into `seq` for the base at the pileup position, and SQLite's `substr()` is 1-based, so the query base itself is `substr(seq, qpos + 1, 1)`, and a motif starting there is:
 ```
@@ -167,11 +213,14 @@ where tags ->> '$.RG' = 'sample1'
 ```
 A read with no aux tags, or missing that specific tag, comes back as SQL `NULL` rather than an error, so `where tags ->> '$.RG' is null` finds reads missing that tag — no extra guard needed.
 
-<!-- Another example case worth having is querying cigar strings for e.g. reads with soft clipping -->
+**Soft-clipping.** `cigar` is a plain string, so text matching works directly on it — reads with any soft-clipping at all:
+```
+where cigar like '%S%'
+```
 
-<!-- Must add that much more is possible, and link to sqlite tutorial webiste -->
+More is possible — `cigar`/`tags`/`seq` are just text and JSON in SQLite, so anything its function library can do to a string or JSON, it can do here. See [SQLite's expression/function reference](https://sqlite.org/lang_expr.html).
 
-### A Word on dump Functionality
+### A Word on `dump` Functionality
 
 A dump is a small, self-contained sqlite3 file with just the reads at this one locus — not the whole BAM. Picking a session back up later with `apb db` is one reason to use it; a few others:
 
@@ -179,6 +228,13 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 - **Downstream use** — it's a normal sqlite3 file, so anything with a sqlite driver can read it.
 - **Sharing** — send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM or a genome browser of their own.
 - **Debugging** (for developers) — a stable snapshot of exactly what got loaded, inspectable without the original alignment file or the TUI. Mostly relevant if you're developing `apb` itself, rather than just using it.
+
+### A Word on Indexing Systems
+
+`htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, work across 3 (3!!) coordinate systems. This can be tricky to navigate.
+
+
+`apb` uses 0-based half-open coordinates throughout. This has the advantage of being identical to the VCF `POS` field per the VCF specification, but the disadvantage of being different at the command line to `samtools view`, which uses 1-based half-open coordinates. By example, `apb ... chr1:100` is equivalent to `samtools view ... chr1:101`.
 
 ## Future Roadmap
 
@@ -199,7 +255,6 @@ find them desirable.
   - This may also lead to multi-locus dbs, multi-sample browsing/dbs, etc.
 - VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
   - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
-
 
 ## Development
 
