@@ -177,7 +177,8 @@ If you want a **count** rather than a filtered view, `count [clause]` answers wi
 
 Beyond plain comparisons, SQLite's full function library is available. A few examples:
 
-**Motifs at the query position**  
+##### Motifs at the query position
+
 `qpos` is the 0-based offset into `seq` for the base at the pileup position, and SQLite's `substr()` is 1-based, so to search for the 4-mer `GATC` starting at the query position:
 ```
 where substr(seq, qpos + 1, 4) = 'GATC'
@@ -191,7 +192,8 @@ You can also search for motifs within a window of the `seq` string. This command
 where instr(substr(seq, 1, 10), 'GATC') > 0
 ```
 
-**Aux tags**  
+##### Aux tags
+
 `tags` is a JSON blob of the read's aux tags — extract tags with `->>`:
 ```
 where tags ->> '$.NM' > 2
@@ -202,7 +204,8 @@ where tags ->> '$.RG' = 'sample1'
 ```
 A read with no aux tags, or missing that specific tag, comes back as SQL `NULL` rather than an error, so `where tags ->> '$.RG' is null` finds reads missing that tag.
 
-**Cigar querying**  
+##### Cigar querying
+
 `cigar` is a plain string, so text matching works directly on it. E.g. to search for soft-clipped reads:
 ```
 where cigar like '%S%'
