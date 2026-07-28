@@ -8,7 +8,7 @@ The built-in command line is capable of highly complex queries, but is tuned to 
 
 Advantages:
 - Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
-- Easily installed, anywhere including on compute cluster nodes.
+- Easily installed, including on compute cluster nodes.
 - Fast; no network IO, responsive UI.
 - UI optimised for one job — inspecting pileup loci — rather than general-purpose genome browsing.
 - Powerful SQL-backed query syntax for fast exploration.
