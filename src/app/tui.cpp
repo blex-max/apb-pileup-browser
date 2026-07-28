@@ -2,7 +2,6 @@
 
 #include <fmt/format.h>
 
-#include <cstdint>
 #include <expected>
 #include <list>
 #include <string>
@@ -18,7 +17,7 @@
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
-void draw_sequence (
+static void draw_sequence (
     const e2::Box& queryBox, size_t boxRow, sqlite3_stmt* dbRow,
     const LocusData& locus
 )
@@ -65,7 +64,7 @@ void draw_sequence (
   if (proj.skipChars == 0 && proj.jOffset > 0 &&
       !softClips.first.empty()) {
     auto avail = static_cast<size_t> (proj.jOffset);
-    std::string_view label = softClips.first;
+    const std::string_view label = softClips.first;
     auto shown = label.size() > avail
                      ? label.substr (label.size() - avail)
                      : label;
@@ -102,8 +101,8 @@ static int draw_table_cell (
     cell.resize (width);
   }
   else if (center) {
-    size_t pad = width - cell.size();
-    size_t padLeft = pad / 2;
+    const size_t pad = width - cell.size();
+    const size_t padLeft = pad / 2;
     cell = std::string (padLeft, ' ') + cell +
            std::string (pad - padLeft, ' ');
   }
@@ -119,13 +118,13 @@ static int draw_table_cell (
   return j + 1;
 }
 
-void draw_data_table_header (
+static void draw_data_table_header (
     const e2::JLine& headerLine,
     const std::list<const TableField*>& displayFields
 )
 {
   PLOGD << "Drawing table header";
-  int jAvail = last (headerLine.jspan);
+  const int jAvail = last (headerLine.jspan);
   int j = first (headerLine.jspan);
   for (const auto* f : displayFields) {
     j = draw_table_cell (
@@ -137,13 +136,14 @@ void draw_data_table_header (
   }
 }
 
-void draw_data_table_row (
+static void draw_data_table_row (
     const e2::Box& dataBox, size_t boxRow, sqlite3_stmt* dbRow,
     const std::list<const TableField*>& displayFields
 )
 {
-  int jAvail = last (dataBox.jspan);
-  int i = first (dataBox.ispan) + static_cast<int> (boxRow);
+  const int jAvail = last (dataBox.jspan);
+  const int i =
+      first (dataBox.ispan) + static_cast<int> (boxRow);
   int j = first (dataBox.jspan);
   for (const auto* f : displayFields) {
     j = draw_table_cell (
@@ -155,7 +155,7 @@ void draw_data_table_row (
   }
 }
 
-VoidOrErr run_query (AppState& state)
+static VoidOrErr run_query (AppState& state)
 {
   // build statement from fragments (or use cached statement)
   // execute statement on db
@@ -214,10 +214,10 @@ static void init_tb2()
   tb_clear();
 };
 
-void draw_crosshair (const PileupWidg& pWgt)
+static void draw_crosshair (const PileupWidg& pWgt)
 {
   auto& queryBox = pWgt.queryBox;
-  // ILine.j is a global column (see extb/widgets/box.cpp), unlike JLine's
+  // ILine.j is a global column (see extb/widgets/box.hpp), unlike JLine's
   // jspan -- so the box-local center column must be offset by the box's
   // own global start to land on the same column draw_sequence treats as
   // pileupPos (first(queryBox.jspan) + boxWidth/2).
@@ -230,7 +230,7 @@ void draw_crosshair (const PileupWidg& pWgt)
   );
 }
 
-VoidOrErr draw_screen (AppState& state)
+static VoidOrErr draw_screen (AppState& state)
 {
   PLOGD << "Drawing screen";
 

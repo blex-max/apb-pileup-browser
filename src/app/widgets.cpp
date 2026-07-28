@@ -16,12 +16,12 @@ VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
 {
   PLOGD << "Calculating widget size";
 
-  e2::Span screenI{0, tb_height()};
+  const e2::Span screenI{0, tb_height()};
   e2::Span screenJ{0, tb_width()};
 
   // vertical sectioning of terminal
-  e2::Span mainI{screenI.first, screenI.last - CMD_H};
-  e2::Span cmdI{mainI.last, mainI.last + CMD_H};
+  const e2::Span mainI{screenI.first, screenI.last - CMD_H};
+  const e2::Span cmdI{mainI.last, mainI.last + CMD_H};
 
   PLOGD << "screen i last: " << screenI.last;
   PLOGD << "cmd i first: " << cmdI.first;
@@ -111,7 +111,7 @@ VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
   return {};
 }
 
-void draw_static_chrome (TopUI& ui)
+static void draw_static_chrome (TopUI& ui)
 {
   PLOGD << "Drawing widgets";
 
@@ -186,7 +186,7 @@ void draw_static_chrome (TopUI& ui)
   set (last (pWgt.headerSep), ch::leftTConnect, TB_DIM);
 }
 
-void draw_dynamic_content (AppState& state)
+static void draw_dynamic_content (AppState& state)
 {
   auto& pWgt = state.ui.main;
 

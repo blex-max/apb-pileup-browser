@@ -428,7 +428,7 @@ VoidOrErr insert_metadata (PileupDB& db, const AlnFile& _)
   }
   auto stmt{std::move (*r)};
 
-  int col = 1;
+  const int col = 1;
   int rc;
   // placeholder bind;
   // in future will use data from AlnFile
@@ -507,7 +507,7 @@ VoidOrErr insert_pileup (
 
 BoolOrErr next_read (sqlite3_stmt* stmt, const PileupDB& db)
 {
-  int rc = sqlite3_step (stmt);
+  const int rc = sqlite3_step (stmt);
   if (rc == SQLITE_DONE) {
     return false;
   }

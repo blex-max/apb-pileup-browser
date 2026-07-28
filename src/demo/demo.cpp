@@ -277,7 +277,7 @@ VoidOrErr insert_demo_data (
 
   // demo data has no real alignment file / contigs; placeholder
   // metadata row just satisfies the reads table's loci_id FK chain.
-  AlnFile dummyAln;
+  const AlnFile dummyAln;
   auto imRet = insert_metadata (db, dummyAln);
   if (!imRet) {
     return std::unexpected{imRet.error()};
@@ -302,14 +302,16 @@ VoidOrErr insert_demo_data (
   }
 
   for (const auto& ru_pf : reads) {
-    if (int sqlRc = bind_pileup_fields (stmt, lociId, ru_pf);
+    if (const int sqlRc =
+            bind_pileup_fields (stmt, lociId, ru_pf);
         sqlRc != SQLITE_OK) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);
       return std::unexpected{err};
     }
 
-    if (int sqlRc = sqlite3_step (stmt); sqlRc != SQLITE_DONE) {
+    if (const int sqlRc = sqlite3_step (stmt);
+        sqlRc != SQLITE_DONE) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);
       return std::unexpected{err};

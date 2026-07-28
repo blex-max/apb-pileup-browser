@@ -8,11 +8,16 @@ fi
 
 # Only reformats lines touched by what's staged for this commit —
 # pre-existing formatting elsewhere in the file is left alone.
+staged=$(git diff --name-only --staged)
 git clang-format --staged
 
-changed=$(git diff --name-only)
-if [ -n "$changed" ]; then
-  echo "pre-commit: clang-format adjusted staged changes in:"
-  echo "$changed"
-  echo "$changed" | xargs git add
+# Restrict to files that were actually staged for this commit, so
+# unrelated dirty files elsewhere in the tree don't get swept in.
+if [ -n "$staged" ]; then
+  changed=$(git diff --name-only -- $staged)
+  if [ -n "$changed" ]; then
+    echo "pre-commit: clang-format adjusted staged changes in:"
+    echo "$changed"
+    echo "$changed" | xargs git add
+  fi
 fi

@@ -311,7 +311,7 @@ static CmdResult count (
   }
 
   auto& stmt = *stmtRet;
-  if (int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
+  if (const int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
     return {
         false, fmt::format (
                    "Could not execute count: {}",

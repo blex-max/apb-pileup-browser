@@ -184,7 +184,7 @@ VoidOrErr aux1_to_json (
 extern "C" {
 int pileup_func (void* data, bam1_t* b)
 {
-  PileupCapture* d = (PileupCapture*)(data);
+  const PileupCapture* d = (PileupCapture*)(data);
   // No filtering
   return sam_itr_next (d->uo_fh, d->o_it, b);
 }
@@ -494,7 +494,8 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
 
 VoidOrErr begin_transaction (PileupDB& db)
 {
-  if (int sqlRc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
+  if (const int sqlRc =
+          sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
@@ -505,7 +506,7 @@ VoidOrErr begin_transaction (PileupDB& db)
 
 void rollback_on_err (PileupDB& db, Err& err)
 {
-  if (int sqlRc =
+  if (const int sqlRc =
           sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
       sqlRc != SQLITE_OK) {
     err.msg += " (additionally, ROLLBACK failed with code " +
@@ -516,7 +517,8 @@ void rollback_on_err (PileupDB& db, Err& err)
 
 VoidOrErr commit (PileupDB& db)
 {
-  if (int sqlRc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
+  if (const int sqlRc =
+          sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
       sqlRc != SQLITE_OK) {
     Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
     rollback_on_err (db, err);
@@ -550,7 +552,7 @@ VoidOrErr insert_reads_internal (
   PileupFields ru_pf;
   bam_pileup1_t* ru_p1;
   bam1_t* ru_b1;
-  char* ru_mtidName = NULL;
+  const char* ru_mtidName = NULL;
 
   for (size_t i = 0; i < nPlp; ++i) {
     ru_p1 = const_cast<bam_pileup1_t*> (&plpArr[i]);
@@ -563,11 +565,9 @@ VoidOrErr insert_reads_internal (
         // NOTE: in the case where tid2name
         // fails, null recorded in database.
         // Hence failure not checked.
-        ru_mtidName = const_cast<char*> (
-            (ru_b1->core.mtid == ru_b1->core.tid)
-                ? "="
-                : tid2str (ru_b1->core.mtid)
-        );
+        ru_mtidName = (ru_b1->core.mtid == ru_b1->core.tid)
+                          ? "="
+                          : tid2str (ru_b1->core.mtid);
       }
       else {
         ru_mtidName = NULL;
@@ -580,14 +580,16 @@ VoidOrErr insert_reads_internal (
       return std::unexpected{ffRet.error()};
     }
 
-    if (int sqlRc = bind_pileup_fields (stmt, lociId, ru_pf);
+    if (const int sqlRc =
+            bind_pileup_fields (stmt, lociId, ru_pf);
         sqlRc != SQLITE_OK) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);
       return std::unexpected{err};
     }
 
-    if (int sqlRc = sqlite3_step (stmt); sqlRc != SQLITE_DONE) {
+    if (const int sqlRc = sqlite3_step (stmt);
+        sqlRc != SQLITE_DONE) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);
       return std::unexpected{err};

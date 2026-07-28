@@ -112,8 +112,6 @@ add_executable(apb
   src/app/subcommands.cpp
   src/app/tui.cpp
   src/app/widgets.cpp
-  src/frontend/extb/extb.cpp
-  src/frontend/extb/widgets/box.cpp
   src/frontend/tb2_impl.cpp
   src/frontend/input.cpp
   src/frontend/history.cpp

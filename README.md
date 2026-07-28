@@ -99,7 +99,7 @@ The CLI is in a demo state - the subcommand approach might not be long term.
 
 `db` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
 
-`demo` runs against synthetic data, no alignment file required — good for a first look at the tool.
+`demo` runs against synthetic data, no alignment file required. Good for a first look at the tool, but note that since the data is artifically generated not everything works quite as it should - some fields are not properly set in the database.
 
 `apb --log <path.txt>` (`--log` comes before the subcommand) enables debug logging. Valuable to turn on during this early development stage in case any crashes are encountered!
 
@@ -301,5 +301,5 @@ Coverage is concentrated on the backend. TUI rendering and event handling aren't
 
 ### AI Usage Policy
 
-I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to. Contributions would ideally follow this standard.
+I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to (Pending some alpha cleanup). Contributions would ideally follow this standard.
 

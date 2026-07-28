@@ -40,7 +40,12 @@ VoidOrErr run_mode (const DemoModeArgs& args)
   }
   AppState state = std::move (*stateRet);
 
-  loop (state);
+  auto loopRet = loop (state);
+  if (!loopRet) {
+    shutdown();
+    return std::unexpected (loopRet.error());
+  }
+
   shutdown();
 
   return {};
@@ -69,7 +74,12 @@ VoidOrErr run_mode (const DbModeArgs& args)
   }
   AppState state = std::move (*stateRet);
 
-  loop (state);
+  auto loopRet = loop (state);
+  if (!loopRet) {
+    shutdown();
+    return std::unexpected (loopRet.error());
+  }
+
   shutdown();
 
   return {};
@@ -92,11 +102,18 @@ VoidOrErr run_mode (const AlnModeArgs& args)
           reinterpret_cast<hts_name2id_f> (sam_hdr_name2tid),
           aln.o_hdr, HTS_PARSE_ONE_COORD
       ) == NULL) {
-    return std::unexpected (make_htslib_err (
-        -1, fmt::format (
-                "Could not parse locus string {}", args.locus
-            )
-    ));
+    std::string errMsg{"Could not parse locus string "};
+    errMsg += args.locus;
+    errMsg += "; ";
+    if (pos.tid < 0) {
+      errMsg += "invalid contig";
+    }
+    else {
+      errMsg += "malformed";
+    }
+    return std::unexpected (make_htslib_err (-1, errMsg));
+
+    ;
   }
 
   std::optional<FastaFile> ff;
@@ -145,7 +162,12 @@ VoidOrErr run_mode (const AlnModeArgs& args)
   }
   AppState state = std::move (*stateRet);
 
-  loop (state);
+  auto loopRet = loop (state);
+  if (!loopRet) {
+    shutdown();
+    return std::unexpected (loopRet.error());
+  }
+
   shutdown();
 
   return {};
