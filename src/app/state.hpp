@@ -4,8 +4,8 @@
 
 #include "app/fields.hpp"
 #include "backend/PileupDB.hpp"
+#include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
-#include "frontend/extb/geom/box.hpp"
 #include "frontend/history.hpp"
 #include "frontend/input.hpp"
 

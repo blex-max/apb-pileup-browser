@@ -7,8 +7,8 @@
 #include "app/screen_projection.hpp"
 #include "app/state.hpp"
 #include "frontend/drawing_chars.hpp"
+#include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
-#include "frontend/extb/geom/box.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
 

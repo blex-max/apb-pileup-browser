@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <ranges>
 
+#include "frontend/extb/box/span.hpp"
 #include "frontend/extb/extb.hpp"
-#include "frontend/extb/geom/span.hpp"
 
 namespace extb {
 
@@ -79,7 +79,8 @@ inline bool contains_local (
 {
   auto wj = width (b);
   auto hi = height (b);
-  return valid (clocal) && clocal.i < hi && clocal.j < wj;
+  return valid (clocal) && static_cast<size_t> (clocal.i) < hi &&
+         static_cast<size_t> (clocal.j) < wj;
 }
 
 inline bool valid (const Box& b) noexcept

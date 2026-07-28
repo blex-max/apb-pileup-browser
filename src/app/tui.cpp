@@ -219,7 +219,7 @@ static void init_tb2()
 static void draw_crosshair (const PileupWidg& pWgt)
 {
   auto& queryBox = pWgt.queryBox;
-  // ILine.j is a global column (see extb/geom/box.hpp), unlike JLine's
+  // ILine.j is a global column (see extb/box/box.hpp), unlike JLine's
   // jspan -- so the box-local center column must be offset by the box's
   // own global start to land on the same column draw_sequence treats as
   // pileupPos (first(queryBox.jspan) + boxWidth/2).
