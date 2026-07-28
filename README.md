@@ -157,7 +157,7 @@ We then filter reads with any of flag bits 9/10/11 set (supplementary, duplicate
 ```
 and (flag & 3584) = 0
 ```
-Note that flag is a bitmask - see [here](https://www.w3schools.com/programming/prog_operators_bitwise.php) for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, xor and not. [This webpage] from the Broad Institute is very useful for finding the corresponding integer given a set of SAM bits.
+Note that flag is a bitmask - see [here](https://www.w3schools.com/programming/prog_operators_bitwise.php) for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, xor and not. [This webpage](https://broadinstitute.github.io/picard/explain-flags.html) from the Broad Institute is very useful for finding the corresponding integer given a set of SAM bits.
 
 Back to our query. Finally, let's sort to see the weakest evidence first:
 ```
