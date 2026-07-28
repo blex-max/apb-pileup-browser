@@ -7,14 +7,6 @@
 
 namespace extb {
 
-// NOTE:
-// range coordinates (Span/Box bounds, and any
-// bound derived from them, e.g. write_string's
-// j_bound) are 0-based END-EXCLUSIVE: `last` is
-// one past the last valid index. Point coordinates
-// (Cell/GlobalCell/LocalCell) are unaffected;
-// single cell has no "end".
-
 // --- TYPES & DECLARATIONS --- //
 
 struct Span {
@@ -31,19 +23,6 @@ Span section (
 Span body (const Span& s) noexcept;
 bool valid (const Span& s) noexcept;
 
-struct JLine {
-  int i;
-  Span jspan;
-};
-size_t size (const JLine& l) noexcept;
-GlobalCell first (const JLine& l) noexcept;
-GlobalCell last (const JLine& l) noexcept;
-JLine section (
-    const JLine& l, size_t from, size_t to
-) noexcept;  // subset by local coordinates
-JLine body (const JLine& l) noexcept;
-bool valid (const JLine& l) noexcept;
-
 struct ILine {
   Span ispan;
   int j;
@@ -57,25 +36,18 @@ ILine section (
 ILine body (const ILine& l) noexcept;
 bool valid (const ILine& l) noexcept;
 
-struct Box {
-    // default-construct invalid
-  Span ispan;
+struct JLine {
+  int i;
   Span jspan;
 };
-size_t width (const Box& b) noexcept;
-size_t height (const Box& b) noexcept;
-GlobalCell top_left (const Box& b) noexcept;
-GlobalCell top_right (const Box& b) noexcept;
-GlobalCell bottom_left (const Box& b) noexcept;
-GlobalCell bottom_right (const Box& b) noexcept;
-bool valid (const Box& b) noexcept;
-GlobalCell to_global (const Box& b, LocalCell c);
-bool contains_global (
-    const Box& b, const GlobalCell& cglobal
-) noexcept;
-bool contains_local (
-    const Box& b, const LocalCell& clocal
-) noexcept;
+size_t size (const JLine& l) noexcept;
+GlobalCell first (const JLine& l) noexcept;
+GlobalCell last (const JLine& l) noexcept;
+JLine section (
+    const JLine& l, size_t from, size_t to
+) noexcept;  // subset by local coordinates
+JLine body (const JLine& l) noexcept;
+bool valid (const JLine& l) noexcept;
 
 // --- END TYPES & DECLARATIONS --- //
 
@@ -107,57 +79,13 @@ GlobalCellRange auto inline cell_source (JLine l)
          });
 }
 
-GlobalCellRange auto inline cell_source (Box box)
-{
-  const std::size_t width = size (box.jspan);
-  const std::size_t count = size (box.ispan) * width;
-  return std::views::iota (std::size_t{0}, count) |
-         std::views::transform ([box,
-                                 width] (std::size_t index) {
-           return translate (
-               top_left (box), {static_cast<int> (index / width),
-                                static_cast<int> (index % width)}
-           );
-         });
-}
-
-// --- END INTERNALS --- //
+// --- END CONVERSIONS --- //
 
 // --- IMPLEMENTATION --- //
-
-inline size_t width (const Box& b) noexcept
-{
-  return size (b.jspan);
-}
-inline size_t height (const Box& b) noexcept
-{
-  return size (b.ispan);
-}
-
-inline bool contains_global (
-    const Box& b, const GlobalCell& cglobal
-) noexcept
-{
-  return cglobal.i >= b.ispan.first &&
-         cglobal.i < b.ispan.last &&
-         cglobal.j >= b.jspan.first && cglobal.j < b.jspan.last;
-}
-inline bool contains_local (
-    const Box& b, const LocalCell& clocal
-) noexcept
-{
-  auto wj = width (b);
-  auto hi = height (b);
-  return valid (clocal) && clocal.i < hi && clocal.j < wj;
-}
 
 inline bool valid (const Span& s) noexcept
 {
   return (s.first >= 0 && s.last >= 0 && s.last > s.first);
-}
-inline bool valid (const Box& b) noexcept
-{
-  return valid (b.ispan) && valid (b.jspan);
 }
 
 inline size_t size (const Span& s) noexcept
@@ -263,38 +191,6 @@ inline ILine section (
 inline ILine body (const ILine& l) noexcept
 {
   return section (l, 1, size (l) - 1);
-}
-
-inline GlobalCell to_global (const Box& b, const LocalCell& c)
-{
-  if (contains_local (b, c)) {
-    const auto moved =
-        translate (c, {b.ispan.first, b.jspan.first});
-    return {moved.i, moved.j};
-  }
-  else {
-    return {};
-  }
-}
-
-inline GlobalCell top_left (const Box& b) noexcept
-{
-  return {b.ispan.first, b.jspan.first};
-}
-
-inline GlobalCell top_right (const Box& b) noexcept
-{
-  return {b.ispan.first, b.jspan.last - 1};
-}
-
-inline GlobalCell bottom_left (const Box& b) noexcept
-{
-  return {b.ispan.last - 1, b.jspan.first};
-}
-
-inline GlobalCell bottom_right (const Box& b) noexcept
-{
-  return {b.ispan.last - 1, b.jspan.last - 1};
 }
 
 // --- END IMPLEMENTATION --- //

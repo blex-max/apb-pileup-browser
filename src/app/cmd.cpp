@@ -160,7 +160,7 @@ static CmdResult init_where (
   auto& clauses = state.query.userClause;
 
   if (!clauses.where.empty()) {
-    return {false, "Query present, reset to start a new query"};
+    return {false, "Query present, clear to start a new query"};
   }
 
   auto newClause = clauses;

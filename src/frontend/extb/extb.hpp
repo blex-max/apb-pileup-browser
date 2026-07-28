@@ -19,6 +19,13 @@ extern "C" {
 // NOTE:
 // All coordinates are 0-based and use ij notation.
 
+// NOTE:
+// range coordinates (Span bounds, and any
+// bound derived from them, e.g. write_string's
+// j_bound) are 0-based END-EXCLUSIVE: `last` is
+// one past the last valid index. Point coordinates
+// (Cell/GlobalCell/LocalCell) are unaffected.
+
 namespace extb {
 
 // --- TYPES & DECLARATIONS --- //
@@ -130,8 +137,11 @@ bool check_attr_all_back (S&& gcs, const Style& style);
 // bool check_attr_any_front
 // (S&& gcs, const Style& style);
 
-// write string to display.
-size_t write_string (
+// write ascii string to display.
+// NOTE: may expand to cover
+// UTF-8, etc., in future.
+// (and by extension extb::set_ex)
+size_t write_ascii_string (
     const GlobalCell& start, int j_bound, std::string_view s,
     const Style& style = {0}
 );
@@ -295,7 +305,7 @@ inline bool valid (const Cell& c) noexcept
 }
 
 // returns nchars written
-inline size_t write_string (
+inline size_t write_ascii_string (
     const GlobalCell& start, int j_bound, std::string_view s,
     const Style& style
 )

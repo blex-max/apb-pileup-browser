@@ -4,6 +4,7 @@
 
 #include <expected>
 #include <list>
+#include <optional>
 #include <string>
 
 #include "app/event.hpp"
@@ -46,7 +47,8 @@ static void draw_sequence (
   auto jBound = last (queryBox.jspan);
 
   auto visible = alignmentSeq.substr (proj.skipChars);
-  auto written = e2::write_string (seqStart, jBound, visible);
+  auto written =
+      e2::write_ascii_string (seqStart, jBound, visible);
 
   // Dim reference-matching bases ('=') so mismatches/indels stand out.
   for (size_t k = 0; k < written; ++k) {
@@ -68,7 +70,7 @@ static void draw_sequence (
     auto shown = label.size() > avail
                      ? label.substr (label.size() - avail)
                      : label;
-    e2::write_string (
+    e2::write_ascii_string (
         translate (
             seqStart, e2::J (-static_cast<int> (shown.size()))
         ),
@@ -78,7 +80,7 @@ static void draw_sequence (
 
   auto rightEdge = seqStart.j + static_cast<int> (written);
   if (rightEdge < jBound && !softClips.second.empty()) {
-    e2::write_string (
+    e2::write_ascii_string (
         {seqStart.i, rightEdge}, jBound, softClips.second, TB_DIM
     );
   }
@@ -109,7 +111,7 @@ static int draw_table_cell (
   else {
     cell.resize (width, ' ');
   }
-  e2::write_string ({i, j}, jAvail, cell);
+  e2::write_ascii_string ({i, j}, jAvail, cell);
   j += static_cast<int> (width);
   if (j > jAvail) {
     return j;
@@ -217,7 +219,7 @@ static void init_tb2()
 static void draw_crosshair (const PileupWidg& pWgt)
 {
   auto& queryBox = pWgt.queryBox;
-  // ILine.j is a global column (see extb/widgets/box.hpp), unlike JLine's
+  // ILine.j is a global column (see extb/geom/box.hpp), unlike JLine's
   // jspan -- so the box-local center column must be offset by the box's
   // own global start to land on the same column draw_sequence treats as
   // pileupPos (first(queryBox.jspan) + boxWidth/2).
@@ -254,11 +256,17 @@ static VoidOrErr draw_screen (AppState& state)
   return {};
 }
 
-AppStateOrErr init (PileupDB& db)
+AppStateOrErr init (
+    PileupDB& db, std::optional<std::string_view> startupMsg
+)
 {
   PLOGD << "Initialising TUI";
 
   AppState state{.db = std::move (db)};
+
+  if (startupMsg) {
+    state.ui.cmd.msgBuf = *startupMsg;
+  }
 
   auto locusRet = get_locus_data (state.db);
   if (!locusRet) {

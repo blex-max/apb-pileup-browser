@@ -33,7 +33,11 @@ VoidOrErr run_mode (const DemoModeArgs& args)
   }
 
   // load frontend
-  auto stateRet = init (db);
+  auto stateRet = init (
+      db,
+      "Welcome to apb! demo mode may not have parity with "
+      "normal usage"
+  );
   if (!stateRet) {
     shutdown();  // would be nice if shutdown was run on state going out of scope...
     return std::unexpected{stateRet.error()};
@@ -67,7 +71,7 @@ VoidOrErr run_mode (const DbModeArgs& args)
   }
 
   // load frontend
-  auto stateRet = init (db);
+  auto stateRet = init (db, "Welcome to apb!");
   if (!stateRet) {
     shutdown();  // would be nice if shutdown was run on state going out of scope...
     return std::unexpected{stateRet.error()};
@@ -155,7 +159,7 @@ VoidOrErr run_mode (const AlnModeArgs& args)
   }
 
   // load frontend
-  auto stateRet = init (db);
+  auto stateRet = init (db, "Welcome to apb!");
   if (!stateRet) {
     shutdown();  // would be nice if shutdown was run on state going out of scope...
     return std::unexpected{stateRet.error()};

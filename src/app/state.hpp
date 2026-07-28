@@ -5,7 +5,7 @@
 #include "app/fields.hpp"
 #include "backend/PileupDB.hpp"
 #include "frontend/extb/extb.hpp"
-#include "frontend/extb/widgets/box.hpp"
+#include "frontend/extb/geom/box.hpp"
 #include "frontend/history.hpp"
 #include "frontend/input.hpp"
 
@@ -47,11 +47,8 @@ struct TopUI {
 struct AppConfig {
   bool run = true;
   std::list<const TableField*> dataFieldsRequested{
-      &fields::basequal,
-      &fields::rstart,
-      &fields::rend,
-      &fields::flag,
-      &fields::cigar,
+      &fields::basequal, &fields::rstart, &fields::rend,
+      &fields::flag,     &fields::mapq,   &fields::cigar,
       &fields::qname
   };  // preseves insertion order, allows removal by val
   double query_box_frac = 0.4;

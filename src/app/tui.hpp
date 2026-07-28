@@ -8,7 +8,8 @@
 
 using AppStateOrErr = std::expected<AppState, Err>;
 AppStateOrErr init (
-    PileupDB& db
+    PileupDB& db,
+    std::optional<std::string_view> startupMsg = std::nullopt
 );  // caller owns state, to be passed through
 VoidOrErr loop (AppState& state);
 void shutdown();

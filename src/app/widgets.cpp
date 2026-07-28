@@ -8,7 +8,7 @@
 #include "app/state.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/extb.hpp"
-#include "frontend/extb/widgets/box.hpp"
+#include "frontend/extb/geom/box.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
@@ -196,7 +196,7 @@ static void draw_dynamic_content (AppState& state)
         locus.pos, size (pWgt.refLine), locus.start
     );
 
-    e2::write_string (
+    e2::write_ascii_string (
         {pWgt.refLine.i,
          first (pWgt.refLine.jspan) + proj.jOffset},
         last (pWgt.refLine.jspan),
@@ -210,12 +210,12 @@ static void draw_dynamic_content (AppState& state)
     int jCurs = 1;  // initial space
     const auto lineStart = first (pWgt.infoLine);
     const auto lineEnd = last (pWgt.infoLine.jspan);
-    jCurs += e2::write_string (
+    jCurs += e2::write_ascii_string (
         translate (lineStart, e2::J (jCurs)), lineEnd,
         "LOCUS:", TB_DIM
     );
     jCurs++;  // space
-    jCurs += e2::write_string (
+    jCurs += e2::write_ascii_string (
         translate (lineStart, e2::J (jCurs)), lineEnd,
         fmt::format ("{}:{}", locus.contig, locus.pos)
     );
@@ -225,12 +225,12 @@ static void draw_dynamic_content (AppState& state)
         TB_DIM
     );
     jCurs++;  // space
-    jCurs += e2::write_string (
+    jCurs += e2::write_ascii_string (
         translate (lineStart, e2::J (jCurs)), lineEnd,
         "SPAN:", TB_DIM
     );
     jCurs++;  // space
-    jCurs += e2::write_string (
+    jCurs += e2::write_ascii_string (
         translate (lineStart, e2::J (jCurs)), lineEnd,
         fmt::format ("{}-{}", locus.start, locus.end)
     );
@@ -242,7 +242,7 @@ static void draw_dynamic_content (AppState& state)
   }
 
   auto& cWgt = state.ui.cmd;
-  e2::write_string (
+  e2::write_ascii_string (
       first (cWgt.inputLine), last (cWgt.inputLine).j,
       cWgt.inputBuf.text
   );
@@ -253,7 +253,7 @@ static void draw_dynamic_content (AppState& state)
   if (cursorCell.j < last (cWgt.inputLine).j) {
     e2::add_attr (cursorCell, TB_REVERSE);
   }
-  e2::write_string (
+  e2::write_ascii_string (
       first (cWgt.msgLine), last (cWgt.msgLine).j, cWgt.msgBuf,
       TB_DIM
   );
@@ -277,7 +277,7 @@ static void draw_dynamic_content (AppState& state)
     userClauseString.append (userClause.orderBy);
   }
 
-  e2::write_string (
+  e2::write_ascii_string (
       first (cWgt.queryStatusLine),
       last (cWgt.queryStatusLine).j, userClauseString, TB_DIM
   );

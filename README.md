@@ -257,11 +257,14 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 
 ## Future Roadmap
 
+Feature suggestions are welcomed.
+
 ### Planned
+- Better in-app help; column discoverability; a `help` command; better helptext.
 - Indication of insertion sites (easily implemented, but the best way to display them is unclear).
 - Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).
 - Fold-out display of quality string below each aligned read.
-- Minor UX/UI improvments
+- Minor UX/UI improvments.
 
 ### Speculative
 These are items that I think might be useful,
@@ -301,5 +304,5 @@ Coverage is concentrated on the backend. TUI rendering and event handling aren't
 
 ### AI Usage Policy
 
-I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to (Pending some alpha cleanup). Contributions would ideally follow this standard.
+I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to (Pending some alpha cleanup). Contributions are more than welcome, but would ideally follow this standard.
 
