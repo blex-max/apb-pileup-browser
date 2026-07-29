@@ -248,12 +248,12 @@ For advanced users: most of these map directly onto fields in htslib's `bam_pile
 
 ### A Word on `dump` Functionality
 
-A dump is a small, self-contained sqlite3 file with just the reads at this one locus — not the whole BAM. Picking a session back up later with `apb db` is one reason to use it; a few others:
+A dump is a small, self-contained sqlite3 file with just the reads at this one locus. Picking a session back up later with `apb db` is one reason to use it; a few others:
 
-- **Full, unrestricted SQL** — `sqlite3 my.db` gets you everything the in-TUI REPL deliberately doesn't: joins, `GROUP BY`, aggregates, whatever else. The REPL is for quick filter/sort while browsing; the dumped file allows for more complex analysis if needed.
-- **Downstream use** — it's a normal sqlite3 file, so anything with a sqlite driver can read it.
-- **Sharing** — send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM, reference genome, or even `apb` if they're happy just to use `sqlite3`.
-- **Debugging** (for developers) — a stable snapshot of exactly what got loaded, inspectable without the original alignment file or the TUI. Mostly relevant if you're developing `apb` itself, rather than just using it.
+- Full SQL — `sqlite3 my.db` gets you everything the in-TUI REPL deliberately doesn't: `GROUP BY`, aggregates, etc. Allows for more complex analysis if needed.
+- Downstream use — it's a normal sqlite3 file, so anything with a sqlite driver can read it.
+- Sharing — send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM, reference genome, or even `apb` if they're happy just to use `sqlite3`.
+- Debugging (for developers) — a stable snapshot of exactly what got loaded, inspectable without the original alignment file or the TUI. Mostly relevant if you're developing `apb` itself, rather than just using it.
 
 ### A Word on Indexing Systems
 
@@ -271,7 +271,8 @@ Feature suggestions are welcomed.
 - Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).
 - Fold-out display of quality string below each aligned read.
 - Minor UX/UI improvments.
-- headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
+- Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
+- Reference span complexity assessment (useful when assessing artefactual variants).
 
 ### Speculative
 These are items that I think might be useful,
