@@ -57,7 +57,7 @@ Below is a text screencap of the TUI, with explanatory comments in CAPTIALS. Ren
 
 ## Install
 
-You will need a terminal emulator with basic unicode support. I expect the TUI should render successfully on almost any modern-ish emulator. If you have issues with rendering please report them.
+You will need a terminal emulator with basic unicode support. I expect the TUI should render successfully on almost any modern-ish emulator. If you have issues with rendering please report them. `apb` has been confirmed to work in iTerm2, ghostty, vscode, and tmux.
 
 Docker images are provided via the repo GitHub; check the `packages` tab to pull the latest release with docker, singularity, etc. This is the easiest way to get `apb`.
 
