@@ -4,6 +4,7 @@
 #include <fmt/ranges.h>
 
 #include <functional>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -365,6 +366,25 @@ static CmdResult dump (std::string_view args, AppState& state)
   return {true, fmt::format ("Dumped database to {}", path)};
 }
 
+// TODO: consider what this should do
+// static CmdResult help (std::string_view args, AppState& state)
+// {
+//   const auto tokens = split_whitespace(args);
+//   if (tokens.size() > 1) {
+//     return {false, "help takes a single argument (the command you want to display help for), or none (general help)"};
+//   }
+// }
+
+// display a command reference table
+static constexpr std::string_view HELPTEXT_TEST =
+    "this is a placeholder";
+static CmdResult show_help (std::string_view _, AppState& state)
+{
+  state.conf.showOverlay = true;
+  state.ui.help.content = HELPTEXT_TEST;
+  return {true, ""};
+}
+
 static std::unordered_map<
     std::string_view,
     std::function<CmdResult (std::string_view, AppState&)>>
@@ -384,7 +404,8 @@ static std::unordered_map<
         {"cw", &clear_where},
         {"clear", &reset_query},
         {"count", &count},
-        {"dump", &dump}
+        {"dump", &dump},
+        {"help", &show_help}
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)

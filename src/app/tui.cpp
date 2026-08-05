@@ -10,6 +10,7 @@
 #include "app/event.hpp"
 #include "app/fields.hpp"
 #include "app/screen_projection.hpp"
+#include "app/state.hpp"
 #include "app/stringify_alignment.hpp"
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
@@ -41,7 +42,7 @@ static void draw_sequence (
       locus.pos, width (queryBox), get_rstart (dbRow)
   );
   auto seqStart = translate (
-      top_left (queryBox),
+      nw_vertex (queryBox),
       {static_cast<int> (boxRow), proj.jOffset}
   );
   auto jBound = last (queryBox.jspan);
@@ -86,13 +87,6 @@ static void draw_sequence (
   }
 }
 
-// Draws `text` padded/truncated to exactly `width` characters at {i, j},
-// followed by a vertLine separator. Always advances the cursor by `width`
-// (not by the resulting string's length), and returns the j just past the
-// separator, so header and row drawing (which must land in the exact same
-// columns) can both drive their cursor off this single function instead
-// of recomputing offsets independently. `center` pads text on both sides
-// (used for headers); row cells stay left-aligned.
 static int draw_table_cell (
     int i, int j, int jAvail, const std::string& text,
     size_t width, bool center = false
@@ -167,9 +161,6 @@ static VoidOrErr run_query (AppState& state)
   auto& stmt = state.query.stmt;
   auto& db = state.db;
 
-  // I think the next read function
-  // just obscures what's happening here
-  // and makes the reset confusing.
   sqlite3_reset (stmt);
 
   auto& qBox = state.ui.main.queryBox;
@@ -216,7 +207,7 @@ static void init_tb2()
   tb_clear();
 };
 
-static void draw_crosshair (const PileupWidg& pWgt)
+static void draw_crosshair (const PileupWgt& pWgt)
 {
   auto& queryBox = pWgt.queryBox;
   // ILine.j is a global column (see extb/box/box.hpp), unlike JLine's
@@ -229,6 +220,33 @@ static void draw_crosshair (const PileupWidg& pWgt)
   set (
       e2::GlobalCell{first (queryBox.ispan) - 1, pileupJ}, '|',
       TB_DIM
+  );
+}
+
+static void draw_overlay (const OverlayWgt& oWgt)
+{
+  const auto& box = oWgt.contentBox;
+  const auto& frame = oWgt.frame;
+  const auto& content = oWgt.content;
+
+  // NOTE: a nice property of the global only/
+  // single surface drawing approach. Clearing
+  // this layer clears everything "below".
+  clear (box);
+  clear (frame);
+
+  set (north_edge (frame), ch::horzLine);
+  set (east_edge (frame), ch::vertLine);
+  set (south_edge (frame), ch::horzLine);
+  set (west_edge (frame), ch::vertLine);
+
+  set (nw_vertex (frame), ch::topLeftRoundCorner);
+  set (ne_vertex (frame), ch::topRightRoundCorner);
+  set (sw_vertex (frame), ch::bottomLeftRoundCorner);
+  set (se_vertex (frame), ch::bottomRightRoundCorner);
+
+  e2::write_ascii_string (
+      nw_vertex (box), last (box.jspan), content
   );
 }
 
@@ -250,6 +268,10 @@ static VoidOrErr draw_screen (AppState& state)
     return std::unexpected{dsRet.error()};
   }
   draw_crosshair (state.ui.main);
+
+  if (state.conf.showOverlay) {
+    draw_overlay (state.ui.help);
+  }
 
   tb_present();
 

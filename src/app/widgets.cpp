@@ -12,12 +12,15 @@
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
+// NOTE: bad name. They're dynamically sized...
 VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
 {
   PLOGD << "Calculating widget size";
 
-  const e2::Span screenI{0, tb_height()};
-  e2::Span screenJ{0, tb_width()};
+  const auto screenH = tb_height();
+  const auto screenW = tb_width();
+  const e2::Span screenI{0, screenH};
+  e2::Span screenJ{0, screenW};
 
   // vertical sectioning of terminal
   const e2::Span mainI{screenI.first, screenI.last - CMD_H};
@@ -108,6 +111,24 @@ VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
       {screenJ.first + 1, screenJ.last - 1}
   };
 
+  auto& helpWgt = ui.help;
+  const auto helpH = static_cast<int> (
+      std::floor (static_cast<double> (screenH) * 0.6)
+  );
+  const auto helpW = static_cast<int> (
+      std::floor (static_cast<double> (screenW) * 0.6)
+  );
+  const auto iOff =
+      static_cast<int> (std::floor ((screenH - helpH) / 2));
+  const auto jOff =
+      static_cast<int> (std::floor ((screenW - helpW) / 2));
+
+  e2::Span hISpan{iOff, iOff + helpH};
+  e2::Span hJSpan{jOff, jOff + helpW};
+
+  helpWgt.frame = e2::Box{hISpan, hJSpan};
+  helpWgt.contentBox = e2::Box{body (hISpan), body (hJSpan)};
+
   return {};
 }
 
@@ -118,25 +139,14 @@ static void draw_static_chrome (TopUI& ui)
   auto& cWgt = ui.cmd;
 
   auto& cFrame = cWgt.frame;
-  set (top_left (cFrame), ch::topLeftRoundCorner, TB_DIM);
-  set (top_right (cFrame), ch::topRightRoundCorner, TB_DIM);
-  set (bottom_left (cFrame), ch::bottomLeftRoundCorner, TB_DIM);
-  set (
-      bottom_right (cFrame), ch::bottomRightRoundCorner, TB_DIM
-  );
+  set (nw_vertex (cFrame), ch::topLeftRoundCorner, TB_DIM);
+  set (ne_vertex (cFrame), ch::topRightRoundCorner, TB_DIM);
+  set (sw_vertex (cFrame), ch::bottomLeftRoundCorner, TB_DIM);
+  set (se_vertex (cFrame), ch::bottomRightRoundCorner, TB_DIM);
 
-  set (
-      e2::JLine{first (cFrame.ispan), body (cFrame.jspan)},
-      ch::horzHeavy, TB_DIM
-  );
-  set (
-      e2::ILine{body (cFrame.ispan), first (cFrame.jspan)},
-      ch::vertLine, TB_DIM
-  );
-  set (
-      e2::ILine{body (cFrame.ispan), last (cFrame.jspan) - 1},
-      ch::vertLine, TB_DIM
-  );
+  set (body (north_edge (cFrame)), ch::horzHeavy, TB_DIM);
+  set (body (west_edge (cFrame)), ch::vertLine, TB_DIM);
+  set (body (east_edge (cFrame)), ch::vertLine, TB_DIM);
   // line for displaying current filter (i.e. last query made)
   // e.g | WHERE: <...> | ORDER BY: <...> |
   set (body (cWgt.statusSep), ch::horzLine, TB_DIM);
@@ -147,28 +157,18 @@ static void draw_static_chrome (TopUI& ui)
   auto& pWgt = ui.main;
   auto& pFrame = pWgt.frame;
 
-  set (top_left (pFrame), ch::topLeftRoundCorner, TB_DIM);
-  set (top_right (pFrame), ch::topRightRoundCorner, TB_DIM);
+  set (nw_vertex (pFrame), ch::topLeftRoundCorner, TB_DIM);
+  set (ne_vertex (pFrame), ch::topRightRoundCorner, TB_DIM);
 
+  set (body (north_edge (pFrame)), ch::horzLine, TB_DIM);
+  // main frame is open at the bottom (the cmd frame closes it), so the
+  // side edges skip only the top corner and run to the last row.
   set (
-      e2::JLine{
-          first (pFrame.ispan),
-          section (pFrame.jspan, 1, size (pFrame.jspan) - 1)
-      },
-      ch::horzLine, TB_DIM
-  );
-  set (
-      e2::ILine{
-          section (pFrame.ispan, 1, size (pFrame.ispan)),
-          first (pFrame.jspan)
-      },
+      section (west_edge (pFrame), 1, height (pFrame)),
       ch::vertLine, TB_DIM
   );
   set (
-      e2::ILine{
-          section (pFrame.ispan, 1, size (pFrame.ispan)),
-          last (pFrame.jspan) - 1
-      },
+      section (east_edge (pFrame), 1, height (pFrame)),
       ch::vertLine, TB_DIM
   );
 

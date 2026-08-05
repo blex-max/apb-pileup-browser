@@ -17,10 +17,15 @@ struct Box {
 };
 size_t width (const Box& b) noexcept;
 size_t height (const Box& b) noexcept;
-GlobalCell top_left (const Box& b) noexcept;
-GlobalCell top_right (const Box& b) noexcept;
-GlobalCell bottom_left (const Box& b) noexcept;
-GlobalCell bottom_right (const Box& b) noexcept;
+// compass directions NESW
+GlobalCell nw_vertex (const Box& b) noexcept;
+GlobalCell ne_vertex (const Box& b) noexcept;
+GlobalCell sw_vertex (const Box& b) noexcept;
+GlobalCell se_vertex (const Box& b) noexcept;
+JLine north_edge (const Box& b) noexcept;
+JLine south_edge (const Box& b) noexcept;
+ILine west_edge (const Box& b) noexcept;
+ILine east_edge (const Box& b) noexcept;
 bool valid (const Box& b) noexcept;
 GlobalCell to_global (const Box& b, LocalCell c);
 bool contains_global (
@@ -46,8 +51,9 @@ GlobalCellRange auto inline cell_source (Box box)
          std::views::transform ([box,
                                  width] (std::size_t index) {
            return translate (
-               top_left (box), {static_cast<int> (index / width),
-                                static_cast<int> (index % width)}
+               nw_vertex (box),
+               {static_cast<int> (index / width),
+                static_cast<int> (index % width)}
            );
          });
 }
@@ -100,24 +106,44 @@ inline GlobalCell to_global (const Box& b, const LocalCell& c)
   }
 }
 
-inline GlobalCell top_left (const Box& b) noexcept
+inline GlobalCell nw_vertex (const Box& b) noexcept
 {
   return {b.ispan.first, b.jspan.first};
 }
 
-inline GlobalCell top_right (const Box& b) noexcept
+inline GlobalCell ne_vertex (const Box& b) noexcept
 {
   return {b.ispan.first, b.jspan.last - 1};
 }
 
-inline GlobalCell bottom_left (const Box& b) noexcept
+inline GlobalCell sw_vertex (const Box& b) noexcept
 {
   return {b.ispan.last - 1, b.jspan.first};
 }
 
-inline GlobalCell bottom_right (const Box& b) noexcept
+inline GlobalCell se_vertex (const Box& b) noexcept
 {
   return {b.ispan.last - 1, b.jspan.last - 1};
+}
+
+inline JLine north_edge (const Box& b) noexcept
+{
+  return {first (b.ispan), b.jspan};
+}
+
+inline JLine south_edge (const Box& b) noexcept
+{
+  return {last (b.ispan) - 1, b.jspan};
+}
+
+inline ILine west_edge (const Box& b) noexcept
+{
+  return {b.ispan, first (b.jspan)};
+}
+
+inline ILine east_edge (const Box& b) noexcept
+{
+  return {b.ispan, last (b.jspan) - 1};
 }
 
 // --- END IMPLEMENTATION --- //

@@ -12,7 +12,7 @@
 namespace e2 = extb;
 
 // TODO: separate Frame widget type?
-struct PileupWidg {
+struct PileupWgt {
   e2::Box frame;
   e2::JLine refLine;
   e2::JLine headerLine;
@@ -24,7 +24,7 @@ struct PileupWidg {
   e2::JLine infoLine;
   int rowStart = 0; // TODO move?
 };
-struct CmdWidg {
+struct CmdWgt {
   e2::Box frame;
   e2::JLine
       queryStatusLine;  // for displaying current filter applied to records
@@ -39,9 +39,16 @@ struct CmdWidg {
 };
 static constexpr auto CMD_H = 7;  // inc. borders
 
+struct OverlayWgt {
+  e2::Box frame;
+  e2::Box contentBox;
+  std::string_view content;
+};
+
 struct TopUI {
-  PileupWidg main;
-  CmdWidg cmd;
+  PileupWgt main;
+  CmdWgt cmd;
+  OverlayWgt help;
 };
 
 struct AppConfig {
@@ -52,6 +59,7 @@ struct AppConfig {
       &fields::qname
   };  // preseves insertion order, allows removal by val
   double query_box_frac = 0.4;
+  bool showOverlay = false;
 };
 
 struct Metadata {
