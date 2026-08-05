@@ -266,13 +266,16 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 Feature suggestions are welcomed.
 
 ### Planned
-- Better in-app help; column discoverability; a `help` command; better helptext.
-- Indication of insertion sites (easily implemented, but the best way to display them is unclear).
+- VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
+  - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
+- Better in-app help; column discoverability; a `help` command; better helptext. Better startup messages
+- Clear indication of no-op navigation via blinking the staus bar or similar
+- Indication of insertion sites by gapping the reference/other reads.
 - Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).
 - Fold-out display of quality string below each aligned read.
 - Minor UX/UI improvments.
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
-- Reference span complexity assessment (useful when assessing artefactual variants).
+- More stats in the status bar; allele counts, VAF (when in variant driven mode), reference span complexity assessment (useful when assessing artefactual variants).
 
 ### Speculative
 These are items that I think might be useful,
@@ -283,8 +286,7 @@ find them desirable.
 - Locus-jumping from within TUI when reading an alignment file - e.g. `goto chr1:2500`.
   - Currently the view is fixed to a single locus specified at startup.
   - This may also lead to multi-locus dbs, multi-sample browsing/dbs, etc.
-- VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
-  - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
+
 
 ## Development
 
