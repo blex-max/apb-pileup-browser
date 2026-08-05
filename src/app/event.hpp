@@ -154,7 +154,15 @@ inline VoidOrErr handle_event (
 {
   PLOGD << "Recieved event";
   if (ev.type == TB_EVENT_KEY) {
-    handle_key_event (state, ev);
+    if (!state.conf.showOverlay) {
+      handle_key_event (state, ev);
+    }
+    else {
+      // overlay nav
+      if (ev.ch == 'q') {
+        state.conf.showOverlay = false;
+      }
+    }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
     auto rszRet = handle_resize (state);

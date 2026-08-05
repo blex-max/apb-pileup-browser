@@ -405,7 +405,8 @@ static std::unordered_map<
         {"clear", &reset_query},
         {"count", &count},
         {"dump", &dump},
-        {"help", &show_help}
+        {"help", &show_help},
+        {"?", &show_help}
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)

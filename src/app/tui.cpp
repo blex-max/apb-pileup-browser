@@ -246,6 +246,11 @@ static void draw_overlay (const OverlayWgt& oWgt)
   set (se_vertex (frame), ch::bottomRightRoundCorner);
 
   e2::write_ascii_string (
+      translate (nw_vertex (frame), e2::J (3)), last (box.jspan),
+      " q: close overlay ", TB_DIM
+  );
+
+  e2::write_ascii_string (
       nw_vertex (box), last (box.jspan), content
   );
 }
