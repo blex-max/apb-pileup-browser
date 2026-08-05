@@ -9,12 +9,27 @@ fi
 # Only reformats lines touched by what's staged for this commit —
 # pre-existing formatting elsewhere in the file is left alone.
 staged=$(git diff --name-only --staged)
-git clang-format --staged
 
-# Restrict to files that were actually staged for this commit, so
-# unrelated dirty files elsewhere in the tree don't get swept in.
+# Files already dirty before we format: their unstaged hunks were deliberately
+# held back, so they must not be swept into this commit by the re-stage below.
+dirty_before=$(git diff --name-only -- $staged)
+
+# git clang-format exits 1 when it reformatted something and 2 on a real error
+# (e.g. it refuses to rewrite a file that has unstaged changes). Only 2 should
+# abort the commit — 1 means "fixed it", so format and commit rather than
+# making the user re-run the same command.
+status=0
+git clang-format --staged || status=$?
+if [ "$status" -gt 1 ]; then
+  exit "$status"
+fi
+
+# git clang-format writes to the working tree, not the index, so re-stage what
+# it touched. Anything already dirty beforehand is excluded: a file cannot be
+# both dirty-before and reformatted, since the exit-2 case above covers that.
 if [ -n "$staged" ]; then
-  changed=$(git diff --name-only -- $staged)
+  changed=$(git diff --name-only -- $staged |
+    grep -Fxv -f <(printf '%s\n' "$dirty_before") || true)
   if [ -n "$changed" ]; then
     echo "pre-commit: clang-format adjusted staged changes in:"
     echo "$changed"
