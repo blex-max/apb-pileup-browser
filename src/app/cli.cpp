@@ -17,8 +17,11 @@ static constexpr char HELPTEXT[] =
 static constexpr char EPILOG[] =
     R"txt( See README.md for further info, or use the in-app help
  (type ? and press enter in the TUI).If you don't have
- the readme, it can be written to disk from within the
- app.)txt";
+ the readme, it can be written to disk from the TUI
+ using the `readme` command.
+
+ In the TUI, type q and press enter or press Ctrl-C
+ twice to quit.)txt";
 
 ArgsOrErr parse_args (int argc, char** argv)
 {

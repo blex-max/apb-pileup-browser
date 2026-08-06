@@ -487,6 +487,10 @@ static constexpr Command CMD_README{
     &dump_readme
 };
 
+// NOTE: must have navigation help in overlay
+// maybe help should show that, and give a second
+// command which will show the command reference
+// table. I think probably!
 /* PLAN: this will show command reference table,
    and instruct to read/dump the readme for more
    info.
