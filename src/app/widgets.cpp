@@ -12,8 +12,58 @@
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
-// NOTE: bad name. They're dynamically sized...
-VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
+// precondition: ui.main.frame is set
+VoidOrErr calc_pileup_child_widgets (
+    PileupWgt& pWgt, const AppConfig& conf
+)
+{
+  PLOGD << "Calculating pileup child panes";
+
+  const auto& frame = pWgt.frame;
+  if (width (frame) <= 1 || height (frame) <= 1) {
+    return std::unexpected (make_internal_err (
+        "Could not calculate pileup panes. Terminal likely too "
+        "small!"
+    ));
+  }
+
+  const auto& pWgtISpan = pWgt.frame.ispan;
+  const auto& pWgtJSpan = pWgt.frame.jspan;
+
+  auto vSplitJ = static_cast<int> (ceil (
+      static_cast<double> (size (pWgtJSpan) - 2) *
+      conf.query_box_frac
+  ));
+  pWgt.vSep = {
+      section (pWgtISpan, 0, size (pWgtISpan) - 1), vSplitJ
+  };
+  pWgt.refLine = {
+      first (pWgtISpan) + 1, section (pWgtJSpan, 1, vSplitJ)
+  };
+  pWgt.headerLine = {
+      first (pWgtISpan) + 1, {vSplitJ + 1, last (pWgtJSpan) - 1}
+  };
+  pWgt.headerSep = {
+      first (pWgtISpan) + 2, pWgtJSpan
+  };  // overlapping, to set connectors
+  // stop one row short of querySep's row (mainI.last - 2), so content
+  // rows and the separator below them don't share a row -- mirrors
+  // headerLine/headerSep/content-start-at-+3 above.
+  pWgt.queryBox = {
+      section (pWgtISpan, 3, size (pWgtISpan) - 2),
+      section (pWgtJSpan, 1, vSplitJ)
+  };
+  pWgt.dataBox = {
+      section (pWgtISpan, 3, size (pWgtISpan) - 2),
+      {vSplitJ + 1, last (pWgtJSpan) - 1}
+  };
+  pWgt.querySep = {pWgtISpan.last - 2, pWgtJSpan};
+  pWgt.infoLine = {pWgtISpan.last - 1, body (pWgtJSpan)};
+
+  return {};
+}
+
+VoidOrErr calc_all_widgets (TopUI& ui, const AppConfig& conf)
 {
   PLOGD << "Calculating widget size";
 
@@ -32,42 +82,19 @@ VoidOrErr calc_static_widgets (TopUI& ui, const AppConfig& conf)
 
   if (!e2::valid (screenI) || !e2::valid (screenJ) ||
       !e2::valid (mainI) || !e2::valid (cmdI)) {
-    return std::unexpected{make_internal_err (
+    return std::unexpected (make_internal_err (
         "Could not calculate widgets. Terminal likley too small!"
-    )};
+    ));
   }
 
   // widgets to calc
   auto& pWgt = ui.main;
   pWgt.frame = e2::Box{mainI, screenJ};
 
-  auto vSplitJ = static_cast<int> (ceil (
-      static_cast<double> (size (screenJ) - 2) *
-      conf.query_box_frac
-  ));
-  pWgt.vSep = {section (mainI, 0, size (mainI) - 1), vSplitJ};
-  pWgt.refLine = {
-      first (mainI) + 1, section (screenJ, 1, vSplitJ)
-  };
-  pWgt.headerLine = {
-      first (mainI) + 1, {vSplitJ + 1, last (screenJ) - 1}
-  };
-  pWgt.headerSep = {
-      first (mainI) + 2, screenJ
-  };  // overlapping, to set connectors
-  // stop one row short of querySep's row (mainI.last - 2), so content
-  // rows and the separator below them don't share a row -- mirrors
-  // headerLine/headerSep/content-start-at-+3 above.
-  pWgt.queryBox = {
-      section (mainI, 3, size (mainI) - 2),
-      section (screenJ, 1, vSplitJ)
-  };
-  pWgt.dataBox = {
-      section (mainI, 3, size (mainI) - 2),
-      {vSplitJ + 1, last (screenJ) - 1}
-  };
-  pWgt.querySep = {mainI.last - 2, screenJ};
-  pWgt.infoLine = {mainI.last - 1, body (screenJ)};
+  const auto pcRet = calc_pileup_child_widgets (pWgt, conf);
+  if (!pcRet) {
+    return std::unexpected (pcRet.error());
+  }
 
   auto& cWgt = ui.cmd;
   cWgt.frame = e2::Box{cmdI, screenJ};

@@ -10,6 +10,7 @@
 
 #include "app/fields.hpp"
 #include "app/state.hpp"
+#include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
 #include "plog/Log.h"
 
@@ -385,6 +386,28 @@ static CmdResult show_help (std::string_view _, AppState& state)
   return {true, ""};
 }
 
+static CmdResult toggle_data_pane (
+    std::string_view _, AppState& state
+)
+{
+  auto& qbf = state.conf.query_box_frac;
+  std::string outMsg;
+  if (qbf == 1.0) {
+    qbf = 0.5;
+    outMsg = "Showing data pane";
+  }
+  else {
+    qbf = 1.0;
+    outMsg = "Data pane hidden";
+  }
+
+  calc_pileup_child_widgets (
+      state.ui.main, state.conf
+  );  // shouldn't error in this context (I hope)
+
+  return {true, outMsg};
+}
+
 static std::unordered_map<
     std::string_view,
     std::function<CmdResult (std::string_view, AppState&)>>
@@ -406,7 +429,9 @@ static std::unordered_map<
         {"count", &count},
         {"dump", &dump},
         {"help", &show_help},
-        {"?", &show_help}
+        {"?", &show_help},
+        {"toggle-data-pane", &toggle_data_pane},
+        {"tdp", &toggle_data_pane}
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)

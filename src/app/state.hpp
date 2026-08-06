@@ -58,7 +58,7 @@ struct AppConfig {
       &fields::flag,     &fields::mapq,   &fields::cigar,
       &fields::qname
   };  // preseves insertion order, allows removal by val
-  double query_box_frac = 0.4;
+  double query_box_frac = 0.5;
   bool showOverlay = false;
 };
 

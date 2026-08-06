@@ -309,7 +309,7 @@ AppStateOrErr init (
   state.query.stmt = std::move (*prepRet);
 
   init_tb2();
-  auto calcRet = calc_static_widgets (state.ui, state.conf);
+  auto calcRet = calc_all_widgets (state.ui, state.conf);
   if (!calcRet) {
     return std::unexpected{calcRet.error()};
   }
