@@ -1,15 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+staged=$(git diff --name-only --staged)
+
+# README.md is generated from the in-binary readme, so it is only ever allowed
+# into a commit alongside the readme.cpp it was derived from. Staged on its own
+# it is a hand edit, which the next generation would silently discard.
+# Checked ahead of the regeneration below, whose own `git add` would trip it.
+if printf '%s\n' "$staged" | grep -qx 'README.md' &&
+  ! printf '%s\n' "$staged" | grep -qx 'src/app/readme.cpp'; then
+  echo "pre-commit: README.md is generated — edit the README_MARKDOWN literal in" >&2
+  echo "src/app/readme.cpp instead. To discard the hand edit: git restore --staged --worktree README.md" >&2
+  exit 1
+fi
+
+# The other direction: a readme.cpp edit that left README.md untouched would
+# ship a repo readme that disagrees with `apb`. Regenerated before the
+# clang-format early-exit below, so a machine without clang-format still
+# cannot commit a stale README.md.
+if printf '%s\n' "$staged" | grep -qx 'src/app/readme.cpp'; then
+  ./dev-scripts/gen-readme.sh
+  git add README.md
+fi
+
 if ! command -v clang-format >/dev/null 2>&1; then
   echo "pre-commit: clang-format not found, skipping format check" >&2
   exit 0
 fi
 
-# Only reformats lines touched by what's staged for this commit —
-# pre-existing formatting elsewhere in the file is left alone.
-staged=$(git diff --name-only --staged)
-
+# git clang-format only reformats lines touched by what's staged for this commit
+# — pre-existing formatting elsewhere in the file is left alone.
+#
 # Files already dirty before we format: their unstaged hunks were deliberately
 # held back, so they must not be swept into this commit by the re-stage below.
 dirty_before=$(git diff --name-only -- $staged)

@@ -1,0 +1,17 @@
+Checks: >
+  -*,
+  bugprone-*,
+  misc-*,
+  performance-*,
+  clang-analyzer-*,
+  readability-*,
+  -bugprone-assignment-in-if-condition,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -misc-use-anonymous-namespace,
+  -performance-avoid-endl,
+  -readability-identifier-length
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/(app|backend|frontend|demo|shared)/'
+FormatStyle: file

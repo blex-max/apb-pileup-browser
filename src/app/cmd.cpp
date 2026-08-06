@@ -3,15 +3,19 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include <fstream>
 #include <functional>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "app/fields.hpp"
+#include "app/readme.hpp"
 #include "app/state.hpp"
 #include "backend/PileupDB.hpp"
 #include "plog/Log.h"
+
+static constexpr std::string CMD_GENERIC_SUCCESS = "OK!";
 
 static std::pair<std::string_view, std::string_view>
 split_first_space (std::string_view s)
@@ -174,7 +178,7 @@ static CmdResult init_where (
   );
 
   return apply_query_clause (
-      state, std::move (newClause), "OK!"
+      state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
 
@@ -199,7 +203,7 @@ static CmdResult and_where (
   );
 
   return apply_query_clause (
-      state, std::move (newClause), "OK!"
+      state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
 static CmdResult or_where (
@@ -223,7 +227,7 @@ static CmdResult or_where (
   );
 
   return apply_query_clause (
-      state, std::move (newClause), "OK!"
+      state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
 
@@ -280,7 +284,7 @@ static CmdResult order_by (
   newClause.orderBy = rsql_clause;
 
   return apply_query_clause (
-      state, std::move (newClause), "OK!"
+      state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
 
@@ -350,7 +354,7 @@ static CmdResult reset_query (
 // Dump the in-memory db to a file on disk.
 // NOTE: does not do any kind of query preservation. Possible
 // future feature, but unlikely.
-static CmdResult dump (std::string_view args, AppState& state)
+static CmdResult dump_db (std::string_view args, AppState& state)
 {
   const auto tokens = split_whitespace (args);
   if (tokens.size() != 1) {
@@ -366,23 +370,45 @@ static CmdResult dump (std::string_view args, AppState& state)
   return {true, fmt::format ("Dumped database to {}", path)};
 }
 
-// TODO: consider what this should do
-// static CmdResult help (std::string_view args, AppState& state)
-// {
-//   const auto tokens = split_whitespace(args);
-//   if (tokens.size() > 1) {
-//     return {false, "help takes a single argument (the command you want to display help for), or none (general help)"};
-//   }
-// }
-
-// display a command reference table
 static constexpr std::string_view HELPTEXT_TEST =
     "this is a placeholder";
-static CmdResult show_help (std::string_view _, AppState& state)
+static CmdResult show_help (std::string_view, AppState& state)
 {
   state.conf.showOverlay = true;
   state.ui.help.content = HELPTEXT_TEST;
   return {true, ""};
+}
+
+static CmdResult dump_readme (std::string_view args, AppState&)
+{
+  std::string outPath;
+  const auto tokens = split_whitespace (args);
+  if (tokens.empty()) {
+    outPath = "./APB-README.md";
+  }
+  else if (tokens.size() == 1) {
+    outPath = tokens[0];
+    outPath += "/APB-README.md";
+  }
+  else {
+    return {
+        false,
+        "takes a single directory path, or no args for cwd"
+    };
+  }
+
+  std::ofstream outStream{outPath, std::ios::binary};
+  if (!outStream) {
+    return {
+        false,
+        "could not open " + outPath + "; failed to dump readme"
+    };
+  }
+  outStream.write (readme().data(), readme().size());
+  if (!outStream) {
+    return {false, "failed during write at " + outPath};
+  }
+  return {true, "APB-README written to " + outPath};
 }
 
 static std::unordered_map<
@@ -404,7 +430,8 @@ static std::unordered_map<
         {"cw", &clear_where},
         {"clear", &reset_query},
         {"count", &count},
-        {"dump", &dump},
+        {"dump", &dump_db},
+        {"readme", &dump_readme},
         {"help", &show_help},
         {"?", &show_help}
     };

@@ -1,8 +1,6 @@
-<!-- GENERATED FILE — DO NOT EDIT.
-     Extracted from the README_MARKDOWN literal in src/app/readme.cpp.
-     Edit that literal instead, then run ./dev-scripts/gen-readme.sh (the
-     pre-commit hook does this for you when readme.cpp is staged). -->
+#include "readme.hpp"
 
+constexpr std::string_view README_MARKDOWN = R"md(
 # `apb` - A Pileup Browser
 
 `apb` is a terminal genome browser tailored to exploratory viewing and querying of pileups of mapped reads at genomic loci.
@@ -320,3 +318,6 @@ Coverage is concentrated on the backend. TUI rendering and event handling aren't
 ### AI Usage Policy
 
 I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to (pending some alpha cleanup). Contributions are more than welcome, but would ideally follow this standard.
+)md";
+
+std::string_view readme() { return README_MARKDOWN; }
