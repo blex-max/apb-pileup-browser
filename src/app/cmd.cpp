@@ -430,8 +430,7 @@ static std::unordered_map<
         {"dump", &dump},
         {"help", &show_help},
         {"?", &show_help},
-        {"toggle-data-pane", &toggle_data_pane},
-        {"tdp", &toggle_data_pane}
+        {"data-pane", &toggle_data_pane}
     };
 
 CmdResult exec_cmd (std::string_view call, AppState& state)
