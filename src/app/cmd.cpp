@@ -381,14 +381,17 @@ static CmdResult show_help (std::string_view, AppState& state)
 
 static CmdResult dump_readme (std::string_view args, AppState&)
 {
+  static constexpr std::string k_readmeFileName;
   std::string outPath;
   const auto tokens = split_whitespace (args);
   if (tokens.empty()) {
-    outPath = "./APB-README.md";
+    outPath = "./";
+    outPath += k_readmeFileName;
   }
   else if (tokens.size() == 1) {
     outPath = tokens[0];
-    outPath += "/APB-README.md";
+    outPath += "/";
+    outPath += k_readmeFileName;
   }
   else {
     return {
@@ -408,7 +411,7 @@ static CmdResult dump_readme (std::string_view args, AppState&)
   if (!outStream) {
     return {false, "failed during write at " + outPath};
   }
-  return {true, "APB-README written to " + outPath};
+  return {true, k_readmeFileName + " written to " + outPath};
 }
 
 static std::unordered_map<
@@ -443,9 +446,7 @@ CmdResult exec_cmd (std::string_view call, AppState& state)
       it != CMD_REGISTRY.end()) {
     return it->second (args, state);
   }
-  else {
-    return {
-        false, fmt::format ("Command \"{}\" not found!", name)
-    };
-  }
+  return {
+      false, fmt::format ("Command \"{}\" not found!", name)
+  };
 }

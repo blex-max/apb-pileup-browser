@@ -119,6 +119,9 @@ add_executable(apb
   src/backend/hts_types.cpp
   src/app/readme.cpp
 )
+target_compile_definitions(apb PRIVATE
+  APB_VERSION="${PROJECT_VERSION}"
+)
 target_compile_options(apb
   PRIVATE
   -Wall
