@@ -16,9 +16,9 @@ static constexpr char HELPTEXT[] =
  line and simple SQL-based query syntax.)txt";
 static constexpr char EPILOG[] =
     R"txt( See README.md for further info, or use the in-app help
- (type ? and press enter once in the TUI).If you don't
- have the readme, it can be written to disk from within
- the app.)txt";
+ (type ? and press enter in the TUI).If you don't have
+ the readme, it can be written to disk from within the
+ app.)txt";
 
 ArgsOrErr parse_args (int argc, char** argv)
 {

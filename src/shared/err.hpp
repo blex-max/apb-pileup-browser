@@ -4,9 +4,14 @@
 #include <optional>
 #include <string>
 
-enum class ErrSrc { htslib, sqlite, argparse, internal };
+enum class ErrSrc : uint8_t {
+  htslib,
+  sqlite,
+  argparse,
+  internal
+};
 
-enum class ErrKind {
+enum class ErrKind : uint8_t {
   fatal  // only kind as of now
   // but in future may have recoverable errors
 };

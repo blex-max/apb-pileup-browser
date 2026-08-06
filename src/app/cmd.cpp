@@ -4,9 +4,7 @@
 #include <fmt/ranges.h>
 
 #include <fstream>
-#include <functional>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 
 #include "app/fields.hpp"
@@ -14,6 +12,16 @@
 #include "app/state.hpp"
 #include "backend/PileupDB.hpp"
 #include "plog/Log.h"
+
+// A command is a function paired with the name and help text
+// bundled with it, declared alongside the function. CMD_TABLE at
+// the foot of the file is the registry of those pairings.
+struct Command {
+  std::string_view name;
+  std::string_view alias;  // "" if none
+  std::string_view usage;
+  CmdResult (*run) (std::string_view, AppState&);
+};
 
 static constexpr std::string CMD_GENERIC_SUCCESS = "OK!";
 
@@ -25,7 +33,7 @@ split_first_space (std::string_view s)
   }
   auto pos = s.find (' ');
   if (pos == std::string_view::npos) {
-    return {s, {}}; // no args
+    return {s, {}};  // no args
   }
   return {s.substr (0, pos), s.substr (pos + 1)};
 }
@@ -46,11 +54,16 @@ static std::vector<std::string_view> split_whitespace (
 }
 
 // Commands
+
 static CmdResult quit (std::string_view, AppState& state)
 {
   state.conf.run = false;
   return {true, "Bye!"};
 }
+static constexpr Command CMD_QUIT{
+    "quit", "q", "Exit the browser.", &quit
+};
+
 static CmdResult pileup_show (
     std::string_view names, AppState& state
 )
@@ -89,6 +102,12 @@ static CmdResult pileup_show (
       fmt::format ("Showing query properties: {}", newRequests)
   };
 }
+static constexpr Command CMD_SHOW{
+    "show", "",
+    "Add read properties to the pileup table. Takes one or more "
+    "property names separated by spaces.",
+    &pileup_show
+};
 
 static CmdResult pileup_hide (
     std::string_view names, AppState& state
@@ -116,6 +135,12 @@ static CmdResult pileup_hide (
       fmt::format ("Hiding query properties {}", reqsToRemove)
   };
 }
+static constexpr Command CMD_HIDE{
+    "hide", "",
+    "Remove read properties from the pileup table. Names that "
+    "are not properties are ignored.",
+    &pileup_hide
+};
 
 static const std::unordered_set<std::string_view>
     VALID_CONJUNCTIONS{"AND", "and", "OR", "or"};
@@ -181,6 +206,13 @@ static CmdResult init_where (
       state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
+static constexpr Command CMD_WHERE{
+    "where", "w",
+    "Start a query with an SQL WHERE condition. Fails if a "
+    "query is already present; extend it with and/or, or clear "
+    "it first.",
+    &init_where
+};
 
 static CmdResult and_where (
     std::string_view args, AppState& state
@@ -206,6 +238,12 @@ static CmdResult and_where (
       state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
+static constexpr Command CMD_AND{
+    "and", "",
+    "Extend the query with a further condition, joined by AND.",
+    &and_where
+};
+
 static CmdResult or_where (
     std::string_view args, AppState& state
 )
@@ -230,6 +268,11 @@ static CmdResult or_where (
       state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
+static constexpr Command CMD_OR{
+    "or", "",
+    "Extend the query with a further condition, joined by OR.",
+    &or_where
+};
 
 static CmdResult remove_last_where (
     std::string_view _, AppState& state
@@ -251,6 +294,11 @@ static CmdResult remove_last_where (
       fmt::format ("Removed clause: {}", rmClause)
   );
 };
+static constexpr Command CMD_BACK{
+    "back", "",
+    "Drop the most recently added condition from the query.",
+    &remove_last_where
+};
 
 static CmdResult clear_where (
     std::string_view _, AppState& state
@@ -267,6 +315,12 @@ static CmdResult clear_where (
       state, std::move (newClause), "Cleared WHERE clause"
   );
 }
+static constexpr Command CMD_CLEAR_WHERE{
+    "clear-where", "cw",
+    "Drop every condition from the query, keeping the sort "
+    "order.",
+    &clear_where
+};
 
 static CmdResult order_by (
     std::string_view rsql_clause, AppState& state
@@ -287,6 +341,10 @@ static CmdResult order_by (
       state, std::move (newClause), CMD_GENERIC_SUCCESS
   );
 }
+static constexpr Command CMD_ORDER{
+    "order", "o", "Sort rows by an SQL ORDER BY expression.",
+    &order_by
+};
 
 static CmdResult count (
     std::string_view rsql_clause, AppState& state
@@ -332,6 +390,13 @@ static CmdResult count (
             )
   };
 }
+static constexpr Command CMD_COUNT{
+    "count", "",
+    "Count the reads matching the query. An optional condition "
+    "is ANDed with the query for this count only, and must not "
+    "be prefixed with and/or.",
+    &count
+};
 
 static CmdResult reset_query (
     std::string_view _, AppState& state
@@ -350,6 +415,11 @@ static CmdResult reset_query (
       state, std::move (newClause), "Reset query"
   );
 }
+static constexpr Command CMD_CLEAR{
+    "clear", "",
+    "Reset the query: drop every condition and the sort order.",
+    &reset_query
+};
 
 // Dump the in-memory db to a file on disk.
 // NOTE: does not do any kind of query preservation. Possible
@@ -369,15 +439,12 @@ static CmdResult dump_db (std::string_view args, AppState& state)
 
   return {true, fmt::format ("Dumped database to {}", path)};
 }
-
-static constexpr std::string_view HELPTEXT_TEST =
-    "this is a placeholder";
-static CmdResult show_help (std::string_view, AppState& state)
-{
-  state.conf.showOverlay = true;
-  state.ui.help.content = HELPTEXT_TEST;
-  return {true, ""};
-}
+static constexpr Command CMD_DUMP{
+    "dump", "",
+    "Write the in-memory database to a file. Takes a single "
+    "path. The current query is not preserved.",
+    &dump_db
+};
 
 static CmdResult dump_readme (std::string_view args, AppState&)
 {
@@ -413,38 +480,78 @@ static CmdResult dump_readme (std::string_view args, AppState&)
   }
   return {true, k_readmeFileName + " written to " + outPath};
 }
+static constexpr Command CMD_README{
+    "readme", "",
+    "Dumps readme shipped with repo to a provided directory, or "
+    "the working directory if no path is given.",
+    &dump_readme
+};
 
-static std::unordered_map<
-    std::string_view,
-    std::function<CmdResult (std::string_view, AppState&)>>
-    CMD_REGISTRY{
-        {"q", &quit},
-        {"quit", &quit},
-        {"show", &pileup_show},
-        {"hide", &pileup_hide},
-        {"where", &init_where},
-        {"w", &init_where},
-        {"and", &and_where},
-        {"or", &or_where},
-        {"back", &remove_last_where},
-        {"order", &order_by},
-        {"o", &order_by},
-        {"clear-where", &clear_where},
-        {"cw", &clear_where},
-        {"clear", &reset_query},
-        {"count", &count},
-        {"dump", &dump_db},
-        {"readme", &dump_readme},
-        {"help", &show_help},
-        {"?", &show_help}
-    };
+/* PLAN: this will show command reference table,
+   and instruct to read/dump the readme for more
+   info.
+   Much less work than trying to build essentially
+   my own internal man window, and minimises sources
+   of truth by prioritising readme.
+   If an arg is passed, will show usage. */
+// forward declare find_cmd for lookup in help
+static const Command* find_cmd (std::string_view name);
+static constexpr std::string_view HELPTEXT_TEST =
+    "this is a placeholder";
+static CmdResult show_help (
+    std::string_view args, AppState& state
+)
+{
+  CmdResult out;
+  const auto tokens = split_whitespace (args);
+  if (tokens.empty()) {
+    // show reference table
+    state.conf.showOverlay = true;
+    state.ui.help.content = HELPTEXT_TEST;
+    out.success = true;
+  }
+  else if (tokens.size() == 1) {
+    // not sure if this branch is necessary?
+    out.success = true;
+    out.msg = find_cmd (tokens[0])->usage.data();
+  }
+  else {
+    out.success = false;
+    out.msg =
+        "takes 0 args for command reference, or 1 command name "
+        "for usage";
+  }
+  return out;
+}
+static constexpr Command CMD_HELP{
+    "help", "?", "Show this help.", &show_help
+};
+
+// Registry
+
+static constexpr const Command* CMD_TABLE[]{
+    &CMD_QUIT,        &CMD_SHOW,  &CMD_HIDE,  &CMD_WHERE,
+    &CMD_AND,         &CMD_OR,    &CMD_BACK,  &CMD_ORDER,
+    &CMD_CLEAR_WHERE, &CMD_CLEAR, &CMD_COUNT, &CMD_DUMP,
+    &CMD_README,      &CMD_HELP
+};
+
+static const Command* find_cmd (std::string_view name)
+{
+  for (const Command* cmd : CMD_TABLE) {
+    if (cmd->name == name ||
+        (!cmd->alias.empty() && cmd->alias == name)) {
+      return cmd;
+    }
+  }
+  return nullptr;
+}
 
 CmdResult exec_cmd (std::string_view call, AppState& state)
 {
   auto [name, args] = split_first_space (call);
-  if (auto it = CMD_REGISTRY.find (name);
-      it != CMD_REGISTRY.end()) {
-    return it->second (args, state);
+  if (const Command* cmd = find_cmd (name)) {
+    return cmd->run (args, state);
   }
   return {
       false, fmt::format ("Command \"{}\" not found!", name)

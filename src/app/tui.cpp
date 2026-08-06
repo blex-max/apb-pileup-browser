@@ -275,6 +275,8 @@ static VoidOrErr draw_screen (AppState& state)
   draw_crosshair (state.ui.main);
 
   if (state.conf.showOverlay) {
+    // For help overlay,
+    // and query columns overlay
     draw_overlay (state.ui.help);
   }
 
