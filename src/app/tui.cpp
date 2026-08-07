@@ -8,7 +8,6 @@
 #include <string>
 
 #include "app/event.hpp"
-#include "app/fields.hpp"
 #include "app/screen_projection.hpp"
 #include "app/state.hpp"
 #include "app/stringify_alignment.hpp"
@@ -24,7 +23,7 @@ static void draw_sequence (
     const LocusData& locus
 )
 {
-  auto cig = get_cigar_blob (dbRow);
+  const auto* cig = get_cigar_blob (dbRow);
   auto nCig = get_ncig (dbRow);
   auto readStart = get_rstart (dbRow);
   std::optional<ExpandSequenceRefArgs> refArgs;
@@ -116,7 +115,7 @@ static int draw_table_cell (
 
 static void draw_data_table_header (
     const e2::JLine& headerLine,
-    const std::list<const TableField*>& displayFields
+    const std::list<const DataTableCol*>& displayFields
 )
 {
   PLOGD << "Drawing table header";
@@ -134,7 +133,7 @@ static void draw_data_table_header (
 
 static void draw_data_table_row (
     const e2::Box& dataBox, size_t boxRow, sqlite3_stmt* dbRow,
-    const std::list<const TableField*>& displayFields
+    const std::list<const DataTableCol*>& displayFields
 )
 {
   const int jAvail = last (dataBox.jspan);
@@ -166,7 +165,7 @@ static VoidOrErr run_query (AppState& state)
   auto& qBox = state.ui.main.queryBox;
   auto& dBox = state.ui.main.dataBox;
   auto& hLine = state.ui.main.headerLine;
-  auto& displayFields = state.conf.dataFieldsRequested;
+  auto& displayFields = state.conf.dataColsRequested;
 
   draw_data_table_header (hLine, displayFields);
 
@@ -209,7 +208,7 @@ static void init_tb2()
 
 static void draw_crosshair (const PileupWgt& pWgt)
 {
-  auto& queryBox = pWgt.queryBox;
+  const auto& queryBox = pWgt.queryBox;
   // ILine.j is a global column (see extb/box/box.hpp), unlike JLine's
   // jspan -- so the box-local center column must be offset by the box's
   // own global start to land on the same column draw_sequence treats as
@@ -275,6 +274,8 @@ static VoidOrErr draw_screen (AppState& state)
   draw_crosshair (state.ui.main);
 
   if (state.conf.showOverlay) {
+    // For help overlay,
+    // and query columns overlay
     draw_overlay (state.ui.help);
   }
 

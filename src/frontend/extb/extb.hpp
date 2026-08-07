@@ -150,19 +150,19 @@ size_t write_ascii_string (
 
 // --- INTERNALS --- //
 
-static auto as_global_cell_range (GlobalCell cell)
+inline auto as_global_cell_range (GlobalCell cell)
 {
   return std::views::single (cell);
 }
 
 template <GlobalCellRange R>
-static decltype (auto) as_global_cell_range (R&& r)
+inline decltype (auto) as_global_cell_range (R&& r)
 {
   return std::forward<R> (r);
 }
 
 template <ConvertsToGlobalCellRange T>
-static decltype (auto) as_global_cell_range (T&& t)
+inline decltype (auto) as_global_cell_range (T&& t)
 {
   return cell_source (std::forward<T> (t));
 }

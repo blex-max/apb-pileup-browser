@@ -2,7 +2,7 @@
 
 #include <list>
 
-#include "app/fields.hpp"
+#include "app/data_table_cols.hpp"
 #include "backend/PileupDB.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
@@ -53,10 +53,9 @@ struct TopUI {
 
 struct AppConfig {
   bool run = true;
-  std::list<const TableField*> dataFieldsRequested{
-      &fields::basequal, &fields::rstart, &fields::rend,
-      &fields::flag,     &fields::mapq,   &fields::cigar,
-      &fields::qname
+  std::list<const DataTableCol*> dataColsRequested{
+      &cols::basequal, &cols::rstart, &cols::rend, &cols::flag,
+      &cols::mapq,     &cols::cigar,  &cols::qname
   };  // preseves insertion order, allows removal by val
   double query_box_frac = 0.5;
   bool showOverlay = false;
