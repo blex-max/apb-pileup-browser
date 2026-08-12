@@ -118,6 +118,7 @@ add_executable(apb
   src/app/cmd.cpp
   src/backend/hts_types.cpp
   src/app/readme.cpp
+  src/app/text_blocks.cpp
 )
 target_compile_definitions(apb PRIVATE
   APB_VERSION="${PROJECT_VERSION}"

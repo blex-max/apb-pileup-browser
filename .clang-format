@@ -9,6 +9,8 @@ ColumnLimit: 65  # allows splitscreen on my tiny screens in my massive font
 # changes to make reformatting
 # just about bearable
 
+MaxEmptyLinesToKeep: 2
+
 SpaceBeforeParens: NonEmptyParentheses
 
 PointerAlignment: Left

@@ -10,7 +10,7 @@
 
 inline VoidOrErr handle_resize (AppState& state)
 {
-  auto calcRet = calc_all_widgets (state.ui, state.conf);
+  auto calcRet = size_widgets (state.ui, state.conf);
   if (!calcRet) {
     return std::unexpected (calcRet.error());
   }

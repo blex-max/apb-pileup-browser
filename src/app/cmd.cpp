@@ -10,6 +10,7 @@
 
 #include "app/readme.hpp"
 #include "app/state.hpp"
+#include "app/text_blocks.hpp"
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
 #include "plog/Log.h"
@@ -458,7 +459,7 @@ static CmdResult fold_pane (
   if (tokens.empty()) {
     if (qbf != 0.5) {
       qbf = 0.5;
-      calc_pileup_child_widgets (
+      size_browser_panes (
           state.ui.main, state.conf
       );  // shouldn't error in this context (I hope)
       out.msg = "Reset view to default";
@@ -483,7 +484,7 @@ static CmdResult fold_pane (
   if (const auto& it = PANE_SPECIFIERS.find (pane_arg);
       it != PANE_SPECIFIERS.end()) {
     it->second (out);
-    calc_pileup_child_widgets (
+    size_browser_panes (
         state.ui.main, state.conf
     );  // shouldn't error in this context (I hope)
     out.success = true;
@@ -585,8 +586,6 @@ static constexpr Command CMD_README{
    If an arg is passed, will show usage. */
 // forward declare find_cmd for lookup in help
 static const Command* find_cmd (std::string_view name);
-static constexpr std::string_view HELPTEXT_TEST =
-    "this is a placeholder";
 static CmdResult show_help (
     std::string_view args, AppState& state
 )
@@ -594,9 +593,11 @@ static CmdResult show_help (
   CmdResult out;
   const auto tokens = split_whitespace (args);
   if (tokens.empty()) {
-    // show reference table
+    // show general help
     state.conf.showOverlay = true;
-    state.ui.help.content = HELPTEXT_TEST;
+    set_overlay_widget (
+        state.ui, get_text_block (TxtBlockId::generalHelp)
+    );
     out.success = true;
   }
   else if (tokens.size() == 1) {

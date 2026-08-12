@@ -34,6 +34,7 @@ bool contains_global (
 bool contains_local (
     const Box& b, const LocalCell& clocal
 ) noexcept;
+std::pair<const Span&, const Span&> spans (const Box& b);
 
 // --- END TYPES & DECLARATIONS --- //
 
@@ -101,9 +102,7 @@ inline GlobalCell to_global (const Box& b, const LocalCell& c)
         translate (c, {b.ispan.first, b.jspan.first});
     return {moved.i, moved.j};
   }
-  else {
-    return {};
-  }
+  return {};
 }
 
 inline GlobalCell nw_vertex (const Box& b) noexcept
@@ -144,6 +143,11 @@ inline ILine west_edge (const Box& b) noexcept
 inline ILine east_edge (const Box& b) noexcept
 {
   return {b.ispan, last (b.jspan) - 1};
+}
+
+inline std::pair<const Span&, const Span&> spans (const Box& b)
+{
+  return {b.ispan, b.jspan};
 }
 
 // --- END IMPLEMENTATION --- //

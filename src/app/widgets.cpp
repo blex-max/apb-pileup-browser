@@ -3,29 +3,70 @@
 #include <fmt/format.h>
 
 #include <cmath>
+#include <cstdint>
 
 #include "app/screen_projection.hpp"
 #include "app/state.hpp"
+#include "app/text_blocks.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
 
-// precondition: ui.main.frame is set
-VoidOrErr calc_pileup_child_widgets (
-    PileupWgt& pWgt, const AppConfig& conf
-)
-{
-  PLOGD << "Calculating pileup child panes";
 
-  const auto& frame = pWgt.frame;
-  if (width (frame) <= 1 || height (frame) <= 1) {
-    return std::unexpected (make_internal_err (
-        "Could not calculate pileup panes. Terminal likely too "
-        "small!"
-    ));
+static void set_screen_size (TopUI& ui)
+{
+  ui.screenH = tb_height();
+  ui.screenW = tb_width();
+}
+static std::pair<int, int> get_screen_size (TopUI& ui)
+{
+  return {ui.screenH, ui.screenW};
+}
+
+void set_overlay_widget (TopUI& ui, TextBlockRef content)
+{
+  if (content.empty()) {
+    return;
   }
+  auto& oWgt = ui.help;
+  const auto [screenH, screenW] = get_screen_size (ui);
+
+  // dynamically sized to content
+  const auto framedContentH =
+      static_cast<int16_t> (content.size() + 2);
+  const auto helpH = std::min (
+      framedContentH, static_cast<int16_t> (std::ceil (
+                          static_cast<double> (screenH) * 0.6
+                      ))
+  );
+
+  const auto framedContentW =
+      static_cast<int16_t> (content.front().size() + 2);
+  const auto helpW = std::min (
+      framedContentW, static_cast<int16_t> (std::ceil (
+                          static_cast<double> (screenW) * 0.6
+                      ))
+  );
+
+  const auto iOff =
+      static_cast<int> (std::floor ((screenH - helpH) / 2));
+  const auto jOff =
+      static_cast<int> (std::floor ((screenW - helpW) / 2));
+
+  e2::Span hISpan{iOff, iOff + helpH};
+  e2::Span hJSpan{jOff, jOff + helpW};
+
+  oWgt.frame = e2::Box{hISpan, hJSpan};
+  oWgt.contentBox = e2::Box{body (hISpan), body (hJSpan)};
+  oWgt.content = content;
+}
+
+// precondition: ui.main.frame is set
+void size_browser_panes (PileupWgt& pWgt, const AppConfig& conf)
+{
+  PLOGD << "Sizing browser child panes";
 
   const auto& pWgtISpan = pWgt.frame.ispan;
   const auto& pWgtJSpan = pWgt.frame.jspan;
@@ -59,16 +100,43 @@ VoidOrErr calc_pileup_child_widgets (
   };
   pWgt.querySep = {pWgtISpan.last - 2, pWgtJSpan};
   pWgt.infoLine = {pWgtISpan.last - 1, body (pWgtJSpan)};
-
-  return {};
 }
 
-VoidOrErr calc_all_widgets (TopUI& ui, const AppConfig& conf)
+// precondition: widget frame is set
+static void size_cmd_widget (CmdWgt& cWgt)
+{
+  const auto& [cmdI, cmdJ] = spans (cWgt.frame);
+
+  auto i = cmdI.first + 1;
+  cWgt.queryStatusLine = e2::JLine{i++, body (cmdJ)};
+  cWgt.statusSep = e2::JLine{
+      i++,
+      cmdJ  // include frame, to draw pipe connectors at line ends
+  };
+
+  // cmd input
+  cWgt.inputCaret = e2::GlobalCell{i, cmdJ.first + 1};
+  cWgt.inputLine = e2::JLine{
+      i++,
+      {cmdJ.first + 2,  // skip border, leave space for caret :
+       cmdJ.last - 1}
+  };
+
+  cWgt.sepLine = e2::JLine{
+      i++,
+      cmdJ  // include frame, to draw pipe connectors at line ends
+  };
+
+  cWgt.msgLine = e2::JLine{i, body (cmdJ)};
+}
+
+VoidOrErr size_widgets (TopUI& ui, const AppConfig& conf)
 {
   PLOGD << "Calculating widget size";
 
-  const auto screenH = tb_height();
-  const auto screenW = tb_width();
+  set_screen_size (ui);
+  const auto [screenH, screenW] = get_screen_size (ui);
+
   const e2::Span screenI{0, screenH};
   e2::Span screenJ{0, screenW};
 
@@ -91,75 +159,20 @@ VoidOrErr calc_all_widgets (TopUI& ui, const AppConfig& conf)
   auto& pWgt = ui.main;
   pWgt.frame = e2::Box{mainI, screenJ};
 
-  const auto pcRet = calc_pileup_child_widgets (pWgt, conf);
-  if (!pcRet) {
-    return std::unexpected (pcRet.error());
-  }
+  size_browser_panes (pWgt, conf);
 
   auto& cWgt = ui.cmd;
   cWgt.frame = e2::Box{cmdI, screenJ};
 
-  // TODO possibly richer subdivision
-  cWgt.queryStatusLine = e2::JLine{
-      cmdI.first + 1,
-      {
-          screenJ.first + 1,  // skip border
-          screenJ.last - 1  // exclude border
-      }
-  };
-  cWgt.statusSep = e2::JLine{
-      cmdI.first + 2,  // skip input
-      {
-          screenJ.first, screenJ.last
-      }  // include frame, to draw pipe connectors at line ends
-  };
+  size_cmd_widget (cWgt);
 
-  // cmd input
-  cWgt.inputLine = e2::JLine{
-      cmdI.first + 3,
-      {
-          screenJ.first +
-              2,  // skip border, leave space for caret :
-          screenJ.last - 1  // exclude border
-      }
-  };
-  cWgt.inputCaret =
-      e2::GlobalCell{cmdI.first + 3, screenJ.first + 1};
-
-  cWgt.sepLine = e2::JLine{
-      cmdI.first + 4,  // skip input
-      {
-          screenJ.first, screenJ.last
-      }  // include frame, to draw pipe connectors at line ends
-  };
-
-  cWgt.msgLine = e2::JLine{
-      cmdI.first + 5,  // skip input, separator line
-      {screenJ.first + 1, screenJ.last - 1}
-  };
-
-  auto& helpWgt = ui.help;
-  const auto helpH = static_cast<int> (
-      std::floor (static_cast<double> (screenH) * 0.6)
-  );
-  const auto helpW = static_cast<int> (
-      std::floor (static_cast<double> (screenW) * 0.6)
-  );
-  const auto iOff =
-      static_cast<int> (std::floor ((screenH - helpH) / 2));
-  const auto jOff =
-      static_cast<int> (std::floor ((screenW - helpW) / 2));
-
-  e2::Span hISpan{iOff, iOff + helpH};
-  e2::Span hJSpan{jOff, jOff + helpW};
-
-  helpWgt.frame = e2::Box{hISpan, hJSpan};
-  helpWgt.contentBox = e2::Box{body (hISpan), body (hJSpan)};
+  // for resize
+  set_overlay_widget (ui, ui.help.content);
 
   return {};
 }
 
-static void draw_static_chrome (TopUI& ui)
+static void draw_layout_chrome (TopUI& ui)
 {
   PLOGD << "Drawing widgets";
 
@@ -238,32 +251,32 @@ static void draw_dynamic_content (AppState& state)
     const auto lineStart = first (pWgt.infoLine);
     const auto lineEnd = last (pWgt.infoLine.jspan);
     jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::J (jCurs)), lineEnd,
+        translate (lineStart, e2::dJ (jCurs)), lineEnd,
         "LOCUS:", TB_DIM
     );
     jCurs++;  // space
     jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::J (jCurs)), lineEnd,
+        translate (lineStart, e2::dJ (jCurs)), lineEnd,
         fmt::format ("{}:{}", locus.contig, locus.pos)
     );
     jCurs++;  // space
     set (
-        translate (lineStart, e2::J (jCurs++)), ch::vertLine,
+        translate (lineStart, e2::dJ (jCurs++)), ch::vertLine,
         TB_DIM
     );
     jCurs++;  // space
     jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::J (jCurs)), lineEnd,
+        translate (lineStart, e2::dJ (jCurs)), lineEnd,
         "SPAN:", TB_DIM
     );
     jCurs++;  // space
     jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::J (jCurs)), lineEnd,
+        translate (lineStart, e2::dJ (jCurs)), lineEnd,
         fmt::format ("{}-{}", locus.start, locus.end)
     );
     jCurs++;  // space
     set (
-        translate (lineStart, e2::J (jCurs++)), ch::vertLine,
+        translate (lineStart, e2::dJ (jCurs++)), ch::vertLine,
         TB_DIM
     );
   }
@@ -275,7 +288,7 @@ static void draw_dynamic_content (AppState& state)
   );
   auto cursorCell = translate (
       first (cWgt.inputLine),
-      e2::J (static_cast<int> (cWgt.inputBuf.curs))
+      e2::dJ (static_cast<int> (cWgt.inputBuf.curs))
   );
   if (cursorCell.j < last (cWgt.inputLine).j) {
     e2::add_attr (cursorCell, TB_REVERSE);
@@ -315,10 +328,9 @@ void draw_widgets (AppState& state)
   // NOTE: set order does matter,
   // since some places just overwrite
   // previous draw calls
+  PLOGD << "Drawing widgets";
 
   // NOTE: Worry about border stylisation last!
-  draw_static_chrome (state.ui);
+  draw_layout_chrome (state.ui);
   draw_dynamic_content (state);
-
-  PLOGD << "Drawing widgets";
 }

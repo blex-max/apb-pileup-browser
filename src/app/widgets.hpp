@@ -3,8 +3,11 @@
 #include "shared/err.hpp"
 #include "state.hpp"
 
-VoidOrErr calc_all_widgets (TopUI& ui, const AppConfig& conf);
-VoidOrErr calc_pileup_child_widgets (
-    PileupWgt& main, const AppConfig& conf
-);
+
+void set_overlay_widget (TopUI& ui, TextBlockRef content);
+
+VoidOrErr size_widgets (TopUI& ui, const AppConfig& conf);
+
+void size_browser_panes (PileupWgt& pWgt, const AppConfig& conf);
+
 void draw_widgets (AppState& state);

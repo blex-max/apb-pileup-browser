@@ -3,6 +3,7 @@
 #include <list>
 
 #include "app/data_table_cols.hpp"
+#include "app/text_blocks.hpp"
 #include "backend/PileupDB.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
@@ -42,13 +43,16 @@ static constexpr auto CMD_H = 7;  // inc. borders
 struct OverlayWgt {
   e2::Box frame;
   e2::Box contentBox;
-  std::string_view content;
+  std::span<const std::string_view> content =
+      get_text_block (TxtBlockId::generalHelp);
 };
 
 struct TopUI {
   PileupWgt main;
   CmdWgt cmd;
   OverlayWgt help;
+  int screenH = -1;
+  int screenW = -1;
 };
 
 struct AppConfig {

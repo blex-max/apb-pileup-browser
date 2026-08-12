@@ -14,6 +14,7 @@
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
 #include "frontend/drawing_chars.hpp"
+#include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
@@ -40,10 +41,9 @@ static void draw_sequence (
   auto proj = project_onto_box (
       locus.pos, width (queryBox), get_rstart (dbRow)
   );
-  auto seqStart = translate (
-      nw_vertex (queryBox),
-      {static_cast<int> (boxRow), proj.jOffset}
-  );
+  auto seqStart =
+      nw_vertex (queryBox) +
+      e2::dIJ (static_cast<int> (boxRow), proj.jOffset);
   auto jBound = last (queryBox.jspan);
 
   auto visible = alignmentSeq.substr (proj.skipChars);
@@ -51,13 +51,12 @@ static void draw_sequence (
       e2::write_ascii_string (seqStart, jBound, visible);
 
   // Dim reference-matching bases ('=') so mismatches/indels stand out.
+  auto cellK = seqStart;
   for (size_t k = 0; k < written; ++k) {
     if (visible[k] == '=') {
-      e2::add_attr (
-          translate (seqStart, e2::J (static_cast<int> (k))),
-          TB_DIM
-      );
+      e2::add_attr (cellK, TB_DIM);
     }
+    cellK += e2::dJ (1);
   }
 
   // Soft-clip indicators go in any blank space left over on either
@@ -72,7 +71,7 @@ static void draw_sequence (
                      : label;
     e2::write_ascii_string (
         translate (
-            seqStart, e2::J (-static_cast<int> (shown.size()))
+            seqStart, e2::dJ (-static_cast<int> (shown.size()))
         ),
         seqStart.j, shown, TB_DIM
     );
@@ -245,13 +244,17 @@ static void draw_overlay (const OverlayWgt& oWgt)
   set (se_vertex (frame), ch::bottomRightRoundCorner);
 
   e2::write_ascii_string (
-      translate (nw_vertex (frame), e2::J (3)), last (box.jspan),
+      nw_vertex (frame) + e2::dJ (3), last (box.jspan),
       " q: close overlay ", TB_DIM
   );
 
-  e2::write_ascii_string (
-      nw_vertex (box), last (box.jspan), content
-  );
+  const auto lnN = height (box);
+  auto lnI = extb::nw_vertex (box);
+  auto jEnd = last (box.jspan);
+  for (size_t i = 0; i < lnN; ++i) {
+    e2::write_ascii_string (lnI, jEnd, content[i]);
+    lnI += e2::dI (1);
+  }
 }
 
 static VoidOrErr draw_screen (AppState& state)
@@ -310,7 +313,7 @@ AppStateOrErr init (
   state.query.stmt = std::move (*prepRet);
 
   init_tb2();
-  auto calcRet = calc_all_widgets (state.ui, state.conf);
+  auto calcRet = size_widgets (state.ui, state.conf);
   if (!calcRet) {
     return std::unexpected{calcRet.error()};
   }

@@ -44,14 +44,21 @@ bool valid (const Cell& c) noexcept;
 struct Delta {
   int di = 0, dj = 0;
 };
-Delta I (int n) noexcept;
-Delta J (int n) noexcept;
+Delta dI (int n) noexcept;
+Delta dJ (int n) noexcept;
+Delta dIJ (int nI, int nJ) noexcept;
 
 template <typename C>
 concept CellType = std::derived_from<C, Cell>;
 
 template <CellType C>
-C translate (C c, Delta d) noexcept;
+C translate (C c, const Delta& d) noexcept;
+
+template <CellType C>
+C operator+ (C c, const Delta& d) noexcept;
+
+template <CellType C>
+void operator+= (C& c, const Delta& d) noexcept;
 
 // all drawing functions may operate on a
 // single global cell, a range of global cells,
@@ -171,15 +178,31 @@ inline decltype (auto) as_global_cell_range (T&& t)
 
 // --- IMPLEMENTATION --- //
 
-inline Delta I (int n) noexcept { return {n, 0}; }
-inline Delta J (int n) noexcept { return {0, n}; }
+inline Delta dI (int n) noexcept { return {n, 0}; }
+inline Delta dJ (int n) noexcept { return {0, n}; }
+inline Delta dIJ (int nI, int nJ) noexcept { return {nI, nJ}; };
 
 template <CellType C>
-C translate (C c, Delta d) noexcept
+C translate (C c, const Delta& d) noexcept
 {
   c.i += d.di;
   c.j += d.dj;
   return c;
+}
+
+template <CellType C>
+C operator+ (C c, const Delta& d) noexcept
+{
+  c.i += d.di;
+  c.j += d.dj;
+  return c;
+}
+
+template <CellType C>
+void operator+= (C& c, const Delta& d) noexcept
+{
+  c.i += d.di;
+  c.j += d.dj;
 }
 
 template <GlobalCellSource S>
@@ -306,7 +329,7 @@ inline bool valid (const Cell& c) noexcept
 
 // returns nchars written
 inline size_t write_ascii_string (
-    const GlobalCell& start, int j_bound, std::string_view s,
+    GlobalCell start, int j_bound, std::string_view s,
     const Style& style
 )
 {
@@ -320,13 +343,12 @@ inline size_t write_ascii_string (
 
   int nout = 0;
   for (size_t j = 0; j < jlim; ++j) {
-    const auto rc = set (
-        translate (start, J (static_cast<int> (j))),
-        static_cast<unsigned char> (s[j]), style
-    );
+    const auto rc =
+        set (start, static_cast<unsigned char> (s[j]), style);
     if (rc != TB_OK) {
       break;
     }
+    start += dJ (1);
     ++nout;
   }
   return static_cast<size_t> (nout);
