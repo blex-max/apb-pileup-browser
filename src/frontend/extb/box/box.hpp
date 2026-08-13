@@ -27,7 +27,7 @@ JLine south_edge (const Box& b) noexcept;
 ILine west_edge (const Box& b) noexcept;
 ILine east_edge (const Box& b) noexcept;
 bool valid (const Box& b) noexcept;
-GlobalCell to_global (const Box& b, LocalCell c);
+GlobalCell to_global (const Box& b, const LocalCell& c);
 bool contains_global (
     const Box& b, const GlobalCell& cglobal
 ) noexcept;
@@ -51,11 +51,11 @@ GlobalCellRange auto inline cell_source (Box box)
   return std::views::iota (std::size_t{0}, count) |
          std::views::transform ([box,
                                  width] (std::size_t index) {
-           return translate (
-               nw_vertex (box),
-               {static_cast<int> (index / width),
-                static_cast<int> (index % width)}
-           );
+           return nw_vertex (box) +
+                  dIJ (
+                      static_cast<int> (index / width),
+                      static_cast<int> (index % width)
+                  );
          });
 }
 
@@ -98,8 +98,7 @@ inline bool valid (const Box& b) noexcept
 inline GlobalCell to_global (const Box& b, const LocalCell& c)
 {
   if (contains_local (b, c)) {
-    const auto moved =
-        translate (c, {b.ispan.first, b.jspan.first});
+    const auto moved = c + dIJ (b.ispan.first, b.jspan.first);
     return {moved.i, moved.j};
   }
   return {};

@@ -119,13 +119,13 @@ inline void handle_key_event (
     AppState& state, const tb_event& ev
 )
 {
-  if (ev.key == 0 && ev.ch) {
+  if (ev.key == 0 && ev.ch != 0) {
     // annoyingly, outside of handle_nav
-    if ((ev.mod & TB_MOD_ALT) && ev.ch == 'b') {
+    if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'b') {
       PLOGD << "Recieved alt-b (word-left) event";
       move_word_left (state.ui.cmd.inputBuf);
     }
-    else if ((ev.mod & TB_MOD_ALT) && ev.ch == 'f') {
+    else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'f') {
       PLOGD << "Recieved alt-f (word-right) event";
       move_word_right (state.ui.cmd.inputBuf);
     }
@@ -144,6 +144,35 @@ inline void handle_key_event (
   }
 }
 
+inline void nav_overlay (AppState& state, const tb_event& ev)
+{
+  if (ev.ch != 0) {
+    if (ev.ch == 'q') {
+      state.conf.showOverlay = false;
+      state.ui.help.contentLnOffset = 0;
+    }
+  }
+  else if (ev.key != 0) {
+    auto& lnOff = state.ui.help.contentLnOffset;
+    auto maxScroll = std::max<int> (
+        0, static_cast<int16_t> (state.ui.help.content.size()) -
+               static_cast<int16_t> (
+                   height (state.ui.help.contentBox)
+               )
+    );
+    switch (ev.key) {
+      case TB_KEY_ARROW_DOWN:
+        lnOff = std::min (maxScroll, lnOff + 1);
+        break;
+      case TB_KEY_ARROW_UP:
+        lnOff = std::max (0, lnOff - 1);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
 // Does this need to access the
 // whole appstate struct?
 // (the only reason to care is sprawl
@@ -159,9 +188,7 @@ inline VoidOrErr handle_event (
     }
     else {
       // overlay nav
-      if (ev.ch == 'q') {
-        state.conf.showOverlay = false;
-      }
+      nav_overlay (state, ev);
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {

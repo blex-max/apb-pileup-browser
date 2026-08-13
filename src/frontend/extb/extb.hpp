@@ -52,9 +52,6 @@ template <typename C>
 concept CellType = std::derived_from<C, Cell>;
 
 template <CellType C>
-C translate (C c, const Delta& d) noexcept;
-
-template <CellType C>
 C operator+ (C c, const Delta& d) noexcept;
 
 template <CellType C>
@@ -149,7 +146,7 @@ bool check_attr_all_back (S&& gcs, const Style& style);
 // UTF-8, etc., in future.
 // (and by extension extb::set_ex)
 size_t write_ascii_string (
-    const GlobalCell& start, int j_bound, std::string_view s,
+    GlobalCell start, int j_bound, std::string_view s,
     const Style& style = {0}
 );
 
@@ -181,14 +178,6 @@ inline decltype (auto) as_global_cell_range (T&& t)
 inline Delta dI (int n) noexcept { return {n, 0}; }
 inline Delta dJ (int n) noexcept { return {0, n}; }
 inline Delta dIJ (int nI, int nJ) noexcept { return {nI, nJ}; };
-
-template <CellType C>
-C translate (C c, const Delta& d) noexcept
-{
-  c.i += d.di;
-  c.j += d.dj;
-  return c;
-}
 
 template <CellType C>
 C operator+ (C c, const Delta& d) noexcept
@@ -348,7 +337,7 @@ inline size_t write_ascii_string (
     if (rc != TB_OK) {
       break;
     }
-    start += dJ (1);
+    ++start.j;
     ++nout;
   }
   return static_cast<size_t> (nout);

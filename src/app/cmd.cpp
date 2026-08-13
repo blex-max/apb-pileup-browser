@@ -178,8 +178,8 @@ static CmdResult apply_query_clause (
   return {true, std::string (successMsg)};
 }
 
-// The exact repl syntax for usage of
-// these is tbd.
+// should perhaps override existing
+// clause. But then does back work?
 static CmdResult init_where (
     std::string_view args, AppState& state
 )
@@ -275,6 +275,8 @@ static constexpr Command CMD_OR{
     &or_where
 };
 
+// TODO: extend capabilities,
+// keep buffer of queries
 static CmdResult remove_last_where (
     std::string_view _, AppState& state
 )
@@ -601,9 +603,25 @@ static CmdResult show_help (
     out.success = true;
   }
   else if (tokens.size() == 1) {
-    // not sure if this branch is necessary?
-    out.success = true;
-    out.msg = find_cmd (tokens[0])->usage.data();
+    if (tokens[0] == "nav") {
+      state.conf.showOverlay = true;
+      set_overlay_widget (
+          state.ui, get_text_block (TxtBlockId::navHelp)
+      );
+      out.success = true;
+    }
+    else if (tokens[0] == "cmd") {
+      state.conf.showOverlay = true;
+      set_overlay_widget (
+          state.ui, get_text_block (TxtBlockId::cmdRef)
+      );
+      out.success = true;
+    }
+    else {
+      // not sure if this branch is necessary?
+      out.msg = find_cmd (tokens[0])->usage.data();
+      out.success = !out.msg.empty();
+    }
   }
   else {
     out.success = false;

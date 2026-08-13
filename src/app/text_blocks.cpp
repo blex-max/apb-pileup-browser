@@ -66,6 +66,53 @@ static_assert (
     SIZE_ASSERT_FAIL
 );
 
+constexpr auto CMD_BLOCK = std::to_array<std::string_view> (
+    {" COMMAND REFERENCE                             ",
+     "  `readme [path]`:                             ",
+     "    dump complete readme to [path], or cwd if  ",
+     "    path is omitted.                           ",
+     "  `where <clause>`:                            ",
+     "    start a new query                          ",
+     "  `and <clause>`:                              ",
+     "    and-append a clause onto an existing       ",
+     "    query.                                     ",
+     "  `or <clause>`:                               ",
+     "    or-append a clause onto an existing        ",
+     "    query.                                     ",
+     "  `back`:                                      ",
+     "    undo the last where/and/or                 ",
+     "  `order <clause>`:                            ",
+     "    set the active query's sort order          ",
+     "  `clear-where`:                               ",
+     "    clear the where clause, keeping the        ",
+     "    order clause                               ",
+     "  `clear`:                                     ",
+     "    clear the whole active query               ",
+     "  `count [clause]`:                            ",
+     "    count matches without touching the         ",
+     "    active query. [clause] is and-appended     ",
+     "    to the existing query, if given.           ",
+     "  `show <field>...`:                           ",
+     "    add field(s) to the display                ",
+     "  `hide <field>...`:                           ",
+     "    remove field(s) from the display           ",
+     "  `dump <path>`:                               ",
+     "    write the in-memory database to an         ",
+     "    sqlite3 file                               ",
+     "  `quit`:                                      ",
+     "    exit apb                                   "}
+);
+static_assert (
+    !CMD_BLOCK.empty() && std::ranges::all_of (
+                              CMD_BLOCK,
+                              [] (std::string_view r) {
+                                return r.size() ==
+                                       CMD_BLOCK.front().size();
+                              }
+                          ),
+    SIZE_ASSERT_FAIL
+);
+
 
 TextBlockRef get_text_block (TxtBlockId id)
 {
@@ -74,5 +121,9 @@ TextBlockRef get_text_block (TxtBlockId id)
       return HELP_BLOCK;
     case TxtBlockId::navHelp:
       return NAV_BLOCK;
+    case TxtBlockId::cmdRef:
+      return CMD_BLOCK;
+    default:
+      return {};
   }
 }

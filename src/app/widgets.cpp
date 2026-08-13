@@ -247,38 +247,30 @@ static void draw_dynamic_content (AppState& state)
   // locus info
   {
     const auto& locus = state.locus;
-    int jCurs = 1;  // initial space
-    const auto lineStart = first (pWgt.infoLine);
+    auto cursor = first (pWgt.infoLine);
     const auto lineEnd = last (pWgt.infoLine.jspan);
-    jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::dJ (jCurs)), lineEnd,
-        "LOCUS:", TB_DIM
+    cursor.j++;  // initial space
+    cursor.j += e2::write_ascii_string (
+        cursor, lineEnd, "LOCUS:", TB_DIM
     );
-    jCurs++;  // space
-    jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::dJ (jCurs)), lineEnd,
+    cursor.j++;  // space
+    cursor.j += e2::write_ascii_string (
+        cursor, lineEnd,
         fmt::format ("{}:{}", locus.contig, locus.pos)
     );
-    jCurs++;  // space
-    set (
-        translate (lineStart, e2::dJ (jCurs++)), ch::vertLine,
-        TB_DIM
+    cursor.j++;  // space
+    set (cursor, ch::vertLine, TB_DIM);
+    cursor.j += 2;  // past bar, then space
+    cursor.j += e2::write_ascii_string (
+        cursor, lineEnd, "SPAN:", TB_DIM
     );
-    jCurs++;  // space
-    jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::dJ (jCurs)), lineEnd,
-        "SPAN:", TB_DIM
-    );
-    jCurs++;  // space
-    jCurs += e2::write_ascii_string (
-        translate (lineStart, e2::dJ (jCurs)), lineEnd,
+    cursor.j++;  // space
+    cursor.j += e2::write_ascii_string (
+        cursor, lineEnd,
         fmt::format ("{}-{}", locus.start, locus.end)
     );
-    jCurs++;  // space
-    set (
-        translate (lineStart, e2::dJ (jCurs++)), ch::vertLine,
-        TB_DIM
-    );
+    cursor.j++;  // space
+    set (cursor, ch::vertLine, TB_DIM);
   }
 
   auto& cWgt = state.ui.cmd;
@@ -286,10 +278,9 @@ static void draw_dynamic_content (AppState& state)
       first (cWgt.inputLine), last (cWgt.inputLine).j,
       cWgt.inputBuf.text
   );
-  auto cursorCell = translate (
-      first (cWgt.inputLine),
-      e2::dJ (static_cast<int> (cWgt.inputBuf.curs))
-  );
+  auto cursorCell =
+      first (cWgt.inputLine) +
+      e2::dJ (static_cast<int> (cWgt.inputBuf.curs));
   if (cursorCell.j < last (cWgt.inputLine).j) {
     e2::add_attr (cursorCell, TB_REVERSE);
   }

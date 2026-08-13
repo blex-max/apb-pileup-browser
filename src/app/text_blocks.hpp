@@ -9,5 +9,5 @@
 
 using TextBlockRef = std::span<const std::string_view>;
 
-enum class TxtBlockId : uint8_t { generalHelp, navHelp };
+enum class TxtBlockId : uint8_t { generalHelp, navHelp, cmdRef };
 TextBlockRef get_text_block (TxtBlockId id);

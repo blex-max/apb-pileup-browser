@@ -11,7 +11,8 @@ Checks: >
   -misc-use-anonymous-namespace,
   -performance-avoid-endl,
   -readability-identifier-length,
-  -readability-named-parameter
+  -readability-named-parameter,
+  -readability-function-cognitive-complexity
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/(app|backend|frontend|demo|shared)/'

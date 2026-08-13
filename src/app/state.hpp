@@ -45,6 +45,7 @@ struct OverlayWgt {
   e2::Box contentBox;
   std::span<const std::string_view> content =
       get_text_block (TxtBlockId::generalHelp);
+  int contentLnOffset = 0;
 };
 
 struct TopUI {

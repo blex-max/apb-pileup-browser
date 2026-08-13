@@ -56,7 +56,7 @@ static void draw_sequence (
     if (visible[k] == '=') {
       e2::add_attr (cellK, TB_DIM);
     }
-    cellK += e2::dJ (1);
+    ++cellK.j;
   }
 
   // Soft-clip indicators go in any blank space left over on either
@@ -70,9 +70,7 @@ static void draw_sequence (
                      ? label.substr (label.size() - avail)
                      : label;
     e2::write_ascii_string (
-        translate (
-            seqStart, e2::dJ (-static_cast<int> (shown.size()))
-        ),
+        seqStart + e2::dJ (-static_cast<int> (shown.size())),
         seqStart.j, shown, TB_DIM
     );
   }
@@ -243,17 +241,26 @@ static void draw_overlay (const OverlayWgt& oWgt)
   set (sw_vertex (frame), ch::bottomLeftRoundCorner);
   set (se_vertex (frame), ch::bottomRightRoundCorner);
 
-  e2::write_ascii_string (
-      nw_vertex (frame) + e2::dJ (3), last (box.jspan),
-      " q: close overlay ", TB_DIM
-  );
-
-  const auto lnN = height (box);
-  auto lnI = extb::nw_vertex (box);
   auto jEnd = last (box.jspan);
-  for (size_t i = 0; i < lnN; ++i) {
-    e2::write_ascii_string (lnI, jEnd, content[i]);
-    lnI += e2::dI (1);
+
+  auto headCurs = nw_vertex (frame);
+  headCurs.j += 1;
+  headCurs.j += e2::write_ascii_string (
+      headCurs, jEnd, " q: close overlay ", TB_DIM
+  );
+  headCurs.j += 3;
+  const auto lnN = height (box);
+  if (lnN < content.size()) {
+    e2::write_ascii_string (
+        headCurs, jEnd, "Up / Down: scroll", TB_DIM
+    );
+  }
+
+  const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
+  auto lnI = extb::nw_vertex (box);
+  for (size_t i = 0; i < lnN && i < content.size(); ++i) {
+    e2::write_ascii_string (lnI, jEnd, content[i + lnOff]);
+    ++lnI.i;
   }
 }
 

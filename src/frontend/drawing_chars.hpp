@@ -1,6 +1,8 @@
 #pragma once
 
-enum ch {
+#include <cstdint>
+
+enum ch : uint16_t {
   topLeftRoundCorner = 0x256D,
   topRightRoundCorner = 0x256E,
   horzLine = 0x2500,

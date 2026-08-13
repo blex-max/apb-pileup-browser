@@ -62,9 +62,7 @@ GlobalCellRange auto inline cell_source (ILine l)
   const std::size_t height = size (l.ispan);
   return std::views::iota (std::size_t{0}, height) |
          std::views::transform ([l] (std::size_t index) {
-           return translate (
-               first (l), dI (static_cast<int> (index))
-           );
+           return first (l) + dI (static_cast<int> (index));
          });
 }
 
@@ -73,9 +71,7 @@ GlobalCellRange auto inline cell_source (JLine l)
   const std::size_t width = size (l.jspan);
   return std::views::iota (std::size_t{0}, width) |
          std::views::transform ([l] (std::size_t index) {
-           return translate (
-               first (l), dJ (static_cast<int> (index))
-           );
+           return first (l) + dJ (static_cast<int> (index));
          });
 }
 
