@@ -13,13 +13,8 @@
 #include "backend/sql_types.hpp"
 #include "shared/err.hpp"
 
-/* =======================================================================
- * The htslib-pileup-extraction-to-sqlite adapter: turns a PreparedPileup
- * (a raw htslib pileup array) into `reads` rows for a given locus.
- * Used by insert_pileup's implementation (PileupDB.cpp, real ingest) and
- * by demo.cpp (synthetic ingest) -- nothing in the app/TUI layer touches
- * any of this directly.
- * ======================================================================= */
+// -- hts to sql adapter --- //
+
 
 // for use as a buffer during conversion
 struct PileupFields {
@@ -55,9 +50,7 @@ struct PileupCapture {
   hts_itr_t* o_it = nullptr;  // Owned
 };
 struct PreparedPileup {
-  PileupCapture* o_cap =
-      nullptr;  // I don't think it's actually necessary to retain this member
-  // I think bam_plp_t is complete storage for the array
+  PileupCapture* o_cap = nullptr;
   bam_plp_t o_plp = nullptr;
   const bam_pileup1_t* plpArr = nullptr;
   size_t nPlp = 0;

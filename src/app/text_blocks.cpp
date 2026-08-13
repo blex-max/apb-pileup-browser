@@ -66,6 +66,9 @@ static_assert (
     SIZE_ASSERT_FAIL
 );
 
+// TODO: add fold cmds
+// NOTE: is it possible to generate this off
+// the cmd structs .usage?
 constexpr auto CMD_BLOCK = std::to_array<std::string_view> (
     {" COMMAND REFERENCE                             ",
      "  `readme [path]`:                             ",

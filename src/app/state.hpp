@@ -13,7 +13,7 @@
 namespace e2 = extb;
 
 // TODO: separate Frame widget type?
-struct PileupWgt {
+struct BrowserWgt {
   e2::Box frame;
   e2::JLine refLine;
   e2::JLine headerLine;
@@ -49,16 +49,17 @@ struct OverlayWgt {
 };
 
 struct TopUI {
-  PileupWgt main;
+  BrowserWgt main;
   CmdWgt cmd;
   OverlayWgt help;
   int screenH = -1;
   int screenW = -1;
 };
 
+using DataRequestList = std::list<const DataTableCol*>;
 struct AppConfig {
   bool run = true;
-  std::list<const DataTableCol*> dataColsRequested{
+  DataRequestList colsRequested{
       &cols::basequal, &cols::rstart, &cols::rend, &cols::flag,
       &cols::mapq,     &cols::cigar,  &cols::qname
   };  // preseves insertion order, allows removal by val

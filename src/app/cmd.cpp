@@ -70,7 +70,7 @@ static CmdResult pileup_show (
     std::string_view names, AppState& state
 )
 {
-  auto& existingRequests = state.conf.dataColsRequested;
+  auto& existingRequests = state.conf.colsRequested;
 
   // split args
   const auto newRequests = split_whitespace (names);
@@ -114,7 +114,7 @@ static CmdResult pileup_hide (
     std::string_view names, AppState& state
 )
 {
-  auto& existingRequests = state.conf.dataColsRequested;
+  auto& existingRequests = state.conf.colsRequested;
 
   // split args
   const auto reqsToRemove = split_whitespace (names);
@@ -434,15 +434,15 @@ static CmdResult fold_pane (
   static std::unordered_map<
       std::string_view, std::function<void (CmdResult&)>>
       PANE_SPECIFIERS{
-          {"browser",
+          {"seq",
            [&qbf] (CmdResult& out) {
              if (qbf == 0.0) {
                qbf = 0.5;
-               out.msg = "Unfolded browser pane";
+               out.msg = "Unfolded sequence pane";
              }
              else {
                qbf = 0.0;
-               out.msg = "Folded browser pane";
+               out.msg = "Folded sequence pane";
              };
            }},
           {"data", [&qbf] (CmdResult& out) {
@@ -495,14 +495,15 @@ static CmdResult fold_pane (
     out.success = false;
     out.msg = "Unknown pane \"";
     out.msg += pane_arg;
-    out.msg += "\" - valid panes: browser, data";
+    out.msg += "\" - valid panes: seq, data";
   }
 
   return out;
 }
+// TODO: is `pane` a better name?
 static constexpr Command CMD_FOLD_PANE{
-    "fold", "",
-    "fold [browser, data] - show/hide either of the browser or "
+    "pane", "",
+    "fold [seq, data] - show/hide either of the sequence or "
     "data panes, or reset to default with no args"
     "panes",
     &fold_pane

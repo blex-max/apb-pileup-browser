@@ -40,12 +40,7 @@ VoidOrErr init_db (PileupDB& db);
     PileupDB& db, const std::string& path
 );
 
-// Plain {contig, pos} pair read back from the loci table. Distinct from
-// PileupPosition (backend/hts_types.hpp), which stores a numeric htslib
-// tid rather than a resolved contig name -- that type is only meaningful
-// while an AlnFile/header is open (AlnModeArgs ingest path); this one is
-// read directly out of sqlite, with no htslib dependency, so it works
-// equally when the db was loaded from disk with no header in scope.
+// locus metadata as extracted from db.
 struct LocusData {
   std::string contig;
   int64_t pos;  // 0-based pileup position, per loci.pos
@@ -55,20 +50,13 @@ struct LocusData {
 };
 using LocusOrErr = std::expected<LocusData, Err>;
 
-// The single point where a resolved contig name + pileup span becomes a
-// persisted LocusData. Callers must resolve the contig name themselves
-// (e.g. via sam_hdr_tid2name) -- PileupPosition's tid is only meaningful
-// while the originating AlnFile/header is open.
 LocusData make_locus_data (
     std::string contigName, hts_pos_t pos,
     const GenomicSpan& span, std::optional<std::string> refSlice
 );
 
-// Read back the single row of the loci table. Every PileupDB has exactly
-// one locus for its lifetime (one pileup position per invocation, written
-// once by insert_loci) -- this assumes that invariant rather than
-// defensively checking for zero or multiple rows.
-[[nodiscard]] LocusOrErr get_locus_data (const PileupDB& db);
+// get locus data from pileup db.
+LocusOrErr get_locus_data (const PileupDB& db);
 
 // TIED TO SCHEMA CREATE ORDER
 enum SelectFields {
