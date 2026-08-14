@@ -14,6 +14,12 @@ struct AlnModeArgs {
   std::optional<std::string> refPath;  // fasta reference
   std::optional<std::string> dumpPath;
 };
+struct VcfModeArgs {
+  std::string alnPath;
+  std::string vcfPath;  // VCF to load loci from
+  std::optional<std::string> refPath;  // fasta reference
+  std::optional<std::string> dumpPath;
+};
 struct DbModeArgs {
   std::string dbPath;
 };
@@ -21,8 +27,8 @@ struct DemoModeArgs {
   std::optional<std::string> dumpPath;
 };
 
-using ModalArgs =
-    std::variant<AlnModeArgs, DbModeArgs, DemoModeArgs>;
+using ModalArgs = std::variant<
+    AlnModeArgs, VcfModeArgs, DbModeArgs, DemoModeArgs>;
 struct StartupArgs {
   ModalArgs subArgs;
   std::string logPath;
