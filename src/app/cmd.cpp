@@ -23,6 +23,8 @@ struct Command {
   CmdResult (*run) (std::string_view, AppState&);
 };
 
+// TODO: add generic failure,
+// on failure, emit generic failure + cmd usage
 static constexpr std::string CMD_GENERIC_SUCCESS = "OK!";
 
 static std::pair<std::string_view, std::string_view>
@@ -618,10 +620,15 @@ static CmdResult show_help (
       );
       out.success = true;
     }
-    else {
-      // not sure if this branch is necessary?
-      out.msg = find_cmd (tokens[0])->usage.data();
+    else if (const auto* cmd = find_cmd (tokens[0])) {
+      // not sure this branch adds value
+      out.msg = cmd->usage;
       out.success = !out.msg.empty();
+    }
+    else {
+      out.msg =
+          fmt::format ("Unknown command \"{}\"", tokens[0]);
+      out.success = false;
     }
   }
   else {
