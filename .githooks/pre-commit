@@ -4,21 +4,21 @@ set -euo pipefail
 staged=$(git diff --name-only --staged)
 
 # README.md is generated from the in-binary readme, so it is only ever allowed
-# into a commit alongside the readme.cpp it was derived from. Staged on its own
-# it is a hand edit, which the next generation would silently discard.
+# into a commit alongside the text_blocks.cpp it was derived from. Staged on
+# its own it is a hand edit, which the next generation would silently discard.
 # Checked ahead of the regeneration below, whose own `git add` would trip it.
 if printf '%s\n' "$staged" | grep -qx 'README.md' &&
-  ! printf '%s\n' "$staged" | grep -qx 'src/app/readme.cpp'; then
+  ! printf '%s\n' "$staged" | grep -qx 'src/app/text_blocks.cpp'; then
   echo "pre-commit: README.md is generated — edit the README_MARKDOWN literal in" >&2
-  echo "src/app/readme.cpp instead. To discard the hand edit: git restore --staged --worktree README.md" >&2
+  echo "src/app/text_blocks.cpp instead. To discard the hand edit: git restore --staged --worktree README.md" >&2
   exit 1
 fi
 
-# The other direction: a readme.cpp edit that left README.md untouched would
-# ship a repo readme that disagrees with `apb`. Regenerated before the
+# The other direction: a text_blocks.cpp edit that left README.md untouched
+# would ship a repo readme that disagrees with `apb`. Regenerated before the
 # clang-format early-exit below, so a machine without clang-format still
 # cannot commit a stale README.md.
-if printf '%s\n' "$staged" | grep -qx 'src/app/readme.cpp'; then
+if printf '%s\n' "$staged" | grep -qx 'src/app/text_blocks.cpp'; then
   ./dev-scripts/gen-readme.sh
   git add README.md
 fi

@@ -101,6 +101,12 @@ constexpr auto CMD_BLOCK = std::to_array<std::string_view> (
      "  `dump <path>`:                               ",
      "    write the in-memory database to an         ",
      "    sqlite3 file                               ",
+     "  `pane [seq|data]`:                           ",
+     "    fold/unfold the sequence or data pane,     ",
+     "    reset both to default with no args         ",
+     "  `help [nav|cmd|<cmd>]` (`?`):                ",
+     "    show this reference, navigation help,      ",
+     "    or a specific command usage                ",
      "  `quit`:                                      ",
      "    exit apb                                   "}
 );
@@ -273,6 +279,9 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 | `clear` | | | Clear the active query |
 | `count` | | `[clause]` | Count matching reads without touching the active query (Any clause argument is AND-concatenated to the existing query) |
 | `dump` | | `<path>` | Write the current in-memory database to a sqlite3 file on disk |
+| `pane` | | `[seq\|data]` | Fold/unfold the sequence or data pane; reset both to default with no args |
+| `readme` | | `[path]` | Write the readme to `[path]`, or the working directory if omitted |
+| `help` | `?` | `[nav\|cmd\|<cmd>]` | Show this reference, navigation help, or a specific command's usage |
 | `quit` | `q` | | Exit |
 
 Every line typed at the command line is dispatched like `<command> [args]`.
@@ -402,7 +411,7 @@ Feature suggestions are welcomed.
 ### Planned
 - VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
   - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
-- Better in-app help; column discoverability; a `help` command; better helptext. Better startup messages
+- Column discoverability (e.g. an in-app column reference).
 - Clear indication of no-op navigation via blinking the staus bar or similar
 - Indication of insertion sites by gapping the reference/other reads.
 - Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).

@@ -4,8 +4,9 @@ set -euo pipefail
 # from — the pre-commit hook, or by hand from inside dev-scripts/.
 cd "$(dirname "$0")/.."
 
-# README.md is derived; the raw string in src/app/readme.cpp is the source of
-# truth, so that the shipped binary and the repo readme cannot disagree.
+# README.md is derived; the raw string in src/app/text_blocks.cpp is the
+# source of truth, so that the shipped binary and the repo readme cannot
+# disagree.
 # Clearing the flag on the closing delimiter before the bare `f`, and setting it
 # on the opening delimiter after, keeps both delimiter lines out of the output.
 tmp=$(mktemp)
@@ -16,7 +17,7 @@ awk '/^\)md";$/{f=0} f; /R"md\($/{f=1}' src/app/text_blocks.cpp > "$tmp"
 # silently matched nothing. Extracting to a temp first means a failure here
 # leaves the existing README.md intact rather than truncated.
 if [ ! -s "$tmp" ]; then
-  echo "gen-readme: extracted nothing from src/app/readme.cpp — did the raw string delimiter change?" >&2
+  echo "gen-readme: extracted nothing from src/app/text_blocks.cpp — did the raw string delimiter change?" >&2
   exit 1
 fi
 
@@ -26,9 +27,9 @@ fi
 # mode change would not show up in git, which records 100644 regardless.
 {
   echo '<!-- GENERATED FILE — DO NOT EDIT.'
-  echo '     Extracted from the README_MARKDOWN literal in src/app/readme.cpp.'
+  echo '     Extracted from the README_MARKDOWN literal in src/app/text_blocks.cpp.'
   echo '     Edit that literal instead, then run ./dev-scripts/gen-readme.sh (the'
-  echo '     pre-commit hook does this for you when readme.cpp is staged). -->'
+  echo '     pre-commit hook does this for you when text_blocks.cpp is staged). -->'
   echo
   cat "$tmp"
 } > README.md

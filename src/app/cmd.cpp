@@ -502,8 +502,7 @@ static CmdResult fold_pane (
 static constexpr Command CMD_FOLD_PANE{
     "pane", "",
     "fold [seq, data] - show/hide either of the sequence or "
-    "data panes, or reset to default with no args"
-    "panes",
+    "data panes, or reset to default with no args",
     &fold_pane
 };
 
