@@ -1,6 +1,7 @@
-#include "app/tui.hpp"
+#include "app/orch.hpp"
 
 #include <fmt/format.h>
+#include <plog/Log.h>
 
 #include <expected>
 #include <optional>
@@ -11,7 +12,6 @@
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
 #include "frontend/extb/extb.hpp"
-#include "plog/Log.h"
 #include "shared/err.hpp"
 
 
@@ -41,7 +41,9 @@ static VoidOrErr draw_screen (AppState& state)
   tb_clear();
 
   /* draw frame */
-  auto dwRet = draw_main_ui (state);
+  auto dwRet = draw_main_ui (
+      state.ui, state.db, state.conf.colsRequested
+  );
   if (!dwRet) {
     return std::unexpected{dwRet.error()};
   }
@@ -63,27 +65,27 @@ AppStateOrErr init (
 {
   PLOGD << "Initialising TUI";
 
-  AppState state{.db = std::move (db)};
+  AppState state{.db = {.db = std::move (db)}};
 
   if (startupMsg) {
     state.ui.cmd.msgBuf = *startupMsg;
   }
 
-  auto locusRet = get_locus_data (state.db);
+  auto locusRet = get_locus_data (state.db.db);
   if (!locusRet) {
     return std::unexpected{locusRet.error()};
   }
-  state.locus = std::move (*locusRet);
+  state.db.locus = std::move (*locusRet);
 
   auto prepRet =
-      prepare_select_reads (state.db, state.query.userClause);
+      prepare_select_reads (state.db.db, state.db.userClause);
   if (!prepRet) {
     return std::unexpected{prepRet.error()};
   }
-  state.query.stmt = std::move (*prepRet);
+  state.db.stmt = std::move (*prepRet);
 
   init_tb2();
-  auto calcRet = size_widgets (state.ui, state.conf);
+  auto calcRet = size_widgets (state.ui, state.conf.seqPaneFrac);
   if (!calcRet) {
     return std::unexpected{calcRet.error()};
   }

@@ -12,7 +12,8 @@ Checks: >
   -performance-avoid-endl,
   -readability-identifier-length,
   -readability-named-parameter,
-  -readability-function-cognitive-complexity
+  -readability-function-cognitive-complexity,
+  -readability-magic-numbers
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/(app|backend|frontend|demo|shared)/'

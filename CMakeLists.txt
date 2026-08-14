@@ -104,21 +104,21 @@ if(NOT HTSLIB_TARGET)
 endif()
 
 add_executable(apb
-  src/backend/PileupDB.cpp
-  src/backend/pileup_ingest.cpp
-  src/demo/demo.cpp
   src/app/main.cpp
+  src/app/orch.cpp
   src/app/cli.cpp
   src/app/subcommands.cpp
-  src/app/tui.cpp
   src/app/widgets.cpp
+  src/app/cmd.cpp
+  src/app/event.cpp
+  src/app/text_blocks.cpp
+  src/backend/PileupDB.cpp
+  src/backend/pileup_ingest.cpp
+  src/backend/hts_types.cpp
   src/frontend/tb2_impl.cpp
   src/frontend/input.cpp
   src/frontend/history.cpp
-  src/app/cmd.cpp
-  src/backend/hts_types.cpp
-  src/app/readme.cpp
-  src/app/text_blocks.cpp
+  src/demo/demo.cpp
 )
 target_compile_definitions(apb PRIVATE
   APB_VERSION="${PROJECT_VERSION}"

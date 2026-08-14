@@ -1,17 +1,12 @@
 #include "widgets.hpp"
 
 #include <fmt/format.h>
+#include <plog/Log.h>
 
 #include <cmath>
 #include <cstdint>
 
-#include "app/state.hpp"
-#include "app/text_blocks.hpp"
-#include "backend/PileupDB.hpp"
 #include "frontend/drawing_chars.hpp"
-#include "frontend/extb/box/box.hpp"
-#include "frontend/extb/extb.hpp"
-#include "plog/Log.h"
 #include "shared/err.hpp"
 
 // --- helpers --- //
@@ -49,17 +44,17 @@ static ScreenProjection project_onto_box (
 
 // --- size calculation --- //
 
-static void set_screen_size (TopUI& ui)
+static void set_screen_size (UIBundle& ui)
 {
   ui.screenH = tb_height();
   ui.screenW = tb_width();
 }
-static std::pair<int, int> get_screen_size (TopUI& ui)
+static std::pair<int, int> get_screen_size (UIBundle& ui)
 {
   return {ui.screenH, ui.screenW};
 }
 
-void set_overlay_widget (TopUI& ui, TextBlockRef content)
+void set_overlay_widget (UIBundle& ui, TextBlockRef content)
 {
   if (content.empty()) {
     return;
@@ -97,8 +92,54 @@ void set_overlay_widget (TopUI& ui, TextBlockRef content)
   oWgt.content = content;
 }
 
+void draw_overlay (const OverlayWgt& oWgt)
+{
+  const auto& box = oWgt.contentBox;
+  const auto& frame = oWgt.frame;
+  const auto& content = oWgt.content;
+
+  // NOTE: a nice property of the global only/
+  // single surface drawing approach. Clearing
+  // this layer clears everything "below".
+  clear (box);
+  clear (frame);
+
+  set (north_edge (frame), ch::horzLine);
+  set (east_edge (frame), ch::vertLine);
+  set (south_edge (frame), ch::horzLine);
+  set (west_edge (frame), ch::vertLine);
+
+  set (nw_vertex (frame), ch::topLeftRoundCorner);
+  set (ne_vertex (frame), ch::topRightRoundCorner);
+  set (sw_vertex (frame), ch::bottomLeftRoundCorner);
+  set (se_vertex (frame), ch::bottomRightRoundCorner);
+
+  auto jEnd = last (box.jspan);
+
+  auto headCurs = nw_vertex (frame);
+  headCurs.j += 1;
+  headCurs.j += e2::write_ascii_string (
+      headCurs, jEnd, " q: close overlay ", TB_DIM
+  );
+  headCurs.j += 3;
+  const auto lnN = height (box);
+  if (lnN < content.size()) {
+    e2::write_ascii_string (
+        headCurs, jEnd, "Up / Down: scroll", TB_DIM
+    );
+  }
+
+  const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
+  auto lnI = extb::nw_vertex (box);
+  for (size_t i = 0; i < lnN && i < content.size(); ++i) {
+    e2::write_ascii_string (lnI, jEnd, content[i + lnOff]);
+    ++lnI.i;
+  }
+}
+
+
 // precondition: ui.main.frame is set
-void size_browser_panes (BrowserWgt& pWgt, const AppConfig& conf)
+void size_browser_panes (BrowserWgt& pWgt, double seqPaneFrac)
 {
   PLOGD << "Sizing browser child panes";
 
@@ -106,8 +147,7 @@ void size_browser_panes (BrowserWgt& pWgt, const AppConfig& conf)
   const auto& pWgtJSpan = pWgt.frame.jspan;
 
   auto vSplitJ = static_cast<int> (ceil (
-      static_cast<double> (size (pWgtJSpan) - 2) *
-      conf.query_box_frac
+      static_cast<double> (size (pWgtJSpan) - 2) * seqPaneFrac
   ));
   pWgt.vSep = {
       section (pWgtISpan, 0, size (pWgtISpan) - 1), vSplitJ
@@ -164,7 +204,7 @@ static void size_cmd_widget (CmdWgt& cWgt)
   cWgt.msgLine = e2::JLine{i, body (cmdJ)};
 }
 
-VoidOrErr size_widgets (TopUI& ui, const AppConfig& conf)
+VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac)
 {
   PLOGD << "Calculating widget size";
 
@@ -193,7 +233,7 @@ VoidOrErr size_widgets (TopUI& ui, const AppConfig& conf)
   auto& pWgt = ui.main;
   pWgt.frame = e2::Box{mainI, screenJ};
 
-  size_browser_panes (pWgt, conf);
+  size_browser_panes (pWgt, seqPaneFrac);
 
   auto& cWgt = ui.cmd;
   cWgt.frame = e2::Box{cmdI, screenJ};
@@ -518,7 +558,7 @@ static VoidOrErr draw_query_data (
   return {};
 }
 
-static void draw_locus_data (
+static void draw_pileup_ambient (
     BrowserWgt& pWgt, const LocusData& locusData
 )
 {
@@ -576,7 +616,7 @@ static VoidOrErr draw_piluep (
     return std::unexpected (dqRet.error());
   }
 
-  draw_locus_data (pWgt, locus);
+  draw_pileup_ambient (pWgt, locus);
 
   return {};
 }
@@ -626,73 +666,29 @@ static void draw_cmd_ambient (
   );
 }
 
-VoidOrErr draw_main_ui (AppState& state)
+VoidOrErr draw_main_ui (
+    UIBundle& ui, DBBundle& db,
+    const DataRequestList& colsRequested
+)
 {
   // NOTE: set order does matter,
   // since some places just overwrite
   // previous draw calls
   PLOGD << "Drawing widgets";
 
-  auto& ui = state.ui;
 
   // NOTE: Worry about border stylisation last!
   draw_shared_layout (ui.main, ui.cmd);
 
   auto dpRet = draw_piluep (
-      ui.main, state.query.stmt, state.db, state.locus,
-      state.conf.colsRequested
+      ui.main, db.stmt, db.db, db.locus, colsRequested
   );
   if (!dpRet) {
     // TODO: not really well thought out.
     return std::unexpected (dpRet.error());
   }
 
-  draw_cmd_ambient (ui.cmd, state.query.userClause);
+  draw_cmd_ambient (ui.cmd, db.userClause);
 
   return {};
-}
-
-void draw_overlay (const OverlayWgt& oWgt)
-{
-  const auto& box = oWgt.contentBox;
-  const auto& frame = oWgt.frame;
-  const auto& content = oWgt.content;
-
-  // NOTE: a nice property of the global only/
-  // single surface drawing approach. Clearing
-  // this layer clears everything "below".
-  clear (box);
-  clear (frame);
-
-  set (north_edge (frame), ch::horzLine);
-  set (east_edge (frame), ch::vertLine);
-  set (south_edge (frame), ch::horzLine);
-  set (west_edge (frame), ch::vertLine);
-
-  set (nw_vertex (frame), ch::topLeftRoundCorner);
-  set (ne_vertex (frame), ch::topRightRoundCorner);
-  set (sw_vertex (frame), ch::bottomLeftRoundCorner);
-  set (se_vertex (frame), ch::bottomRightRoundCorner);
-
-  auto jEnd = last (box.jspan);
-
-  auto headCurs = nw_vertex (frame);
-  headCurs.j += 1;
-  headCurs.j += e2::write_ascii_string (
-      headCurs, jEnd, " q: close overlay ", TB_DIM
-  );
-  headCurs.j += 3;
-  const auto lnN = height (box);
-  if (lnN < content.size()) {
-    e2::write_ascii_string (
-        headCurs, jEnd, "Up / Down: scroll", TB_DIM
-    );
-  }
-
-  const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
-  auto lnI = extb::nw_vertex (box);
-  for (size_t i = 0; i < lnN && i < content.size(); ++i) {
-    e2::write_ascii_string (lnI, jEnd, content[i + lnOff]);
-    ++lnI.i;
-  }
 }

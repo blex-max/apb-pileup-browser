@@ -2,18 +2,16 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <plog/Log.h>
 
 #include <fstream>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
-#include "app/readme.hpp"
-#include "app/state.hpp"
 #include "app/text_blocks.hpp"
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
-#include "plog/Log.h"
 
 // A command is a function paired with the name and help text
 // bundled with it, declared alongside the function. CMD_TABLE at
@@ -168,12 +166,12 @@ static CmdResult apply_query_clause (
     std::string_view successMsg
 )
 {
-  auto prepRet = prepare_select_reads (state.db, newClause);
+  auto prepRet = prepare_select_reads (state.db.db, newClause);
   if (!prepRet) {
     return {false, prepRet.error().msg};
   }
-  state.query.userClause = std::move (newClause);
-  state.query.stmt = std::move (*prepRet);
+  state.db.userClause = std::move (newClause);
+  state.db.stmt = std::move (*prepRet);
   state.ui.main.rowStart = 0;  // reset row view
   return {true, std::string (successMsg)};
 }
@@ -188,7 +186,7 @@ static CmdResult init_where (
     return {true, ""};
   }
 
-  auto& clauses = state.query.userClause;
+  auto& clauses = state.db.userClause;
 
   if (!clauses.where.empty()) {
     return {false, "Query present, clear to start a new query"};
@@ -226,7 +224,7 @@ static CmdResult and_where (
   std::string clause{"AND "};
   clause.append (args);
 
-  auto newClause = state.query.userClause;
+  auto newClause = state.db.userClause;
   newClause.where.emplace_back (clause);
 
   PLOGD << fmt::format (
@@ -256,7 +254,7 @@ static CmdResult or_where (
   std::string clause{"OR "};
   clause.append (args);
 
-  auto newClause = state.query.userClause;
+  auto newClause = state.db.userClause;
   newClause.where.emplace_back (clause);
 
   PLOGD << fmt::format (
@@ -285,7 +283,7 @@ static CmdResult remove_last_where (
     return {false, "Does not take args"};
   }
 
-  auto newClause = state.query.userClause;
+  auto newClause = state.db.userClause;
   if (newClause.where.empty()) {
     return {true, ""};
   }
@@ -311,7 +309,7 @@ static CmdResult clear_where (
     return {false, "Expected no args"};
   }
 
-  auto newClause = state.query.userClause;
+  auto newClause = state.db.userClause;
   newClause.where.clear();
 
   return apply_query_clause (
@@ -337,7 +335,7 @@ static CmdResult order_by (
 
   PLOGD << fmt::format ("User requesting sort: {}", rsql_clause);
 
-  auto newClause = state.query.userClause;
+  auto newClause = state.db.userClause;
   newClause.orderBy = rsql_clause;
 
   return apply_query_clause (
@@ -353,7 +351,7 @@ static CmdResult count (
     std::string_view rsql_clause, AppState& state
 )
 {
-  auto where = state.query.userClause.where;
+  auto where = state.db.userClause.where;
   if (!rsql_clause.empty()) {
     std::string clause{"AND "};
     if (!where.empty()) {
@@ -371,7 +369,7 @@ static CmdResult count (
     where.emplace_back (clause);
   }
 
-  auto stmtRet = prepare_count_reads (state.db, where);
+  auto stmtRet = prepare_count_reads (state.db.db, where);
   if (!stmtRet) {
     return {false, stmtRet.error().msg};
   }
@@ -381,7 +379,7 @@ static CmdResult count (
     return {
         false, fmt::format (
                    "Could not execute count: {}",
-                   sqlite3_errmsg (state.db)
+                   sqlite3_errmsg (state.db.db)
                )
     };
   }
@@ -409,7 +407,7 @@ static CmdResult reset_query (
     return {false, "Expected no args"};
   }
 
-  auto newClause = state.query.userClause;
+  auto newClause = state.db.userClause;
   newClause.where.clear();
   newClause.orderBy.clear();
   // offset untouched
@@ -430,7 +428,7 @@ static CmdResult fold_pane (
 {
   // fragile!
   CmdResult out;
-  auto& qbf = state.conf.query_box_frac;
+  auto& qbf = state.conf.seqPaneFrac;
   static std::unordered_map<
       std::string_view, std::function<void (CmdResult&)>>
       PANE_SPECIFIERS{
@@ -462,7 +460,7 @@ static CmdResult fold_pane (
     if (qbf != 0.5) {
       qbf = 0.5;
       size_browser_panes (
-          state.ui.main, state.conf
+          state.ui.main, state.conf.seqPaneFrac
       );  // shouldn't error in this context (I hope)
       out.msg = "Reset view to default";
       out.success = true;
@@ -487,7 +485,7 @@ static CmdResult fold_pane (
       it != PANE_SPECIFIERS.end()) {
     it->second (out);
     size_browser_panes (
-        state.ui.main, state.conf
+        state.ui.main, state.conf.seqPaneFrac
     );  // shouldn't error in this context (I hope)
     out.success = true;
   }
@@ -520,7 +518,7 @@ static CmdResult dump_db (std::string_view args, AppState& state)
   }
 
   const std::string path{tokens[0]};
-  auto dumpRet = dump_to_disk (state.db, path);
+  auto dumpRet = dump_to_disk (state.db.db, path);
   if (!dumpRet) {
     return {false, dumpRet.error().msg};
   }
@@ -563,7 +561,10 @@ static CmdResult dump_readme (std::string_view args, AppState&)
         "could not open " + outPath + "; failed to dump readme"
     };
   }
-  outStream.write (readme().data(), readme().size());
+  auto readme = get_readme();
+  outStream.write (
+      readme.data(), static_cast<int> (readme.size())
+  );
   if (!outStream) {
     return {false, "failed during write readme at " + outPath};
   }

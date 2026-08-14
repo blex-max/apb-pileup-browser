@@ -3,6 +3,7 @@
 #include <expected>
 #include <sstream>
 
+#include "app/text_blocks.hpp"
 #include "argparse/argparse.hpp"
 
 // Defined in CMakeLists.txt
@@ -10,26 +11,13 @@
 #define APB_VERSION "undef"
 #endif
 
-static constexpr char HELPTEXT[] =
-    R"txt( apb is an terminal-based genome browser designed for viewing
- and querying pileup loci. It features a REPL-like command
- line and simple SQL-based query syntax.)txt";
-static constexpr char EPILOG[] =
-    R"txt( See README.md for further info, or use the in-app help
- (type ? and press enter in the TUI).If you don't have
- the readme, it can be written to disk from the TUI
- using the `readme` command.
-
- In the TUI, type q and press enter or press Ctrl-C
- twice to quit.)txt";
-
 ArgsOrErr parse_args (int argc, char** argv)
 {
   argparse::ArgumentParser cli ("apb", APB_VERSION);
   std::string logPath;
 
-  cli.add_description (HELPTEXT);
-  cli.add_epilog (EPILOG);
+  cli.add_description (std::string{get_cli_intro()});
+  cli.add_epilog (std::string{get_cli_epilog()});
 
   argparse::ArgumentParser scmdSam ("sam");
   scmdSam.add_description ("read from alignment file");

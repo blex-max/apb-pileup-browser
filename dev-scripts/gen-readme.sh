@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 # on the opening delimiter after, keeps both delimiter lines out of the output.
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
-awk '/^\)md";$/{f=0} f; /R"md\($/{f=1}' src/app/readme.cpp > "$tmp"
+awk '/^\)md";$/{f=0} f; /R"md\($/{f=1}' src/app/text_blocks.cpp > "$tmp"
 
 # An empty result means the delimiters moved (e.g. R"md( renamed) and the awk
 # silently matched nothing. Extracting to a temp first means a failure here
