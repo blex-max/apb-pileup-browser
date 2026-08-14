@@ -1,7 +1,12 @@
 #include "cli.hpp"
 
+#include <cstdlib>
 #include <expected>
+#include <fstream>
+#include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "app/text_blocks.hpp"
 #include "argparse/argparse.hpp"
@@ -11,97 +16,178 @@
 #define APB_VERSION "undef"
 #endif
 
+static constexpr std::string_view CLI_HELP =
+    R"txt(usage: apb [options] MODE [FILE] [LOCI] [REF]
+
+ apb is an terminal-based genome browser designed for viewing
+ and querying pileup loci. It features a REPL-like command
+ line and simple SQL-based query syntax.
+
+modes:
+  locus  FILE LOCUS [REF]   view a single locus
+                            FILE   alignment file (sam/bam/cram)
+                            LOCUS  genomic locus, e.g. chr1:12345
+                            REF    reference fasta (optional)
+  vcf    FILE VCF [REF]     view variant loci from a VCF
+                            FILE   alignment file (sam/bam/cram)
+                            VCF    VCF file to load loci from
+                            REF    reference fasta (optional)
+  db     DB                 load from a dumped db
+                            DB     path to db dump
+  demo                      view demo data
+
+options:
+  -h, --help          show this help message and exit
+  -v, --version       print version information and exit
+  --dump PATH         convert pileup to sqlite3 database, dump to disk, and exit
+  --dump-readme PATH  write README.md to PATH and exit
+  --log PATH          log debug output to file
+
+ See README.md for further info, or use the in-app help
+ (type ? and press enter in the TUI). If you don't have
+ the readme, it can be written to disk from the CLI
+ using `apb --dump-readme PATH` or from within the TUI
+ using `readme PATH`.
+
+ In the TUI, type q and press enter or press Ctrl-C
+ twice to quit.)txt";
+
+// Assembles the mode-specific args from MODE plus its variadic positional
+// tail. The tail's arity depends on MODE, so argparse can't validate this
+// itself; it's checked by hand here instead.
+static std::expected<ModalArgs, Err> assemble_mode_args (
+    const std::string& mode,
+    const std::vector<std::string>& rest,
+    const std::optional<std::string>& dumpPath
+)
+{
+  if (mode == "locus") {
+    if (rest.size() < 2 || rest.size() > 3) {
+      return std::unexpected (
+          make_cli_err ("locus mode expects FILE LOCUS [REF]")
+      );
+    }
+    return AlnModeArgs{
+        .alnPath = rest[0],
+        .locus = rest[1],
+        .refPath = rest.size() == 3 ? std::optional{rest[2]}
+                                    : std::nullopt,
+        .dumpPath = dumpPath
+    };
+  }
+  if (mode == "vcf") {
+    if (rest.size() < 2 || rest.size() > 3) {
+      return std::unexpected (
+          make_cli_err ("vcf mode expects FILE VCF [REF]")
+      );
+    }
+    return VcfModeArgs{
+        .alnPath = rest[0],
+        .vcfPath = rest[1],
+        .refPath = rest.size() == 3 ? std::optional{rest[2]}
+                                    : std::nullopt,
+        .dumpPath = dumpPath
+    };
+  }
+  if (mode == "db") {
+    if (rest.size() != 1) {
+      return std::unexpected (
+          make_cli_err ("db mode expects DB")
+      );
+    }
+    if (dumpPath) {
+      return std::unexpected (
+          make_cli_err ("--dump is not valid in db mode")
+      );
+    }
+    return DbModeArgs{.dbPath = rest[0]};
+  }
+  // mode == "demo", the only choice left after argparse's .choices() check
+  if (!rest.empty()) {
+    return std::unexpected (
+        make_cli_err ("demo mode takes no arguments")
+    );
+  }
+  return DemoModeArgs{.dumpPath = dumpPath};
+}
+
 ArgsOrErr parse_args (int argc, char** argv)
 {
-  argparse::ArgumentParser cli ("apb", APB_VERSION);
+  argparse::ArgumentParser cli (
+      "apb", APB_VERSION, argparse::default_arguments::none
+  );
   std::string logPath;
 
-  cli.add_description (std::string{get_cli_intro()});
-  cli.add_epilog (std::string{get_cli_epilog()});
+  cli.add_argument ("-h", "--help")
+      .action ([] (const auto&) {
+        std::cout << CLI_HELP << "\n";
+        std::exit (0);
+      })
+      .default_value (false)
+      .implicit_value (true)
+      .nargs (0);
+  cli.add_argument ("-v", "--version")
+      .action ([] (const auto&) {
+        std::cout << APB_VERSION << "\n";
+        std::exit (0);
+      })
+      .default_value (false)
+      .implicit_value (true)
+      .nargs (0);
 
-  argparse::ArgumentParser scmdSam ("sam");
-  scmdSam.add_description ("read from alignment file");
-  scmdSam.add_argument ("SAM").help (
-      "path to alignment file in s/b/cram "
-      "format"
-  );
-  scmdSam.add_argument ("locus").help (
-      "genomic locus in the form tid:position"
-  );
-  scmdSam.add_argument ("--ref")
-      .help ("path to reference fasta")
-      .metavar ("PATH");
-  scmdSam.add_argument ("--dump")
+  cli.add_argument ("--dump")
       .help (
           "convert pileup to sqlite3 database, "
           "dump to disk, and exit."
       )  // headless mode
       .metavar ("PATH");
-
-  argparse::ArgumentParser scmdDb ("db");
-  scmdDb.add_description ("read from database dump");
-  scmdDb.add_argument ("DB").help (
-      "path to a previously dumped sqlite3 "
-      "database file"
-  );
-
-  argparse::ArgumentParser scmdDemo ("demo");
-  scmdDemo.add_description ("run in demo mode");
-  scmdDemo.add_argument ("--dump")
-      .help (
-          "convert pileup to sqlite3 database, "
-          "dump to disk, and exit."
-      )  // headless mode
-      .metavar ("PATH");
-
-  // shared args
+  cli.add_argument ("--dump-readme")
+      .help ("write README.md to PATH and exit")
+      .metavar ("PATH")
+      .action ([] (const std::string& path) {
+        // NOTE: exits program!
+        std::ofstream ofs (path);
+        if (!ofs) {
+          std::cerr << "could not open " << path
+                    << " for writing\n";
+          std::exit (EXIT_FAILURE);
+        }
+        ofs << get_readme();
+        std::exit (EXIT_SUCCESS);
+      });
   cli.add_argument ("--log")
       .help ("log debug output to file")
       .nargs (1)
       .metavar ("PATH")
-      .store_into (logPath);
+      .store_into (logPath);  // TODO use more store into?
 
-  cli.add_subparser (scmdSam);
-  cli.add_subparser (scmdDb);
-  cli.add_subparser (scmdDemo);
+  cli.add_argument ("MODE")
+      .help ("locus|vcf|db|demo")
+      .choices ("locus", "vcf", "db", "demo");
+  cli.add_argument ("ARGS")
+      .help ("mode-specific positional arguments; see -h")
+      .nargs (0, 3)
+      .default_value (std::vector<std::string>{});
 
   try {
     cli.parse_args (argc, argv);
   }
   catch (const std::exception& ex) {
     std::ostringstream oss;
-    oss << ex.what() << "\n" << cli;
+    oss << ex.what() << "\n" << CLI_HELP << "\n";
     return std::unexpected (make_cli_err (oss.str()));
   }
 
-  if (cli.is_subcommand_used ("demo")) {
-    return StartupArgs{
-        DemoModeArgs{scmdDemo.present<std::string> ("--dump")},
-        logPath
-    };
+  auto modeArgsRet = assemble_mode_args (
+      cli.get<std::string> ("MODE"),
+      cli.get<std::vector<std::string>> ("ARGS"),
+      cli.present<std::string> ("--dump")
+  );
+  if (!modeArgsRet) {
+    std::ostringstream oss;
+    oss << modeArgsRet.error().msg << "\n" << CLI_HELP << "\n";
+    return std::unexpected (make_cli_err (oss.str()));
   }
 
-  if (cli.is_subcommand_used ("db")) {
-    return StartupArgs{
-        DbModeArgs{scmdDb.get<std::string> ("DB")}, logPath
-    };
-  }
-
-  if (cli.is_subcommand_used ("sam")) {
-    return StartupArgs{
-        AlnModeArgs{
-            .alnPath = scmdSam.get<std::string> ("SAM"),
-            .locus = scmdSam.get<std::string> ("locus"),
-            .refPath = scmdSam.present<std::string> ("--ref"),
-            .dumpPath = scmdSam.present<std::string> ("--dump")
-        },
-        logPath
-    };
-  }
-
-  std::ostringstream oss;
-  oss << "a subcommand is required "
-         "(sam|db|demo)\n"
-      << cli;
-  return std::unexpected (make_cli_err (oss.str()));
+  return StartupArgs{std::move (*modeArgsRet), logPath};
 }

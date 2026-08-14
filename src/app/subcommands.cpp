@@ -56,6 +56,13 @@ VoidOrErr run_mode (const DemoModeArgs& args)
   return {};
 }
 
+VoidOrErr run_mode (const VcfModeArgs&)
+{
+  return std::unexpected (
+      make_internal_err ("vcf mode not yet implemented")
+  );
+}
+
 VoidOrErr run_mode (const DbModeArgs& args)
 {
   PLOGD << "Creating database";

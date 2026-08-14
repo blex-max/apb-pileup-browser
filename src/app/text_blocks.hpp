@@ -14,7 +14,3 @@ TextBlockRef get_text_block (TxtBlockId id);
 
 
 std::string_view get_readme();
-
-std::string_view get_cli_intro();
-
-std::string_view get_cli_epilog();

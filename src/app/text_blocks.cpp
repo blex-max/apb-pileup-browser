@@ -461,21 +461,3 @@ I think it's important to be up front about AI usage. This repo has been develop
 )md";
 
 std::string_view get_readme() { return README_MARKDOWN; }
-
-constexpr std::string_view CLI_INTRO =
-    R"txt( apb is an terminal-based genome browser designed for viewing
- and querying pileup loci. It features a REPL-like command
- line and simple SQL-based query syntax.)txt";
-
-std::string_view get_cli_intro() { return CLI_INTRO; }
-
-constexpr std::string_view CLI_EPILOG =
-    R"txt( See README.md for further info, or use the in-app help
- (type ? and press enter in the TUI).If you don't have
- the readme, it can be written to disk from the TUI
- using the `readme` command.
-
- In the TUI, type q and press enter or press Ctrl-C
- twice to quit.)txt";
-
-std::string_view get_cli_epilog() { return CLI_EPILOG; }
