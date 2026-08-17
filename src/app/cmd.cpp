@@ -223,11 +223,15 @@ static CmdResult and_where (
     return {true, ""};
   }
 
-  std::string clause{"AND "};
-  clause.append (args);
+  auto curClauseCopy = state.db.userClause;
+  if (curClauseCopy.where.empty()) {
+    return {false, "WHERE clause empty; cannot add term"};
+  }
 
-  auto newClause = state.db.userClause;
-  newClause.where.emplace_back (clause);
+  std::string newClause{"AND "};
+  newClause.append (args);
+
+  curClauseCopy.where.emplace_back (newClause);
 
   PLOGD << fmt::format (
       "Attempting to compile statement with updated WHERE "
@@ -236,12 +240,11 @@ static CmdResult and_where (
   );
 
   return apply_query_clause (
-      state, std::move (newClause), CMD_GENERIC_SUCCESS
+      state, std::move (curClauseCopy), CMD_GENERIC_SUCCESS
   );
 }
 static constexpr Command CMD_AND{
-    "and", "",
-    "Extend the query with a further condition, joined by AND.",
+    "and", "", "Extend the query with an AND condition.",
     &and_where
 };
 
@@ -253,11 +256,15 @@ static CmdResult or_where (
     return {true, ""};
   }
 
+  auto curClauseCopy = state.db.userClause;
+  if (curClauseCopy.where.empty()) {
+    return {false, "WHERE clause empty; cannot add term"};
+  }
+
   std::string clause{"OR "};
   clause.append (args);
 
-  auto newClause = state.db.userClause;
-  newClause.where.emplace_back (clause);
+  curClauseCopy.where.emplace_back (clause);
 
   PLOGD << fmt::format (
       "Attempting to compile statement with updated WHERE "
@@ -266,13 +273,11 @@ static CmdResult or_where (
   );
 
   return apply_query_clause (
-      state, std::move (newClause), CMD_GENERIC_SUCCESS
+      state, std::move (curClauseCopy), CMD_GENERIC_SUCCESS
   );
 }
 static constexpr Command CMD_OR{
-    "or", "",
-    "Extend the query with a further condition, joined by OR.",
-    &or_where
+    "or", "", "Extend the query with an OR condition.", &or_where
 };
 
 // TODO: extend capabilities,
