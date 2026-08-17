@@ -52,9 +52,7 @@ options:
  In the TUI, type q and press enter or press Ctrl-C
  twice to quit.)txt";
 
-// Assembles the mode-specific args from MODE plus its variadic positional
-// tail. The tail's arity depends on MODE, so argparse can't validate this
-// itself; it's checked by hand here instead.
+// MODE + variadic positional args.
 static std::expected<ModalArgs, Err> assemble_mode_args (
     const std::string& mode,
     const std::vector<std::string>& rest,
@@ -118,6 +116,8 @@ ArgsOrErr parse_args (int argc, char** argv)
   );
   std::string logPath;
 
+  // NOTE: help, version, dump-readme
+  // all exit program
   cli.add_argument ("-h", "--help")
       .action ([] (const auto&) {
         std::cout << CLI_HELP << "\n";
@@ -134,18 +134,10 @@ ArgsOrErr parse_args (int argc, char** argv)
       .default_value (false)
       .implicit_value (true)
       .nargs (0);
-
-  cli.add_argument ("--dump")
-      .help (
-          "convert pileup to sqlite3 database, "
-          "dump to disk, and exit."
-      )  // headless mode
-      .metavar ("PATH");
   cli.add_argument ("--dump-readme")
       .help ("write README.md to PATH and exit")
       .metavar ("PATH")
       .action ([] (const std::string& path) {
-        // NOTE: exits program!
         std::ofstream ofs (path);
         if (!ofs) {
           std::cerr << "could not open " << path
@@ -155,11 +147,18 @@ ArgsOrErr parse_args (int argc, char** argv)
         ofs << get_readme();
         std::exit (EXIT_SUCCESS);
       });
+
+  cli.add_argument ("--dump")
+      .help (
+          "convert pileup to sqlite3 database, "
+          "dump to disk, and exit."
+      )  // headless mode
+      .metavar ("PATH");
   cli.add_argument ("--log")
       .help ("log debug output to file")
       .nargs (1)
       .metavar ("PATH")
-      .store_into (logPath);  // TODO use more store into?
+      .store_into (logPath);
 
   cli.add_argument ("MODE")
       .help ("locus|vcf|db|demo")
