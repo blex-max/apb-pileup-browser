@@ -5,6 +5,7 @@ extern "C" {
 }
 
 #include <ranges>
+#include <span>
 #include <string_view>
 
 // NOTE: on API design
@@ -25,6 +26,10 @@ extern "C" {
 // j_bound) are 0-based END-EXCLUSIVE: `last` is
 // one past the last valid index. Point coordinates
 // (Cell/GlobalCell/LocalCell) are unaffected.
+
+// TODO:
+// - support extended grapheme clustering (helper fn for picking tb_set fns, span overload for extb::set)
+// - bump style attr type to 64 bit to support TB_OPT_ATTR_W=64
 
 namespace extb {
 
@@ -82,13 +87,12 @@ concept GlobalCellSource =
     GlobalCellRange<T> || ConvertsToGlobalCellRange<T>;
 
 // for styling cells
-using tb_attr = unsigned short;
 struct Style {
-  tb_attr fg;
-  tb_attr bg;
+  uintattr_t fg;
+  uintattr_t bg;
 
-  Style (tb_attr fg, tb_attr bg) : fg (fg), bg (bg) {}
-  Style (tb_attr attr) : fg (attr), bg (attr) {}
+  Style (uintattr_t fg, uintattr_t bg) : fg (fg), bg (bg) {}
+  Style (uintattr_t attr) : fg (attr), bg (attr) {}
   Style() = delete;
 };
 
@@ -97,6 +101,11 @@ struct Style {
 // Draw a character to cell/s.
 template <GlobalCellSource S>
 int set (S&& gcs, uint32_t ch, const Style& style = {0});
+#ifdef TB_OPT_EGC
+// overload for EGC
+template <GlobalCellSource S>
+int set (S&& gcs, std::span<uint32_t> ech, const Style& = {0});
+#endif
 
 // set cell/s to an empty space
 // with no styling, i.e. blank.
@@ -175,6 +184,32 @@ inline decltype (auto) as_global_cell_range (T&& t)
 
 // --- IMPLEMENTATION --- //
 
+
+namespace internal {
+
+inline int mod_attr_egc (
+    int x, int y, const tb_cell* tbc, uintattr_t fg,
+    uintattr_t bg
+)
+{
+  int rc = TB_OK;
+#ifdef TB_OPT_EGC
+  if (tbc->nech > 0) {
+    rc = tb_set_cell_ex (x, y, tbc->ech, tbc->nech, fg, bg);
+  }
+  else {
+    rc = tb_set_cell (x, y, tbc->ch, fg, bg);
+  }
+#else
+  rc = tb_set_cell (x, y, tbc->ch, fg, bg);
+#endif
+
+  return rc;
+}
+
+}  // namespace internal
+
+
 inline Delta dI (int n) noexcept { return {n, 0}; }
 inline Delta dJ (int n) noexcept { return {0, n}; }
 inline Delta dIJ (int nI, int nJ) noexcept { return {nI, nJ}; };
@@ -207,6 +242,22 @@ int set (S&& gcs, uint32_t ch, const Style& style)
   return TB_OK;
 }
 
+#ifdef TB_OPT_EGC
+template <GlobalCellSource S>
+int set (S&& gcs, std::span<uint32_t> ech, const Style& style)
+{
+  for (const auto gc : as_global_cell_range (gcs)) {
+    const auto rc = tb_set_cell_ex (
+        gc.j, gc.i, ech.data(), ech.size(), style.fg, style.bg
+    );
+    if (rc != TB_OK) {
+      return rc;
+    };
+  }
+  return TB_OK;
+}
+#endif
+
 template <GlobalCellSource S>
 int clear (S&& gcs)
 {
@@ -224,8 +275,8 @@ int set_attr (S&& gcs, const Style& style)
     if (rc != TB_OK) {
       return rc;
     }
-    const auto fg_attr = style.fg ? style.fg : tbc->fg;
-    const auto bg_attr = style.bg ? style.bg : tbc->bg;
+    const uintattr_t fg_attr = style.fg ? style.fg : tbc->fg;
+    const uintattr_t bg_attr = style.bg ? style.bg : tbc->bg;
     rc = tb_set_cell (gc.j, gc.i, tbc->ch, fg_attr, bg_attr);
     if (rc != TB_OK) {
       return rc;
@@ -244,9 +295,11 @@ int add_attr (S&& gcs, const Style& style)
     if (rc != TB_OK) {
       return rc;
     }
-    const tb_attr fg_attr = tbc->fg | style.fg;
-    const tb_attr bg_attr = tbc->bg | style.bg;
-    rc = tb_set_cell (gc.j, gc.i, tbc->ch, fg_attr, bg_attr);
+    const uintattr_t fg_attr = tbc->fg | style.fg;
+    const uintattr_t bg_attr = tbc->bg | style.bg;
+    rc = internal::mod_attr_egc (
+        gc.j, gc.i, tbc, fg_attr, bg_attr
+    );
     if (rc != TB_OK) {
       return rc;
     }
@@ -264,9 +317,11 @@ int rm_attr (S&& gcs, const Style& style)
     if (rc != TB_OK) {
       return rc;
     }
-    const tb_attr fg_attr = tbc->fg & ~style.fg;
-    const tb_attr bg_attr = tbc->bg & ~style.bg;
-    rc = tb_set_cell (gc.j, gc.i, tbc->ch, fg_attr, bg_attr);
+    const uintattr_t fg_attr = tbc->fg & ~style.fg;
+    const uintattr_t bg_attr = tbc->bg & ~style.bg;
+    rc = internal::mod_attr_egc (
+        gc.j, gc.i, tbc, fg_attr, bg_attr
+    );
     if (rc != TB_OK) {
       return rc;
     }
@@ -284,7 +339,7 @@ int clear_attrs (S&& gcs)
     if (rc != TB_OK) {
       return rc;
     }
-    rc = tb_set_cell (gc.j, gc.i, tbc->ch, 0, 0);
+    rc = internal::mod_attr_egc (gc.j, gc.i, tbc, 0, 0);
     if (rc != TB_OK) {
       return rc;
     }
