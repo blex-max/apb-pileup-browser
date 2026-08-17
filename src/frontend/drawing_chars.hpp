@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-enum ch : uint16_t {
+enum boxch : uint16_t {
   topLeftRoundCorner = 0x256D,
   topRightRoundCorner = 0x256E,
   horzLine = 0x2500,
@@ -16,6 +16,7 @@ enum ch : uint16_t {
   rightTConnect = 0x251C,
   cross = 0x253C,
   heavyCross = 0x254B,
-  doubleVertCross = 0x256B,
-  downCaret = 0x2304,
 };
+
+// possibly for use displaying insertions
+enum latin1 : uint16_t { ICircumf = 0x00CE };
