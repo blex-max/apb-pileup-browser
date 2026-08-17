@@ -58,9 +58,11 @@ concept CellType = std::derived_from<C, Cell>;
 
 template <CellType C>
 C operator+ (C c, const Delta& d) noexcept;
-
 template <CellType C>
-void operator+= (C& c, const Delta& d) noexcept;
+C operator- (C c, const Delta& d) noexcept;
+
+// template <CellType C>
+// void operator+= (C& c, const Delta& d) noexcept;
 
 // all drawing functions may operate on a
 // single global cell, a range of global cells,
@@ -223,11 +225,19 @@ C operator+ (C c, const Delta& d) noexcept
 }
 
 template <CellType C>
-void operator+= (C& c, const Delta& d) noexcept
+C operator- (C c, const Delta& d) noexcept
 {
-  c.i += d.di;
-  c.j += d.dj;
+  c.i -= d.di;
+  c.j -= d.dj;
+  return c;
 }
+
+// template <CellType C>
+// void operator+= (C& c, const Delta& d) noexcept
+// {
+//   c.i += d.di;
+//   c.j += d.dj;
+// }
 
 template <GlobalCellSource S>
 int set (S&& gcs, uint32_t ch, const Style& style)

@@ -20,3 +20,5 @@ FormatStyle: file
 
 CheckOptions:
   readability-function-cognitive-complexity.IgnoreMacros: true
+  readability-function-cognitive-complexity.DescribeBasicIncrements: false
+  readability-function-cognitive-complexity.Threshold: 25

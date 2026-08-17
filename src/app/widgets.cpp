@@ -7,6 +7,8 @@
 #include <cstdint>
 
 #include "frontend/drawing_chars.hpp"
+#include "frontend/extb/box/box.hpp"
+#include "frontend/extb/extb.hpp"
 #include "shared/err.hpp"
 
 // --- helpers --- //
@@ -19,14 +21,14 @@ struct ScreenProjection {
   int jOffset = 0;
 };
 
-static ScreenProjection project_onto_box (
-    int64_t boxCenterGPos, size_t boxWidth, int64_t contentGStart
+static ScreenProjection align_seq_to_box (
+    int64_t boxCenterGPos, size_t boxWidth, int64_t seqGStart
 )
 {
   const int64_t leftmostVisibleGPos =
       boxCenterGPos - (static_cast<int64_t> (boxWidth) / 2);
   const int64_t distBoxEdgeToContentStart =
-      contentGStart - leftmostVisibleGPos;
+      seqGStart - leftmostVisibleGPos;
   if (distBoxEdgeToContentStart < 0) {
     return {
         .skipChars =
@@ -104,15 +106,15 @@ void draw_overlay (const OverlayWgt& oWgt)
   clear (box);
   clear (frame);
 
-  set (north_edge (frame), ch::horzLine);
-  set (east_edge (frame), ch::vertLine);
-  set (south_edge (frame), ch::horzLine);
-  set (west_edge (frame), ch::vertLine);
+  set (north_edge (frame), boxch::horzLine);
+  set (east_edge (frame), boxch::vertLine);
+  set (south_edge (frame), boxch::horzLine);
+  set (west_edge (frame), boxch::vertLine);
 
-  set (nw_vertex (frame), ch::topLeftRoundCorner);
-  set (ne_vertex (frame), ch::topRightRoundCorner);
-  set (sw_vertex (frame), ch::bottomLeftRoundCorner);
-  set (se_vertex (frame), ch::bottomRightRoundCorner);
+  set (nw_vertex (frame), boxch::topLeftRoundCorner);
+  set (ne_vertex (frame), boxch::topRightRoundCorner);
+  set (sw_vertex (frame), boxch::bottomLeftRoundCorner);
+  set (se_vertex (frame), boxch::bottomRightRoundCorner);
 
   auto jEnd = last (box.jspan);
 
@@ -255,48 +257,50 @@ static void draw_shared_layout (BrowserWgt& pWgt, CmdWgt& cWgt)
   PLOGD << "Drawing layout";
 
   auto& pFrame = pWgt.frame;
-  set (nw_vertex (pFrame), ch::topLeftRoundCorner, TB_DIM);
-  set (ne_vertex (pFrame), ch::topRightRoundCorner, TB_DIM);
+  set (nw_vertex (pFrame), boxch::topLeftRoundCorner, TB_DIM);
+  set (ne_vertex (pFrame), boxch::topRightRoundCorner, TB_DIM);
 
-  set (body (north_edge (pFrame)), ch::horzLine, TB_DIM);
+  set (body (north_edge (pFrame)), boxch::horzLine, TB_DIM);
   // main frame is open at the bottom (the cmd frame closes it), so the
   // side edges skip only the top corner and run to the last row.
   set (
       section (west_edge (pFrame), 1, height (pFrame)),
-      ch::vertLine, TB_DIM
+      boxch::vertLine, TB_DIM
   );
   set (
       section (east_edge (pFrame), 1, height (pFrame)),
-      ch::vertLine, TB_DIM
+      boxch::vertLine, TB_DIM
   );
 
-  set (body (pWgt.headerSep), ch::horzLine, TB_DIM);
-  set (first (pWgt.headerSep), ch::rightTConnect, TB_DIM);
+  set (body (pWgt.headerSep), boxch::horzLine, TB_DIM);
+  set (first (pWgt.headerSep), boxch::rightTConnect, TB_DIM);
 
-  set (body (pWgt.querySep), ch::horzLine, TB_DIM);
-  set (first (pWgt.querySep), ch::rightTConnect, TB_DIM);
-  set (last (pWgt.querySep), ch::leftTConnect, TB_DIM);
+  set (body (pWgt.querySep), boxch::horzLine, TB_DIM);
+  set (first (pWgt.querySep), boxch::rightTConnect, TB_DIM);
+  set (last (pWgt.querySep), boxch::leftTConnect, TB_DIM);
 
-  set (body (pWgt.vSep), ch::vertLine, TB_DIM);
-  set (first (pWgt.vSep), ch::downTConnect, TB_DIM);
-  set (last (pWgt.vSep), ch::upTConnect, TB_DIM);
+  set (body (pWgt.vSep), boxch::vertLine, TB_DIM);
+  set (first (pWgt.vSep), boxch::downTConnect, TB_DIM);
+  set (last (pWgt.vSep), boxch::upTConnect, TB_DIM);
 
-  set (last (pWgt.headerSep), ch::leftTConnect, TB_DIM);
+  set (last (pWgt.headerSep), boxch::leftTConnect, TB_DIM);
 
 
   auto& cFrame = cWgt.frame;
-  set (nw_vertex (cFrame), ch::topLeftRoundCorner, TB_DIM);
-  set (ne_vertex (cFrame), ch::topRightRoundCorner, TB_DIM);
-  set (sw_vertex (cFrame), ch::bottomLeftRoundCorner, TB_DIM);
-  set (se_vertex (cFrame), ch::bottomRightRoundCorner, TB_DIM);
+  set (nw_vertex (cFrame), boxch::topLeftRoundCorner, TB_DIM);
+  set (ne_vertex (cFrame), boxch::topRightRoundCorner, TB_DIM);
+  set (sw_vertex (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
+  set (
+      se_vertex (cFrame), boxch::bottomRightRoundCorner, TB_DIM
+  );
 
-  set (body (north_edge (cFrame)), ch::horzHeavy, TB_DIM);
-  set (body (west_edge (cFrame)), ch::vertLine, TB_DIM);
-  set (body (east_edge (cFrame)), ch::vertLine, TB_DIM);
-  set (body (cWgt.statusSep), ch::horzLine, TB_DIM);
+  set (body (north_edge (cFrame)), boxch::horzHeavy, TB_DIM);
+  set (body (west_edge (cFrame)), boxch::vertLine, TB_DIM);
+  set (body (east_edge (cFrame)), boxch::vertLine, TB_DIM);
+  set (body (cWgt.statusSep), boxch::horzLine, TB_DIM);
 
   set (cWgt.inputCaret, ':');
-  set (body (cWgt.sepLine), ch::horzLine, TB_DIM);
+  set (body (cWgt.sepLine), boxch::horzLine, TB_DIM);
 }
 
 // --- end draw shared layout --- //
@@ -326,7 +330,7 @@ static int draw_table_cell (
   if (j > jAvail) {
     return j;
   }
-  set (e2::GlobalCell{i, j}, ch::vertLine);
+  set (e2::GlobalCell{i, j}, boxch::vertLine);
   return j + 1;
 }
 
@@ -367,146 +371,156 @@ static void draw_data_table_row (
   }
 }
 
-struct ExpandSequenceRefArgs {
-  int64_t seqAlignStart;
-  std::string_view refSlice;
-};
-static std::string expand_sequence (
-    std::string_view seq, const uint32_t* cig, size_t nCig,
-    std::optional<ExpandSequenceRefArgs> ref
-)
-{
-  std::string out;
-
-  size_t iSeq = 0;
-  // running offset into ref->refSlice; advances on every ref-consuming
-  // op (0b11 and 0b10), not just within a single match block, so later
-  // blocks stay aligned to the reference across intervening indels.
-  int64_t iRef = ref ? ref->seqAlignStart : 0;
-  for (size_t iOp = 0; iOp < nCig; iOp++) {
-    const auto op = cig[iOp];
-    const auto opSz = bam_cigar_oplen (op);
-    const auto opType = bam_cigar_type (op);
-    if (opType == 0b11) {
-      // consumes query and ref
-      // insert oplen bases into out as lifted directly from input seq,
-      // masking out bases that match the reference as '='
-      if (ref) {
-        std::string matchedSlice (opSz, '\0');
-        for (size_t i = 0; i < opSz; ++i) {
-          const char queryBase = seq[iSeq + i];
-          const char refBase =
-              (*ref).refSlice[static_cast<size_t> (iRef) + i];
-          matchedSlice[i] =
-              (refBase == queryBase) ? '=' : queryBase;
-        }
-        out.append (matchedSlice);
-      }
-      else {
-        out.append (seq.data() + iSeq, opSz);
-      }
-      iSeq += opSz;
-      iRef += opSz;
-    }
-    else if (opType == 0b10) {
-      // consumes ref only
-      // insert oplen dashes (-) into out
-      // don't advance iSeq
-      out.append (std::string (opSz, '-'));
-      iRef += opSz;
-    }
-    else if (opType == 0b01) {
-      // consumes query only
-      iSeq += opSz;
-    }
-  }
-
-  return out;
-}
-
-static std::pair<std::string, std::string> get_soft_clips (
-    const uint32_t* cig, size_t nCig
-)
-{
-  std::pair<std::string, std::string> out;
-  if (nCig == 0) {
-    return out;
-  }
-  const auto firstOp = cig[0];
-  const auto lastOp = cig[nCig - 1];
-  if (bam_cigar_op (firstOp) == BAM_CSOFT_CLIP) {
-    const auto opSz = bam_cigar_oplen (firstOp);
-    out.first = "s(" + std::to_string (opSz) + ")";
-  }
-  if (bam_cigar_op (lastOp) == BAM_CSOFT_CLIP) {
-    const auto opSz = bam_cigar_oplen (lastOp);
-    out.second = "s(" + std::to_string (opSz) + ")";
-  }
-
-  return out;
-}
-
+// NOTE: this will be called a few times in a loop
+// so consider whether work added here should be
+// factored out.
+// NOTE: can definitely factor out some
+// of the box stuff. consider inlining
+// this whole thing even, later.
 static void draw_sequence (
     const e2::Box& queryBox, size_t boxRow, sqlite3_stmt* dbRow,
     const LocusData& locus
 )
 {
+  // TASK: inline all sequence drawing functionality
+  // to enable switch over to direct drawing to screen
+  // using richer formatting (for indels).
+  // First, inline drawing, and get parity pre-diff.
+  // Then, display anchor bases as BOLD and UNDERLINED (simplest).
+  const auto ref = locus.refSlice;
+
+  const auto readStart = get_rstart (dbRow);
+
+  // NOTE: since view is centered on pileup,
+  // all reads should always be at least partially in view
+  // (unless pane is folded)
+  const int64_t boxLeftEdgeGPos =
+      locus.pos - (static_cast<int64_t> (width (queryBox)) / 2);
+  const int64_t startToLEdge = readStart - boxLeftEdgeGPos;
+
   const auto* cig = get_cigar_blob (dbRow);
-  auto nCig = get_ncig (dbRow);
-  auto readStart = get_rstart (dbRow);
-  std::optional<ExpandSequenceRefArgs> refArgs;
-  if (locus.refSlice) {
-    refArgs.emplace (readStart - locus.start, *(locus.refSlice));
+  const auto nCig = get_ncig (dbRow);
+  const auto rawSeq = get_seq (dbRow);
+
+  auto writeHead =
+      e2::GlobalCell{nw_vertex (queryBox) + e2::dI (boxRow)};
+  if (startToLEdge > 0) {
+    writeHead.j += startToLEdge;
   }
-  auto alignmentSeq =
-      expand_sequence (get_seq (dbRow), cig, nCig, refArgs);
-  auto softClips = get_soft_clips (cig, nCig);
+  auto iGc = readStart;  // current genomic coordinate
+  size_t iQuery = 0;
+  // locus start always <= readStart
+  int64_t iRef = ref ? readStart - locus.start : 0;
+  for (size_t iOp = 0; iOp < nCig; iOp++) {
+    const auto op = cig[iOp];
+    const auto opSz = bam_cigar_oplen (op);
+    const auto opType = bam_cigar_type (op);
 
-  // If query begins before displayed region, we need to subset the
-  // string to keep it aligned with the displayed reference. If it
-  // overruns to the right, write_string will just discard those chars.
-  auto proj = project_onto_box (
-      locus.pos, width (queryBox), get_rstart (dbRow)
-  );
-  auto seqStart =
-      nw_vertex (queryBox) +
-      e2::dIJ (static_cast<int> (boxRow), proj.jOffset);
-  auto jBound = last (queryBox.jspan);
+    if (opType == 0b11) {
+      // consumes query and ref
+      // TODO: clean up, refactor to match
+      // ref only branch
 
-  auto visible = alignmentSeq.substr (proj.skipChars);
-  auto written =
-      e2::write_ascii_string (seqStart, jBound, visible);
+      // op entirely offscreen
+      if ((iGc + opSz) < boxLeftEdgeGPos) {
+        iQuery += opSz;
+        iRef += opSz;
+        iGc += opSz;
+        continue;
+      }
 
-  // Dim reference-matching bases ('=') so mismatches/indels stand out.
-  auto cellK = seqStart;
-  for (size_t k = 0; k < written; ++k) {
-    if (visible[k] == '=') {
-      e2::add_attr (cellK, TB_DIM);
+      // factor out/improve later
+      int64_t skipOpBases = 0;
+      auto opLenRemain = opSz;
+      if (iGc < boxLeftEdgeGPos) {
+        // may refactor
+        skipOpBases = boxLeftEdgeGPos - iGc;  // +ve
+        iQuery += skipOpBases;
+        iRef += skipOpBases;
+        opLenRemain -= skipOpBases;
+      }
+
+      // set bases
+      // masking bases that match the reference as '='.
+      for (size_t i = 0; i < opLenRemain &&
+                         writeHead.j < last (queryBox.jspan);
+           ++i) {
+        uintattr_t dispAttr = 0;
+        auto dispChar = rawSeq[iQuery + i];
+        if (ref && (dispChar ==
+                    (*ref)[static_cast<size_t> (iRef) + i])) {
+          dispChar = '=';
+          dispAttr = TB_DIM;
+        }
+        set (
+            writeHead, static_cast<uint32_t> (dispChar), dispAttr
+        );
+        ++writeHead.j;
+      }
+
+      iQuery += opLenRemain;
+      iRef += opLenRemain;
+      iGc += opSz;
     }
-    ++cellK.j;
-  }
+    else if (opType == 0b10) {
+      // consumes ref only
+      // Deletions, or "skipped region"
+      //     - the latter only relevant to RNA (TODO: disambiguate?)
+      // don't advance query tracker
 
-  // Soft-clip indicators go in any blank space left over on either
-  // side of the drawn read, anchored against the read edge (so a
-  // truncated label loses its outer end, not the end nearest the read).
-  if (proj.skipChars == 0 && proj.jOffset > 0 &&
-      !softClips.first.empty()) {
-    auto avail = static_cast<size_t> (proj.jOffset);
-    const std::string_view label = softClips.first;
-    auto shown = label.size() > avail
-                     ? label.substr (label.size() - avail)
-                     : label;
-    e2::write_ascii_string (
-        seqStart + e2::dJ (-static_cast<int> (shown.size())),
-        seqStart.j, shown, TB_DIM
-    );
-  }
+      // op at least partially on screen
+      if ((iGc + opSz) >= boxLeftEdgeGPos) {
+        int64_t skipOpBases = (iGc < boxLeftEdgeGPos)
+                                  ? (boxLeftEdgeGPos - iGc)
+                                  : 0;
+        for (size_t i = skipOpBases;
+             i < opSz && writeHead.j < last (queryBox.jspan);
+             ++i) {
+          set (writeHead, '-');
+          ++writeHead.j;
+        }
+      }
+      iRef += opSz;
+      iGc += opSz;
+    }
+    else if (opType == 0b01) {
+      // TODO: INSERTION LOGIC HERE
+      // consumes query only
 
-  auto rightEdge = seqStart.j + static_cast<int> (written);
-  if (rightEdge < jBound && !softClips.second.empty()) {
-    e2::write_ascii_string (
-        {seqStart.i, rightEdge}, jBound, softClips.second, TB_DIM
-    );
+      // soft clipping at start of read
+      // where cells available for writing
+      // clipping label
+      if (op == BAM_CSOFT_CLIP && iOp == 0 && startToLEdge > 0) {
+        std::string clipLabel =
+            "s(" + std::to_string (opSz) + ")";
+        if (startToLEdge < clipLabel.size()) {
+          clipLabel =
+              clipLabel.substr (clipLabel.size() - startToLEdge);
+        }
+        e2::write_ascii_string (
+            writeHead -
+                e2::dJ (static_cast<int> (clipLabel.size())),
+            last (queryBox.jspan), clipLabel, TB_DIM
+        );
+      }
+      // soft clipping at end of read
+      if (op == BAM_CSOFT_CLIP && iOp == (nCig - 1)) {
+        std::string clipLabel =
+            "s(" + std::to_string (opSz) + ")";
+        // if no space left, no-op
+        e2::write_ascii_string (
+            writeHead, last (queryBox.jspan), clipLabel, TB_DIM
+        );
+      }
+
+      iQuery += opSz;
+    }
+    // NOTE: hard clip/padding not handled
+
+    // early exit if row exhausted
+    if (writeHead.j >= last (queryBox.jspan)) {
+      break;
+    }
   }
 }
 
@@ -562,8 +576,9 @@ static void draw_pileup_ambient (
     BrowserWgt& pWgt, const LocusData& locusData
 )
 {
+  // TODO: get rid of projection function (?)
   if (locusData.refSlice) {
-    auto proj = project_onto_box (
+    auto proj = align_seq_to_box (
         locusData.pos, size (pWgt.refLine), locusData.start
     );
 
@@ -589,7 +604,7 @@ static void draw_pileup_ambient (
         fmt::format ("{}:{}", locusData.contig, locusData.pos)
     );
     cursor.j++;  // space
-    set (cursor, ch::vertLine, TB_DIM);
+    set (cursor, boxch::vertLine, TB_DIM);
     cursor.j += 2;  // past bar, then space
     cursor.j += e2::write_ascii_string (
         cursor, lineEnd, "SPAN:", TB_DIM
@@ -600,7 +615,7 @@ static void draw_pileup_ambient (
         fmt::format ("{}-{}", locusData.start, locusData.end)
     );
     cursor.j++;  // space
-    set (cursor, ch::vertLine, TB_DIM);
+    set (cursor, boxch::vertLine, TB_DIM);
   }
 }
 
