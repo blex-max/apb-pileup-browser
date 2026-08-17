@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # for argparse
 # user paths to htslib if needed
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
@@ -25,40 +24,6 @@ pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3>=3.38)
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 
-FetchContent_Declare(
-  termbox2
-  GIT_REPOSITORY https://github.com/termbox/termbox2.git
-  GIT_TAG        605398fa79108412976191e062ea14bd4bd30213
-  GIT_PROGRESS   TRUE
-  GIT_SHALLOW    TRUE
-  SYSTEM
-)
-FetchContent_MakeAvailable(termbox2)
-FetchContent_Declare(
-    plog
-    GIT_REPOSITORY https://github.com/SergiusTheBest/plog
-    GIT_TAG        1.1.10
-    GIT_SHALLOW    true
-    SYSTEM
-)
-FetchContent_MakeAvailable(plog)
-FetchContent_Declare(
-    argparse
-    GIT_REPOSITORY https://github.com/p-ranav/argparse.git
-    GIT_TAG v3.2
-    GIT_SHALLOW TRUE
-    SYSTEM
-)
-FetchContent_MakeAvailable(argparse)
-FetchContent_Declare(
-    fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG        12.2.0
-    GIT_SHALLOW    TRUE
-    SYSTEM
-)
-FetchContent_MakeAvailable(fmt)
-
 if(MAKE_TEST)
   FetchContent_Declare(
     Catch2
@@ -71,8 +36,19 @@ if(MAKE_TEST)
 endif()
 
 add_library(termbox2 INTERFACE)
-target_include_directories(termbox2 SYSTEM INTERFACE "${termbox2_SOURCE_DIR}")
+target_include_directories(termbox2 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/termbox2")
 
+add_library(plog INTERFACE)
+add_library(plog::plog ALIAS plog)
+target_include_directories(plog SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/plog/include")
+
+add_library(argparse INTERFACE)
+target_include_directories(argparse SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/argparse/include")
+
+add_library(fmt-header-only INTERFACE)
+add_library(fmt::fmt-header-only ALIAS fmt-header-only)
+target_include_directories(fmt-header-only SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/fmt/include")
+target_compile_definitions(fmt-header-only INTERFACE FMT_HEADER_ONLY=1)
 
 set(HTSLIB_TARGET "")
 if(HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
