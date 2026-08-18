@@ -39,12 +39,12 @@ static_assert (
 
 constexpr auto NAV_BLOCK = std::to_array<std::string_view> (
     {" BROWSER PANE                                  ",
-     "  S-Up / S-Down     scroll one row             ",
+     "  Up / Down         scroll one row             ",
      "  PgUp / PgDn       scroll one page            ",
      "                                               ",
      " COMMAND LINE                                  ",
      "  Enter             run command                ",
-     "  Up / Down         step command history       ",
+     "  S-Up / S-Down     step command history       ",
      "  Left / Right      move cursor                ",
      "  M-Left / M-Right  back / forward one word    ",
      "  M-b / M-f         back / forward one word    ",
@@ -254,11 +254,11 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 **Navigation Keys**:
 
 **Browser pane**
-- `Shift+↑` / `Shift+↓` scroll the alignment view by one row.
+- `↑` / `↓` scroll the alignment view by one row.
 - `PgUp` / `PgDn` scroll by a full page.
 
 **Command line**
-- `↑` / `↓` step through command history.
+- `Shift+↑` / `Shift+↓` step through command history.
 - `←` / `→` move the cursor; `Ctrl-A` / `Ctrl-E` jump to start/end; `Alt+←` / `Alt+→` (or `Alt+b` / `Alt+f`) jump by word.
 - `Backspace` deletes a character; `Alt+Backspace` clears the whole line.
 
