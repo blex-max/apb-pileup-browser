@@ -2,11 +2,15 @@
 #include <plog/Record.h>
 #include <plog/Util.h>
 
-namespace plog {
-class PLOG_LINKAGE IAppender {
- public:
-  virtual ~IAppender() {}
+namespace plog
+{
+    class PLOG_LINKAGE IAppender
+    {
+    public:
+        virtual ~IAppender()
+        {
+        }
 
-  virtual void write (const Record& record) = 0;
-};
-}  // namespace plog
+        virtual void write(const Record& record) = 0;
+    };
+}
