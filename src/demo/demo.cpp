@@ -12,8 +12,7 @@
 #include "backend/pileup_ingest.hpp"
 #include "shared/err.hpp"
 
-// Deterministic (no rand()) reference sequence -- keeps the whole demo
-// dataset reproducible and inspectable from source.
+// Deterministic reference sequence
 static std::string fixed_ref_seq (size_t len)
 {
   static const char bases[] = "ACGT";
@@ -58,6 +57,7 @@ VoidOrErr insert_demo_data (
 
   constexpr double k_mismatchRate = 0.01;
   constexpr size_t k_maxDelLen = 4;
+  constexpr size_t k_maxInsLen = 4;
   constexpr size_t k_maxClipLen = 20;
   constexpr int k_minQual = 20;
   constexpr int k_maxQual = 40;
@@ -67,7 +67,9 @@ VoidOrErr insert_demo_data (
   // Headroom of k_maxDelLen reserved unconditionally so start+qLen+delLen
   // can never exceed regWidth, whether or not a given read ends up with
   // a deletion. Clips only ever shrink a read's ref-consumed length, so
-  // they need no extra headroom here.
+  // they need no extra headroom here. Insertions likewise need none: an
+  // insertion adds query bases, not reference-consumed ones, so it never
+  // grows the ref span a read spans.
   //
   // Lower bound is 1, not 0: pileupPos is numerically equal to qLen (both
   // derived from (regWidth/2)-1), so a read starting at exactly 0 would
@@ -82,17 +84,26 @@ VoidOrErr insert_demo_data (
   std::uniform_int_distribution<size_t> delLenGen (
       1, k_maxDelLen
   );
+  std::uniform_int_distribution<size_t> insLenGen (
+      1, k_maxInsLen
+  );
   std::uniform_int_distribution<int> qualGen (
       k_minQual, k_maxQual
   );
 
-  // At most one of {deletion, leading clip, trailing clip} per read --
-  // keeps CIGAR/index math to a handful of cases instead of a
-  // combinatorial explosion. Weights are just "occasional variety",
+  // At most one of {deletion, insertion, leading clip, trailing clip}
+  // per read -- keeps CIGAR/index math to a handful of cases instead of
+  // a combinatorial explosion. Weights are just "occasional variety",
   // tunable.
-  enum class ReadVariant { None, Deletion, LeadClip, TailClip };
+  enum class ReadVariant {
+    None,
+    Deletion,
+    LeadClip,
+    TailClip,
+    Insertion
+  };
   std::discrete_distribution<int> variantDist (
-      {0.65, 0.15, 0.10, 0.10}
+      {0.55, 0.15, 0.10, 0.10, 0.10}
   );
 
   // Generate all reads' fields up front (no DB calls yet), tracking the
@@ -106,7 +117,6 @@ VoidOrErr insert_demo_data (
   for (size_t i = 0; i < nQuery; ++i) {
     PileupFields ru_pf;
     ru_pf.flag = 0;
-    ru_pf.indel = 0;
     ru_pf.isDel = false;
     ru_pf.isRefSkip = false;
     ru_pf.mapQ = 30;
@@ -128,17 +138,24 @@ VoidOrErr insert_demo_data (
                 : ReadVariant::None;
 
     size_t delLen = 0;
+    size_t insLen = 0;
     size_t mSplit = qLen;
     size_t clipLen = 0;
     const bool leadClip = (variant == ReadVariant::LeadClip);
 
     switch (variant) {
-      case ReadVariant::Deletion: {
+      case ReadVariant::Deletion:
+      case ReadVariant::Insertion: {
         std::uniform_int_distribution<size_t> splitGen (
             static_cast<size_t> (qPos) + 1, qLen - 1
         );
         mSplit = splitGen (rng);
-        delLen = delLenGen (rng);
+        if (variant == ReadVariant::Deletion) {
+          delLen = delLenGen (rng);
+        }
+        else {
+          insLen = insLenGen (rng);
+        }
         break;
       }
       case ReadVariant::LeadClip:
@@ -156,12 +173,26 @@ VoidOrErr insert_demo_data (
         break;
     }
 
+    // indel is only nonzero when the event immediately follows the
+    // pileup base in THIS read (htslib bam_pileup1_t::indel semantics)
+    // -- not merely "this read contains an indel somewhere".
+    const bool indelAtPileup =
+        mSplit == static_cast<size_t> (qPos) + 1;
+    ru_pf.indel = indelAtPileup ? static_cast<int> (insLen) -
+                                      static_cast<int> (delLen)
+                                : 0;
+
     const auto finalQPos =
         leadClip ? qPos + static_cast<int32_t> (clipLen) : qPos;
 
-    std::string seq (qLen, ' ');
-    std::string qual (qLen, ' ');
-    for (size_t j = 0; j < qLen; ++j) {
+    // Insertions add query bases that aren't in the reference, so
+    // (unlike deletions, which only widen the ref span) the read's own
+    // seq/qual buffers grow by insLen; insLen is 0 for every other
+    // variant, so this is a no-op there.
+    const size_t seqLen = qLen + insLen;
+    std::string seq (seqLen, ' ');
+    std::string qual (seqLen, ' ');
+    for (size_t j = 0; j < seqLen; ++j) {
       qual[j] = static_cast<char> (qualGen (rng) + 33);
 
       if (j == static_cast<size_t> (finalQPos)) {
@@ -184,7 +215,22 @@ VoidOrErr insert_demo_data (
         continue;
       }
 
-      const size_t alignedIdx = leadClip ? j - clipLen : j;
+      const bool inInsertion =
+          insLen > 0 && j >= mSplit && j < mSplit + insLen;
+      if (inInsertion) {
+        // Inserted bases aren't aligned to any reference position
+        // either -- same treatment as clipped bases.
+        seq[j] = random_base (rng);
+        continue;
+      }
+
+      size_t alignedIdx = j;
+      if (leadClip) {
+        alignedIdx = j - clipLen;
+      }
+      else if (insLen > 0 && j >= mSplit + insLen) {
+        alignedIdx = j - insLen;
+      }
       const size_t refOffset =
           static_cast<size_t> (ru_pf.start) + alignedIdx +
           (alignedIdx < mSplit ? 0 : delLen);
@@ -203,14 +249,7 @@ VoidOrErr insert_demo_data (
           )
       );
     }
-    if (delLen == 0) {
-      cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (qLen - clipLen, BAM_CMATCH)
-          )
-      );
-    }
-    else {
+    if (delLen > 0) {
       cigOps.push_back (
           static_cast<uint32_t> (
               bam_cigar_gen (mSplit, BAM_CMATCH)
@@ -224,6 +263,30 @@ VoidOrErr insert_demo_data (
       cigOps.push_back (
           static_cast<uint32_t> (
               bam_cigar_gen (qLen - mSplit, BAM_CMATCH)
+          )
+      );
+    }
+    else if (insLen > 0) {
+      cigOps.push_back (
+          static_cast<uint32_t> (
+              bam_cigar_gen (mSplit, BAM_CMATCH)
+          )
+      );
+      cigOps.push_back (
+          static_cast<uint32_t> (
+              bam_cigar_gen (insLen, BAM_CINS)
+          )
+      );
+      cigOps.push_back (
+          static_cast<uint32_t> (
+              bam_cigar_gen (qLen - mSplit, BAM_CMATCH)
+          )
+      );
+    }
+    else {
+      cigOps.push_back (
+          static_cast<uint32_t> (
+              bam_cigar_gen (qLen - clipLen, BAM_CMATCH)
           )
       );
     }
