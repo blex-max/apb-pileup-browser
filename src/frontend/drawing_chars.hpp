@@ -18,5 +18,10 @@ enum boxch : uint16_t {
   heavyCross = 0x254B,
 };
 
-// possibly for use displaying insertions
-enum latin1 : uint16_t { ICircumf = 0x00CE };
+// combining marks
+// for EGC
+enum markch : uint16_t {
+  ringAbove = 0x030A,
+  caron = 0x030C,
+  circumf = 0x0302
+};

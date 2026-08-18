@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 extern "C" {
 #include "termbox2.h"
 }
@@ -107,6 +108,10 @@ int set (S&& gcs, uint32_t ch, const Style& style = {0});
 // overload for EGC
 template <GlobalCellSource S>
 int set (S&& gcs, std::span<uint32_t> ech, const Style& = {0});
+
+// add grapheme to cell
+template <GlobalCellSource S>
+int extend (S&& gcs, uint32_t ex);
 #endif
 
 // set cell/s to an empty space
@@ -260,6 +265,18 @@ int set (S&& gcs, std::span<uint32_t> ech, const Style& style)
     const auto rc = tb_set_cell_ex (
         gc.j, gc.i, ech.data(), ech.size(), style.fg, style.bg
     );
+    if (rc != TB_OK) {
+      return rc;
+    };
+  }
+  return TB_OK;
+}
+
+template <GlobalCellSource S>
+int extend (S&& gcs, uint32_t ex)
+{
+  for (const auto gc : as_global_cell_range (gcs)) {
+    const auto rc = tb_extend_cell (gc.j, gc.i, ex);
     if (rc != TB_OK) {
       return rc;
     };

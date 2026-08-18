@@ -98,6 +98,7 @@ add_executable(apb
 )
 target_compile_definitions(apb PRIVATE
   APB_VERSION="${PROJECT_VERSION}"
+  TB_OPT_EGC
 )
 target_compile_options(apb
   PRIVATE

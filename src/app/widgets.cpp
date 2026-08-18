@@ -419,49 +419,49 @@ static void draw_sequence (
 
     if (opConsumeType == 0b11) {
       // consumes query and ref
-      // TODO: clean up, refactor to match
-      // ref only branch
 
-      // op entirely offscreen
-      if ((iGc + opSz) < boxLeftEdgeGPos) {
+      if ((iGc + opSz) >= boxLeftEdgeGPos) {
+        // op at least partially on screen
+        int64_t skipOpBases = 0;
+        auto opLenRemain = opSz;
+        if (iGc < boxLeftEdgeGPos) {
+          // op partially on screen only
+          // may refactor
+          skipOpBases = boxLeftEdgeGPos - iGc;  // +ve
+          iQuery += skipOpBases;
+          iRef += skipOpBases;
+          opLenRemain -= skipOpBases;
+        }
+
+        // set bases
+        // masking bases that match the reference as '='.
+        for (size_t i = 0; i < opLenRemain &&
+                           writeHead.j < last (queryBox.jspan);
+             ++i) {
+          uintattr_t dispAttr = 0;
+          auto dispChar = rawSeq[iQuery + i];
+          if (ref && (dispChar ==
+                      (*ref)[static_cast<size_t> (iRef) + i])) {
+            dispChar = '=';
+            dispAttr = TB_DIM;
+          }
+          set (
+              writeHead, static_cast<uint32_t> (dispChar),
+              dispAttr
+          );
+          ++writeHead.j;
+        }
+
+        iQuery += opLenRemain;
+        iRef += opLenRemain;
+        iGc += opSz;
+      }
+      else {
+        // op entirely offscreen
         iQuery += opSz;
         iRef += opSz;
         iGc += opSz;
-        continue;
       }
-
-      // factor out/improve later
-      int64_t skipOpBases = 0;
-      auto opLenRemain = opSz;
-      if (iGc < boxLeftEdgeGPos) {
-        // may refactor
-        skipOpBases = boxLeftEdgeGPos - iGc;  // +ve
-        iQuery += skipOpBases;
-        iRef += skipOpBases;
-        opLenRemain -= skipOpBases;
-      }
-
-      // set bases
-      // masking bases that match the reference as '='.
-      for (size_t i = 0; i < opLenRemain &&
-                         writeHead.j < last (queryBox.jspan);
-           ++i) {
-        uintattr_t dispAttr = 0;
-        auto dispChar = rawSeq[iQuery + i];
-        if (ref && (dispChar ==
-                    (*ref)[static_cast<size_t> (iRef) + i])) {
-          dispChar = '=';
-          dispAttr = TB_DIM;
-        }
-        set (
-            writeHead, static_cast<uint32_t> (dispChar), dispAttr
-        );
-        ++writeHead.j;
-      }
-
-      iQuery += opLenRemain;
-      iRef += opLenRemain;
-      iGc += opSz;
     }
     else if (opConsumeType == 0b10) {
       // consumes ref only
@@ -469,8 +469,8 @@ static void draw_sequence (
       //     - the latter only relevant to RNA (TODO: disambiguate?)
       // don't advance query tracker
 
-      // op at least partially on screen
       if ((iGc + opSz) >= boxLeftEdgeGPos) {
+        // op at least partially on screen
         int64_t skipOpBases = (iGc < boxLeftEdgeGPos)
                                   ? (boxLeftEdgeGPos - iGc)
                                   : 0;
@@ -485,24 +485,25 @@ static void draw_sequence (
       iGc += opSz;
     }
     else if (opConsumeType == 0b01) {
-      // TODO: INSERTION LOGIC HERE
       // consumes query only
 
-      // insertion
-      // where at least one base PRIOR
-      // to the insertion is visible
       if (opType == BAM_CINS && iGc > boxLeftEdgeGPos) {
+        // insertion
+        // where at least one base PRIOR
+        // to the insertion is visible
+
         // modify anchor base
-        e2::set_attr (
-            writeHead - e2::dJ (1), TB_UNDERLINE | TB_BOLD
-        );
+        const auto anchorCell = writeHead - e2::dJ (1);
+        // removes other styling
+        e2::set_attr (anchorCell, TB_UNDERLINE);
+        e2::extend (anchorCell, markch::ringAbove);
       }
 
-      // soft clipping at start of read
-      // where cells available for writing
-      // clipping label
       if (opType == BAM_CSOFT_CLIP && iOp == 0 &&
           startToLEdge > 0) {
+        // soft clipping at start of read
+        // where cells available for writing
+        // clipping label
         std::string clipLabel =
             "s(" + std::to_string (opSz) + ")";
         if (startToLEdge < clipLabel.size()) {
@@ -515,8 +516,8 @@ static void draw_sequence (
             last (queryBox.jspan), clipLabel, TB_DIM
         );
       }
-      // soft clipping at end of read
       if (opType == BAM_CSOFT_CLIP && iOp == (nCig - 1)) {
+        // soft clipping at end of read
         std::string clipLabel =
             "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
@@ -527,10 +528,13 @@ static void draw_sequence (
 
       iQuery += opSz;
     }
-    // NOTE: hard clip/padding not handled
+    else {
+      // hard clip/padding not handled
+      continue;
+    }
 
-    // early exit if row exhausted
     if (writeHead.j >= last (queryBox.jspan)) {
+      // early exit if row exhausted
       break;
     }
   }
