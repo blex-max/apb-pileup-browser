@@ -101,7 +101,7 @@ constexpr auto CMD_BLOCK = std::to_array<std::string_view> (
      "  `dump <path>`:                               ",
      "    write the in-memory database to an         ",
      "    sqlite3 file                               ",
-     "  `pane [seq|data]`:                           ",
+     "  `fold [seq|data]`:                           ",
      "    fold/unfold the sequence or data pane,     ",
      "    reset both to default with no args         ",
      "  `help [nav|cmd|<cmd>]` (`?`):                ",
@@ -279,7 +279,7 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 | `clear` | | | Clear the active query |
 | `count` | | `[clause]` | Count matching reads without touching the active query (Any clause argument is AND-concatenated to the existing query) |
 | `dump` | | `<path>` | Write the current in-memory database to a sqlite3 file on disk |
-| `pane` | | `[seq\|data]` | Fold/unfold the sequence or data pane; reset both to default with no args |
+| `fold` | | `[seq\|data]` | Fold/unfold the sequence or data pane; reset both to default with no args |
 | `readme` | | `[path]` | Write the readme to `[path]`, or the working directory if omitted |
 | `help` | `?` | `[nav\|cmd\|<cmd>]` | Show this reference, navigation help, or a specific command's usage |
 | `quit` | `q` | | Exit |
