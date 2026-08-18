@@ -76,19 +76,19 @@ static bool handle_nav (AppState& state, const tb_event& ev)
 
     case TB_KEY_ARROW_DOWN:
       if (ev.mod & TB_MOD_SHIFT) {
-        scrollRow++;
+        history_next (cmdWgt.history, cmdWgt.inputBuf);
       }
       else {
-        history_next (cmdWgt.history, cmdWgt.inputBuf);
+        scrollRow++;
       }
       break;
 
     case TB_KEY_ARROW_UP:
       if (ev.mod & TB_MOD_SHIFT) {
-        scrollRow = std::max (scrollRow - 1, 0);
+        history_prev (cmdWgt.history, cmdWgt.inputBuf);
       }
       else {
-        history_prev (cmdWgt.history, cmdWgt.inputBuf);
+        scrollRow = std::max (scrollRow - 1, 0);
       }
       break;
 
