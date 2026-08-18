@@ -50,6 +50,8 @@ struct UIBundle {
   OverlayWgt help;
   int screenH = -1;
   int screenW = -1;
+  // TODO: add individual dirty flags
+  // for each widget
 };
 
 

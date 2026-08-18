@@ -414,9 +414,10 @@ static void draw_sequence (
   for (size_t iOp = 0; iOp < nCig; iOp++) {
     const auto op = cig[iOp];
     const auto opSz = bam_cigar_oplen (op);
-    const auto opType = bam_cigar_type (op);
+    const auto opType = bam_cigar_op (op);
+    const auto opConsumeType = bam_cigar_type (op);
 
-    if (opType == 0b11) {
+    if (opConsumeType == 0b11) {
       // consumes query and ref
       // TODO: clean up, refactor to match
       // ref only branch
@@ -462,7 +463,7 @@ static void draw_sequence (
       iRef += opLenRemain;
       iGc += opSz;
     }
-    else if (opType == 0b10) {
+    else if (opConsumeType == 0b10) {
       // consumes ref only
       // Deletions, or "skipped region"
       //     - the latter only relevant to RNA (TODO: disambiguate?)
@@ -483,14 +484,25 @@ static void draw_sequence (
       iRef += opSz;
       iGc += opSz;
     }
-    else if (opType == 0b01) {
+    else if (opConsumeType == 0b01) {
       // TODO: INSERTION LOGIC HERE
       // consumes query only
+
+      // insertion
+      // where at least one base PRIOR
+      // to the insertion is visible
+      if (opType == BAM_CINS && iGc > boxLeftEdgeGPos) {
+        // modify anchor base
+        e2::set_attr (
+            writeHead - e2::dJ (1), TB_UNDERLINE | TB_BOLD
+        );
+      }
 
       // soft clipping at start of read
       // where cells available for writing
       // clipping label
-      if (op == BAM_CSOFT_CLIP && iOp == 0 && startToLEdge > 0) {
+      if (opType == BAM_CSOFT_CLIP && iOp == 0 &&
+          startToLEdge > 0) {
         std::string clipLabel =
             "s(" + std::to_string (opSz) + ")";
         if (startToLEdge < clipLabel.size()) {
@@ -504,7 +516,7 @@ static void draw_sequence (
         );
       }
       // soft clipping at end of read
-      if (op == BAM_CSOFT_CLIP && iOp == (nCig - 1)) {
+      if (opType == BAM_CSOFT_CLIP && iOp == (nCig - 1)) {
         std::string clipLabel =
             "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
