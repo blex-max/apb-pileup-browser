@@ -371,24 +371,17 @@ static void draw_data_table_row (
   }
 }
 
-// NOTE: this will be called a few times in a loop
-// so consider whether work added here should be
-// factored out.
-// NOTE: can definitely factor out some
-// of the box stuff. consider inlining
-// this whole thing even, later.
+// draw sequence to seq pane
 static void draw_sequence (
     const e2::Box& queryBox, size_t boxRow, sqlite3_stmt* dbRow,
     const LocusData& locus
 )
 {
-  // TASK: inline all sequence drawing functionality
-  // to enable switch over to direct drawing to screen
-  // using richer formatting (for indels).
-  // First, inline drawing, and get parity pre-diff.
-  // Then, display anchor bases as BOLD and UNDERLINED (simplest).
-  const auto ref = locus.refSlice;
+  // NOTE: inlining to a single function
+  // makes it easier to extend and maintain
+  // drawing logic. Resist urge to modularise.
 
+  const auto& ref = locus.refSlice;
   const auto readStart = get_rstart (dbRow);
 
   // NOTE: since view is centered on pileup,
@@ -426,7 +419,6 @@ static void draw_sequence (
         auto opLenRemain = opSz;
         if (iGc < boxLeftEdgeGPos) {
           // op partially on screen only
-          // may refactor
           skipOpBases = boxLeftEdgeGPos - iGc;  // +ve
           iQuery += skipOpBases;
           iRef += skipOpBases;

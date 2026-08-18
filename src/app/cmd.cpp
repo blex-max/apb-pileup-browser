@@ -433,7 +433,15 @@ static CmdResult fold_pane (
     std::string_view args, AppState& state
 )
 {
-  // fragile!
+  // NOTE: needs improvement.
+  // Very graceless. Folding the data
+  // pane is nice, you just see the pane
+  // separator next to the rh border.
+  // The same is not true of folding
+  // the seq pane. Also, should definitely
+  // assemble readme and cmd reference table
+  // from cmd structs, and stick to a single error
+  // msg per misuse of a fn! TODO!
   CmdResult out;
   auto& qbf = state.conf.seqPaneFrac;
   static std::unordered_map<
@@ -441,12 +449,12 @@ static CmdResult fold_pane (
       PANE_SPECIFIERS{
           {"seq",
            [&qbf] (CmdResult& out) {
-             if (qbf == 0.0) {
+             if (qbf == 0.01) {
                qbf = 0.5;
                out.msg = "Unfolded sequence pane";
              }
              else {
-               qbf = 0.0;
+               qbf = 0.01;
                out.msg = "Folded sequence pane";
              };
            }},
@@ -474,7 +482,7 @@ static CmdResult fold_pane (
     }
     else {
       out.msg =
-          "View already at default, specify arg (browser, data) "
+          "View already at default, specify arg (seq, data) "
           "to change";
       out.success = false;
     }
@@ -482,7 +490,7 @@ static CmdResult fold_pane (
   }
   if (tokens.size() > 1) {
     out.success = false;
-    out.msg = "Specify a single pane only (browser, data)";
+    out.msg = "Specify a single pane only (seq, data)";
     return out;
   }
 
@@ -507,7 +515,7 @@ static CmdResult fold_pane (
 }
 // TODO: is `pane` a better name?
 static constexpr Command CMD_FOLD_PANE{
-    "pane", "",
+    "fold", "",
     "fold [seq, data] - show/hide either of the sequence or "
     "data panes, or reset to default with no args",
     &fold_pane
