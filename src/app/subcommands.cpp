@@ -1,6 +1,5 @@
 #include "subcommands.hpp"
 
-#include <fmt/format.h>
 #include <plog/Log.h>
 
 #include "app/orch.hpp"

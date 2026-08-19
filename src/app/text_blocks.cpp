@@ -6,7 +6,7 @@
 
 #define SIZE_ASSERT_FAIL "rows must be of the same width"
 
-constexpr auto HELP_BLOCK = std::to_array<std::string_view> (
+constexpr auto sh_helpBlock = std::to_array<std::string_view> (
     {" apb - a pileup browser                             ",
      "  apb is an terminal-based genome browser designed  ",
      "  for viewing and querying pileup loci. It features ",
@@ -27,17 +27,17 @@ constexpr auto HELP_BLOCK = std::to_array<std::string_view> (
      "    `? cmd`                                         "}
 );
 static_assert (
-    !HELP_BLOCK.empty() &&
+    !sh_helpBlock.empty() &&
         std::ranges::all_of (
-            HELP_BLOCK,
+            sh_helpBlock,
             [] (std::string_view r) {
-              return r.size() == HELP_BLOCK.front().size();
+              return r.size() == sh_helpBlock.front().size();
             }
         ),
     SIZE_ASSERT_FAIL
 );
 
-constexpr auto NAV_BLOCK = std::to_array<std::string_view> (
+constexpr auto sh_navBlock = std::to_array<std::string_view> (
     {" BROWSER PANE                                  ",
      "  Up / Down         scroll one row             ",
      "  PgUp / PgDn       scroll one page            ",
@@ -55,20 +55,20 @@ constexpr auto NAV_BLOCK = std::to_array<std::string_view> (
      " M-: Alt | C-: Ctrl | S-: Shift                "}
 );
 static_assert (
-    !NAV_BLOCK.empty() && std::ranges::all_of (
-                              NAV_BLOCK,
-                              [] (std::string_view r) {
-                                return r.size() ==
-                                       NAV_BLOCK.front().size();
-                              }
-                          ),
+    !sh_navBlock.empty() &&
+        std::ranges::all_of (
+            sh_navBlock,
+            [] (std::string_view r) {
+              return r.size() == sh_navBlock.front().size();
+            }
+        ),
     SIZE_ASSERT_FAIL
 );
 
 // TODO: add fold cmds
 // NOTE: is it possible to generate this off
 // the cmd structs .usage?
-constexpr auto CMD_BLOCK = std::to_array<std::string_view> (
+constexpr auto sh_cmdBlock = std::to_array<std::string_view> (
     {" COMMAND REFERENCE                             ",
      "  `readme [path]`:                             ",
      "    dump complete readme to [path], or cwd if  ",
@@ -111,13 +111,13 @@ constexpr auto CMD_BLOCK = std::to_array<std::string_view> (
      "    exit apb                                   "}
 );
 static_assert (
-    !CMD_BLOCK.empty() && std::ranges::all_of (
-                              CMD_BLOCK,
-                              [] (std::string_view r) {
-                                return r.size() ==
-                                       CMD_BLOCK.front().size();
-                              }
-                          ),
+    !sh_cmdBlock.empty() &&
+        std::ranges::all_of (
+            sh_cmdBlock,
+            [] (std::string_view r) {
+              return r.size() == sh_cmdBlock.front().size();
+            }
+        ),
     SIZE_ASSERT_FAIL
 );
 
@@ -126,18 +126,18 @@ TextBlockRef get_text_block (TxtBlockId id)
 {
   switch (id) {
     case TxtBlockId::generalHelp:
-      return HELP_BLOCK;
+      return sh_helpBlock;
     case TxtBlockId::navHelp:
-      return NAV_BLOCK;
+      return sh_navBlock;
     case TxtBlockId::cmdRef:
-      return CMD_BLOCK;
+      return sh_cmdBlock;
     default:
       return {};
   }
 }
 
 
-constexpr std::string_view README_MARKDOWN = R"md(
+constexpr std::string_view sh_readmeMarkdown = R"md(
 # `apb` - A Pileup Browser
 
 `apb` is a terminal genome browser tailored to exploratory viewing and querying of pileups of mapped reads at genomic loci.
@@ -210,7 +210,7 @@ Requires:
 - `sqlite3` ≥ 3.38
 - `htslib` ≥ 1.17
 
-`sqlite3` and `htslib` need to be discoverable via `pkg-config`. If htslib isn't packaged that way on your system, you can point the build process at it directly with `-DHTSLIB_INCLUDE_DIR` and `-DHTSLIB_LIBRARY`. Other dependencies (termbox2, plog, argparse, fmt) are pulled automatically via CMake FetchContent. This means the first build needs network access.
+`sqlite3` and `htslib` need to be discoverable via `pkg-config`. If htslib isn't packaged that way on your system, you can point the build process at it directly with `-DHTSLIB_INCLUDE_DIR` and `-DHTSLIB_LIBRARY`. All other dependencies for the main binary are vendored with the source. The test binary uses Catch2, which is pulled in via FetchContent if `-DMAKE_TEST=0` is passed to the cmake configure step.
 
 ```sh
 cmake -S . -B build
@@ -437,6 +437,13 @@ find them desirable.
 
 ## Development
 
+### Use of Hungarian Prefixing
+
+**o_** - owned pointer, this scope must handle lifetime.
+**br_** - borrowed pointer, this scope must not affect lifetime.
+**sh_** - shared statically-allocated (probably) object, not defined in this scope.
+**ru_** - buffer reused across loop iterations.
+
 ### Dependencies
 
 | Dependency | Version | Found via | Used for |
@@ -461,7 +468,7 @@ Coverage is concentrated on the backend. TUI rendering and event handling aren't
 
 ### AI Usage Policy
 
-I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to (pending some alpha cleanup). Contributions are more than welcome, but would ideally follow this standard.
+I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to. Contributions are more than welcome, but would ideally follow this standard.
 )md";
 
-std::string_view get_readme() { return README_MARKDOWN; }
+std::string_view get_readme() { return sh_readmeMarkdown; }

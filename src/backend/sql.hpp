@@ -2,9 +2,7 @@
 
 #include <string_view>
 
-// NOTE: rsql_ == raw sql string
-
-inline constexpr std::string_view rsql_PragmaForeignKeys =
+inline constexpr std::string_view sh_sqlPragmaForeignKeys =
     R"sql(
     PRAGMA foreign_keys = ON;
 )sql";
@@ -13,7 +11,7 @@ inline constexpr std::string_view rsql_PragmaForeignKeys =
 // this db is meant to live in memory only — force temp structures there too,
 // so a big sort can't fail with a disk I/O error on a machine with no disk
 // space but plenty of RAM.
-inline constexpr std::string_view rsql_SetTempStoreMemory =
+inline constexpr std::string_view sh_sqlSetTempStoreMemory =
     R"sql(
     PRAGMA temp_store = MEMORY;
 )sql";
@@ -21,7 +19,7 @@ inline constexpr std::string_view rsql_SetTempStoreMemory =
 // metadata table storing provenance data, possibly
 // information retreived from the header. Deliberately unlinked to
 // loci/reads: one alignment file (and therefore one metadata row) per db.
-inline constexpr std::string_view rsql_CreateMetaDataTable =
+inline constexpr std::string_view sh_sqlCreateMetaDataTable =
     R"sql(
 CREATE TABLE metadata (
     id     INTEGER PRIMARY KEY,
@@ -29,7 +27,7 @@ CREATE TABLE metadata (
 )
 )sql";
 
-inline constexpr std::string_view rsql_CreateLociTable =
+inline constexpr std::string_view sh_sqlCreateLociTable =
     R"sql(
 CREATE TABLE loci (
     id         INTEGER PRIMARY KEY,
@@ -42,7 +40,7 @@ CREATE TABLE loci (
 )sql";
 
 // One row per read overlapping pileup reference position.
-inline constexpr std::string_view rsql_CreateReadsTable =
+inline constexpr std::string_view sh_sqlCreateReadsTable =
     R"sql(
 CREATE TABLE reads (
     id          INTEGER PRIMARY KEY,
@@ -86,25 +84,25 @@ CREATE TABLE reads (
 
 // Supports both the common "reads at this locus" query and cascade
 // deletes (loci -> reads).
-inline constexpr std::string_view rsql_CreateReadsLociIdIndex =
+inline constexpr std::string_view sh_sqlCreateReadsLociIdIndex =
     R"sql(
 CREATE INDEX idx_reads_loci_id ON reads(loci_id);
 )sql";
 
 // --- STATEMENTS ---
-inline constexpr std::string_view rsql_InsertMetadata = R"sql(
+inline constexpr std::string_view sh_sqlInsertMetadata = R"sql(
 INSERT INTO metadata (field1) VALUES (?);
 )sql";
 
-inline constexpr std::string_view rsql_InsertLoci = R"sql(
+inline constexpr std::string_view sh_sqlInsertLoci = R"sql(
 INSERT INTO loci (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
 )sql";
 
-inline constexpr std::string_view rsql_SelectLoci = R"sql(
+inline constexpr std::string_view sh_sqlSelectLoci = R"sql(
 SELECT contig, pos, start, end, ref FROM loci;
 )sql";
 
-inline constexpr std::string_view rsql_InsertReads = R"sql(
+inline constexpr std::string_view sh_sqlInsertReads = R"sql(
 INSERT INTO reads (
   loci_id,
   qname, flag, rstart, rend, mapq,

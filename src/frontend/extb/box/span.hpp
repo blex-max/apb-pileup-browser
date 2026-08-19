@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <ranges>
 
 #include "frontend/extb/extb.hpp"
@@ -9,45 +8,49 @@ namespace extb {
 
 // --- TYPES & DECLARATIONS --- //
 
+// NOTE: size (and Box width/height) return signed int: screen
+// geometry in the same coordinate space as Span bounds, never a
+// container index.
+
 struct Span {
   int first = -1, last = -1;
 };
 inline int first (const Span& s) noexcept { return s.first; };
 inline int last (const Span& s) noexcept { return s.last; };
-size_t size (const Span& s) noexcept;
+int size (const Span& s) noexcept;
 bool contains (const Span& s, int p) noexcept;
 bool contains (const Span& outer, const Span& inner) noexcept;
-Span section (
-    const Span& s, size_t from, size_t to
+Span construct_relative (
+    const Span& s, int from, int to
 ) noexcept;  // subset by local coordinates
 Span body (const Span& s) noexcept;
 bool valid (const Span& s) noexcept;
 
-struct ILine {
-  Span ispan;
-  int j;
+struct VLine {
+  int x;
+  Span yspan;
 };
-size_t size (const ILine& l) noexcept;
-GlobalCell first (const ILine& l) noexcept;
-GlobalCell last (const ILine& l) noexcept;
-ILine section (
-    const ILine& l, size_t from, size_t to
+int size (const VLine& l) noexcept;
+GlobalCell first (const VLine& l) noexcept;
+GlobalCell last (const VLine& l) noexcept;
+VLine construct_relative (
+    const VLine& l, int from, int to
 ) noexcept;  // subset by local coordinates
-ILine body (const ILine& l) noexcept;
-bool valid (const ILine& l) noexcept;
+VLine body (const VLine& l) noexcept;
+bool valid (const VLine& l) noexcept;
 
-struct JLine {
-  int i;
-  Span jspan;
+struct HLine {
+  Span xspan;
+  int y;
 };
-size_t size (const JLine& l) noexcept;
-GlobalCell first (const JLine& l) noexcept;
-GlobalCell last (const JLine& l) noexcept;
-JLine section (
-    const JLine& l, size_t from, size_t to
+int size (const HLine& l) noexcept;
+GlobalCell first (const HLine& l) noexcept;
+GlobalCell last (const HLine& l) noexcept;
+HLine construct_relative (
+    const HLine& l, int from, int to
 ) noexcept;  // subset by local coordinates
-JLine body (const JLine& l) noexcept;
-bool valid (const JLine& l) noexcept;
+HLine body (const HLine& l) noexcept;
+bool valid (const HLine& l) noexcept;
 
 // --- END TYPES & DECLARATIONS --- //
 
@@ -57,21 +60,21 @@ bool valid (const JLine& l) noexcept;
 // drawing funtions to convert types
 // to GlobalCellRange.
 
-GlobalCellRange auto inline cell_source (ILine l)
+GlobalCellRange auto inline cell_source (VLine l)
 {
-  const std::size_t height = size (l.ispan);
-  return std::views::iota (std::size_t{0}, height) |
-         std::views::transform ([l] (std::size_t index) {
-           return first (l) + dI (static_cast<int> (index));
+  const int height = size (l.yspan);
+  return std::views::iota (0, height) |
+         std::views::transform ([l] (int index) {
+           return first (l) + dY (index);
          });
 }
 
-GlobalCellRange auto inline cell_source (JLine l)
+GlobalCellRange auto inline cell_source (HLine l)
 {
-  const std::size_t width = size (l.jspan);
-  return std::views::iota (std::size_t{0}, width) |
-         std::views::transform ([l] (std::size_t index) {
-           return first (l) + dJ (static_cast<int> (index));
+  const int width = size (l.xspan);
+  return std::views::iota (0, width) |
+         std::views::transform ([l] (int index) {
+           return first (l) + dX (index);
          });
 }
 
@@ -84,9 +87,9 @@ inline bool valid (const Span& s) noexcept
   return (s.first >= 0 && s.last >= 0 && s.last > s.first);
 }
 
-inline size_t size (const Span& s) noexcept
+inline int size (const Span& s) noexcept
 {
-  return valid (s) ? static_cast<size_t> (s.last - s.first) : 0;
+  return valid (s) ? s.last - s.first : 0;
 }
 inline bool contains (const Span& s, int p) noexcept
 {
@@ -100,93 +103,76 @@ inline bool contains (
          (outer.first <= inner.first &&
           outer.last >= inner.last);
 }
-inline Span section (
-    const Span& s, size_t from, size_t to
+inline Span construct_relative (
+    const Span& s, int from, int to
 ) noexcept
 {
-  if (!valid (s) || from > to || to > size (s)) {
+  const auto newStart = s.first + from;
+  const auto newEnd = s.first + to;
+
+  if (!valid (s) || newStart < 0 || newEnd <= newStart) {
     return {-1, -1};
   }
-  return {
-      s.first + static_cast<int> (from),
-      s.first + static_cast<int> (to)
-  };
+  return {newStart, newEnd};
 }
 inline Span body (const Span& s) noexcept
 {
-  return section (s, 1, size (s) - 1);
+  return construct_relative (s, 1, size (s) - 1);
 }
 
-// JLine / ILine methods
-inline size_t size (const JLine& l) noexcept
+// HLine / VLine methods
+inline int size (const HLine& l) noexcept
 {
-  return size (l.jspan);
+  return size (l.xspan);
 }
-inline GlobalCell first (const JLine& l) noexcept
+inline GlobalCell first (const HLine& l) noexcept
 {
-  return {l.i, l.jspan.first};
+  return {l.xspan.first, l.y};
 }
-inline GlobalCell last (const JLine& l) noexcept
+inline GlobalCell last (const HLine& l) noexcept
 {
-  return {l.i, l.jspan.last - 1};
+  return {l.xspan.last - 1, l.y};
 }
-inline bool valid (const JLine& l) noexcept
+inline bool valid (const HLine& l) noexcept
 {
-  return l.i >= 0 && valid (l.jspan);
+  return valid (l.xspan) && l.y >= 0;
 }
-inline JLine section (
-    const JLine& l, size_t from, size_t to
+inline HLine construct_relative (
+    const HLine& l, int from, int to
 ) noexcept
 {
-  if (!valid (l) || from > to || to > size (l)) {
-    return {l.i, Span{}};
-  }
-  return {
-      l.i, Span{
-               l.jspan.first + static_cast<int> (from),
-               l.jspan.first + static_cast<int> (to)
-           }
-  };
+  return {construct_relative (l.xspan, from, to), l.y};
 }
-inline JLine body (const JLine& l) noexcept
+inline HLine body (const HLine& l) noexcept
 {
-  return section (l, 1, size (l) - 1);
+  return construct_relative (l, 1, size (l) - 1);
 }
 
-inline size_t size (const ILine& l) noexcept
+inline int size (const VLine& l) noexcept
 {
-  return size (l.ispan);
+  return size (l.yspan);
 }
-inline GlobalCell first (const ILine& l) noexcept
+inline GlobalCell first (const VLine& l) noexcept
 {
-  return {l.ispan.first, l.j};
+  return {l.x, l.yspan.first};
 }
-inline GlobalCell last (const ILine& l) noexcept
+inline GlobalCell last (const VLine& l) noexcept
 {
-  return {l.ispan.last - 1, l.j};
+  return {l.x, l.yspan.last - 1};
 }
-inline bool valid (const ILine& l) noexcept
+inline bool valid (const VLine& l) noexcept
 {
-  return l.j >= 0 && valid (l.ispan);
+  return l.x >= 0 && valid (l.yspan);
 }
-inline ILine section (
-    const ILine& l, size_t from, size_t to
+inline VLine construct_relative (
+    const VLine& l, int from, int to
 ) noexcept
 {
-  if (!valid (l) || from > to || to > size (l)) {
-    return {Span{}, l.j};
-  }
-  return {
-      Span{
-          l.ispan.first + static_cast<int> (from),
-          l.ispan.first + static_cast<int> (to)
-      },
-      l.j
-  };
+  return {l.x, construct_relative (l.yspan, from, to)};
 }
-inline ILine body (const ILine& l) noexcept
+inline VLine body (const VLine& l) noexcept
 {
-  return section (l, 1, size (l) - 1);
+  return construct_relative (l, 1, size (l) - 1);
 }
 
 // --- END IMPLEMENTATION --- //

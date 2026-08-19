@@ -3,17 +3,17 @@
 #include <fmt/format.h>
 #include <htslib/faidx.h>
 
-#include "backend/PileupDB.hpp"
 #include "shared/err.hpp"
 
-AlnOrErr load_aln (const char* fn)
+AlnOrErr load_aln (const char* br_fn)
 {
   AlnFile aln;
-  aln.o_fh = hts_open (fn, "r");
+  aln.o_fh = hts_open (br_fn, "r");
   if (!aln.o_fh) {
     return std::unexpected (make_htslib_err (
-        -1,
-        fmt::format ("Could not open alignment file at {}", fn)
+        -1, fmt::format (
+                "Could not open alignment file at {}", br_fn
+            )
     ));
   }
   aln.o_hdr = sam_hdr_read (aln.o_fh);
@@ -24,27 +24,28 @@ AlnOrErr load_aln (const char* fn)
         "from alignment file"
     ));
   }
-  aln.o_idx = sam_index_load (aln.o_fh, fn);
+  aln.o_idx = sam_index_load (aln.o_fh, br_fn);
   if (!aln.o_idx) {
     return std::unexpected (make_htslib_err (
-        -1, fmt::format ("Could not load index for {}", fn)
+        -1, fmt::format ("Could not load index for {}", br_fn)
     ));
   }
 
   return aln;
 }
 
-FastaOrErr load_fasta (const char* fn)
+FastaOrErr load_fasta (const char* br_fn)
 {
   FastaFile ff;
 
   ff.o_fai = fai_load3_format (
-      fn, NULL, NULL, 0, fai_format_options::FAI_FASTA
+      br_fn, NULL, NULL, 0, fai_format_options::FAI_FASTA
   );
 
   if (!ff.o_fai) {
     return std::unexpected (make_htslib_err (
-        -1, fmt::format ("Could not open fasta file at {}", fn)
+        -1,
+        fmt::format ("Could not open fasta file at {}", br_fn)
     ));
   }
 
@@ -57,10 +58,10 @@ RefSliceOrErr fetch_region (
 )
 {
   hts_pos_t rc;
-  auto p_fetch = faidx_fetch_seq64 (
+  auto o_fetch = faidx_fetch_seq64 (
       ff, contigName.data(), regStart, regEnd - 1, &rc
   );
-  if (p_fetch == NULL) {
+  if (o_fetch == NULL) {
     std::string msg{"Could not retrieve region from fasta; "};
     if (rc == -2) {
       msg += fmt::format ("contig {} not found", contigName);
@@ -73,9 +74,9 @@ RefSliceOrErr fetch_region (
     );
   }
 
-  std::string out{p_fetch, static_cast<size_t> (rc)};
+  std::string out{o_fetch, static_cast<size_t> (rc)};
 
-  free (p_fetch);
+  free (o_fetch);
 
   return out;
 }

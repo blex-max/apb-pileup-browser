@@ -76,7 +76,7 @@ struct AlnFile {
 };
 
 using AlnOrErr = std::expected<AlnFile, Err>;
-[[nodiscard]] AlnOrErr load_aln (const char* fn);
+[[nodiscard]] AlnOrErr load_aln (const char* br_fn);
 
 struct FastaFile {
   faidx_t* o_fai;
@@ -113,7 +113,7 @@ struct FastaFile {
 };
 
 using FastaOrErr = std::expected<FastaFile, Err>;
-[[nodiscard]] FastaOrErr load_fasta (const char* fn);
+[[nodiscard]] FastaOrErr load_fasta (const char* br_fn);
 
 using RefSliceOrErr = std::expected<std::string, Err>;
 [[nodiscard]] RefSliceOrErr fetch_region (

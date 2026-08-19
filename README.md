@@ -75,7 +75,7 @@ Requires:
 - `sqlite3` ≥ 3.38
 - `htslib` ≥ 1.17
 
-`sqlite3` and `htslib` need to be discoverable via `pkg-config`. If htslib isn't packaged that way on your system, you can point the build process at it directly with `-DHTSLIB_INCLUDE_DIR` and `-DHTSLIB_LIBRARY`. Other dependencies (termbox2, plog, argparse, fmt) are pulled automatically via CMake FetchContent. This means the first build needs network access.
+`sqlite3` and `htslib` need to be discoverable via `pkg-config`. If htslib isn't packaged that way on your system, you can point the build process at it directly with `-DHTSLIB_INCLUDE_DIR` and `-DHTSLIB_LIBRARY`. All other dependencies for the main binary are vendored with the source. The test binary uses Catch2, which is pulled in via FetchContent if `-DMAKE_TEST=0` is passed to the cmake configure step.
 
 ```sh
 cmake -S . -B build
@@ -302,6 +302,13 @@ find them desirable.
 
 ## Development
 
+### Use of Hungarian Prefixing
+
+**o_** - owned pointer, this scope must handle lifetime.
+**br_** - borrowed pointer, this scope must not affect lifetime.
+**sh_** - shared statically-allocated (probably) object, not defined in this scope.
+**ru_** - buffer reused across loop iterations.
+
 ### Dependencies
 
 | Dependency | Version | Found via | Used for |
@@ -326,4 +333,4 @@ Coverage is concentrated on the backend. TUI rendering and event handling aren't
 
 ### AI Usage Policy
 
-I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to (pending some alpha cleanup). Contributions are more than welcome, but would ideally follow this standard.
+I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain and easy to contribute to. Contributions are more than welcome, but would ideally follow this standard.

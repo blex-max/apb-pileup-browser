@@ -23,9 +23,9 @@ std::expected<SqliteStmt, Err> prepare_insert_loci_stmt (
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, rsql_InsertLoci.data(),
-          static_cast<int> (rsql_InsertLoci.size()), &stmt.o_ptr,
-          NULL
+          db, sh_sqlInsertLoci.data(),
+          static_cast<int> (sh_sqlInsertLoci.size()),
+          &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
     return std::unexpected{
@@ -44,9 +44,9 @@ std::expected<SqliteStmt, Err> prepare_insert_reads_stmt (
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, rsql_InsertReads.data(),
-          static_cast<int> (rsql_InsertReads.size()),
-          &stmt.o_ptr, NULL
+          db, sh_sqlInsertReads.data(),
+          static_cast<int> (sh_sqlInsertReads.size()),
+          &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
     return std::unexpected{
@@ -56,11 +56,11 @@ std::expected<SqliteStmt, Err> prepare_insert_reads_stmt (
   return stmt;
 }
 
-std::string stringify_cigar (const uint32_t* cig, size_t nCig)
+std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
 {
   std::string out;
   for (size_t opi = 0; opi < nCig; opi++) {
-    const auto cigel = cig[opi];
+    const auto cigel = br_cig[opi];
     out += std::to_string (bam_cigar_oplen (cigel));
     out += bam_cigar_opchr (cigel);
   }
@@ -74,13 +74,12 @@ std::string stringify_cigar (const uint32_t* cig, size_t nCig)
 // unescaped — without this, valid tags can produce malformed JSON
 // and trip the `reads.tags` CHECK(json_valid(tags)) constraint.
 void append_json_escaped (
-    const char* p_data, size_t len, std::string& out
+    const char* br_data, size_t len, std::string& out
 )
 {
   static const char hexDigits[] = "0123456789abcdef";
   for (size_t i = 0; i < len; ++i) {
-    const unsigned char ch =
-        static_cast<unsigned char> (p_data[i]);
+    const auto ch = static_cast<unsigned char> (br_data[i]);
     switch (ch) {
       case '"':
         out += "\\\"";
@@ -102,7 +101,7 @@ void append_json_escaped (
 }
 
 VoidOrErr aux1_to_json (
-    const uint8_t* p_aux1, const uint8_t* p_auxEnd,
+    const uint8_t* br_aux1, const uint8_t* br_auxEnd,
     std::string& entryOut
 )
 {
@@ -110,7 +109,7 @@ VoidOrErr aux1_to_json (
   kstring_t o_kstr;
   ks_initialize (&o_kstr);
   if (sam_format_aux1 (
-          p_aux1 - 2, *p_aux1, p_aux1 + 1, p_auxEnd, &o_kstr
+          br_aux1 - 2, *br_aux1, br_aux1 + 1, br_auxEnd, &o_kstr
       ) == NULL) {
     return std::unexpected{make_htslib_err (
         -1,
@@ -118,16 +117,16 @@ VoidOrErr aux1_to_json (
         "tag"
     )};  // TODO: better error
   }
-  const char* p_str = ks_str (&o_kstr);
+  const char* br_str = ks_str (&o_kstr);
 
   /* append key */
   entryOut += '"';  // open key quotes
-  entryOut.append (p_str, 2);  // 2-ch tag
+  entryOut.append (br_str, 2);  // 2-ch tag
   entryOut += '"';  // close
   entryOut += ':';  // add key-val separator
 
   /* append val */
-  const char typeCh = *(p_str + 3);
+  const char typeCh = *(br_str + 3);
   if (typeCh == 'B') {
     entryOut += '[';  // open array
     // handle array
@@ -138,20 +137,20 @@ VoidOrErr aux1_to_json (
     // read past the end of the formatted buffer.
     const size_t headerLen = 6;
     if (ks_len (&o_kstr) > headerLen) {
-      const char* p_valStart = p_str + headerLen + 1;
+      const char* br_valStart = br_str + headerLen + 1;
       // all allowed array types are numeric
       // no need to check type
       ks_tokaux_t tokAux;
-      const char* p_tok;
+      const char* br_tok;
       bool firstTok = true;
-      for (p_tok = kstrtok (p_valStart, ",", &tokAux); p_tok;
-           p_tok = kstrtok (NULL, NULL, &tokAux)) {
+      for (br_tok = kstrtok (br_valStart, ",", &tokAux); br_tok;
+           br_tok = kstrtok (NULL, NULL, &tokAux)) {
         const size_t tokLen =
-            static_cast<size_t> (tokAux.p - p_tok);
+            static_cast<size_t> (tokAux.p - br_tok);
         if (!firstTok) {
           entryOut += ',';
         }
-        entryOut.append (p_tok, tokLen);
+        entryOut.append (br_tok, tokLen);
         firstTok = false;
       }
     }
@@ -159,7 +158,7 @@ VoidOrErr aux1_to_json (
   }
   else {
     const size_t valStartOffset = 5;
-    const char* p_valStart = p_str + valStartOffset;
+    const char* br_valStart = br_str + valStartOffset;
     const size_t valLen = ks_len (&o_kstr) - valStartOffset;
     switch (typeCh) {
       case 'A':
@@ -167,12 +166,12 @@ VoidOrErr aux1_to_json (
       case 'H':
         // val as string
         entryOut += '"';
-        append_json_escaped (p_valStart, valLen, entryOut);
+        append_json_escaped (br_valStart, valLen, entryOut);
         entryOut += '"';
         break;
       default:
         // val as numeric
-        entryOut.append (p_valStart, valLen);
+        entryOut.append (br_valStart, valLen);
         break;
     }
   }
@@ -182,11 +181,11 @@ VoidOrErr aux1_to_json (
 }
 
 extern "C" {
-int pileup_func (void* data, bam1_t* b)
+int pileup_func (void* br_data, bam1_t* br_b)
 {
-  const PileupCapture* d = (PileupCapture*)(data);
+  const PileupCapture* br_d = (PileupCapture*)(br_data);
   // No filtering
-  return sam_itr_next (d->uo_fh, d->o_it, b);
+  return sam_itr_next (br_d->br_fh, br_d->o_it, br_b);
 }
 }
 
@@ -198,9 +197,9 @@ PileupOrErr prepare_pileup (
   PreparedPileup out;
 
   PLOGD << "Initalising sam_itr_queryi";
-  auto alnIter =
+  auto o_alnIter =
       sam_itr_queryi (aln.o_idx, pos.tid, pos.pos, pos.pos + 1);
-  if (alnIter == NULL) {
+  if (o_alnIter == NULL) {
     return std::unexpected{make_htslib_err (
         -1,
         "sam_itr_queryi: failed "
@@ -209,23 +208,23 @@ PileupOrErr prepare_pileup (
   }
 
   PLOGD << "Initialising bam_plp_t";
-  out.o_cap = new PileupCapture{aln.o_fh, alnIter};
-  auto plp = bam_plp_init (pileup_func, out.o_cap);
-  if (plp == NULL) {
+  out.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
+  auto o_plp = bam_plp_init (pileup_func, out.o_cap);
+  if (o_plp == NULL) {
     return std::unexpected{make_htslib_err (
         -1,
         "bam_plp_init: failed to initialise "
         "pileup engine"
     )};
   }
-  out.o_plp = plp;
+  out.o_plp = o_plp;
 
   int64_t plpPos = -1;
   int plpTid = -1;
   int nPlp = -1;
-  const bam_pileup1_t* plpArr;
+  const bam_pileup1_t* br_plpArr;
   PLOGD << "Iterating pileup";
-  while ((plpArr = bam_plp64_auto (
+  while ((br_plpArr = bam_plp64_auto (
               out.o_plp, &plpTid, &plpPos, &nPlp
           )) != 0) {
     if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
@@ -237,7 +236,7 @@ PileupOrErr prepare_pileup (
       continue;  // doesn't cover variant
     }
     PLOGD << "Position found";
-    out.plpArr = const_cast<const bam_pileup1_t*> (plpArr);
+    out.br_plpArr = const_cast<const bam_pileup1_t*> (br_plpArr);
     out.nPlp = static_cast<size_t> (nPlp);
     return out;
   }
@@ -249,7 +248,7 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
 {
   GenomicSpan out{INT64_MAX, 0};
   for (size_t i = 0; i < plp.nPlp; i++) {
-    const auto b1 = plp.plpArr[i].b;
+    const auto b1 = plp.br_plpArr[i].b;
     const auto rStart = b1->core.pos;
     const auto rEnd =
         rStart + bam_cigar2rlen (
@@ -528,7 +527,7 @@ VoidOrErr commit (PileupDB& db)
 }
 
 VoidOrErr insert_reads_internal (
-    PileupDB& db, const bam_pileup1_t* plpArr, size_t nPlp,
+    PileupDB& db, const bam_pileup1_t* br_plpArr, size_t nPlp,
     int lociId, const Tid2StrFn& tid2str
 )
 {
@@ -555,7 +554,7 @@ VoidOrErr insert_reads_internal (
   const char* ru_mtidName = NULL;
 
   for (size_t i = 0; i < nPlp; ++i) {
-    ru_p1 = const_cast<bam_pileup1_t*> (&plpArr[i]);
+    ru_p1 = const_cast<bam_pileup1_t*> (&br_plpArr[i]);
     {
       /* stringify mtid, if available */
       // '=' if same contig as this read, per SAM RNEXT convention;
@@ -617,76 +616,77 @@ VoidOrErr insert_reads_internal (
 // NOTE: takes mTidName directly to
 // avoid dealing with SAM header.
 VoidOrErr fill_fields (
-    PileupFields& pf, const bam_pileup1_t* p1,
+    PileupFields& pf, const bam_pileup1_t* br_p1,
     const char* mTidName
 )
 {
-  const auto uo_b1 = p1->b;
-  const auto nCig = uo_b1->core.n_cigar;
-  const auto p_cig = bam_get_cigar (uo_b1);
+  const auto* br_b1 = br_p1->b;
+  const auto nCig = br_b1->core.n_cigar;
+  const auto* br_cig = bam_get_cigar (br_b1);
 
-  pf.qPos = p1->qpos;
-  pf.indel = p1->indel;
-  pf.isDel = p1->is_del;
-  pf.isHead = p1->is_head;
-  pf.isTail = p1->is_tail;
-  pf.isRefSkip = p1->is_refskip;
+  pf.qPos = br_p1->qpos;
+  pf.indel = br_p1->indel;
+  pf.isDel = br_p1->is_del;
+  pf.isHead = br_p1->is_head;
+  pf.isTail = br_p1->is_tail;
+  pf.isRefSkip = br_p1->is_refskip;
   // NOTE: qname null terminated,
   // so assignment safe.
-  pf.qName = bam_get_qname (uo_b1);
-  pf.flag = uo_b1->core.flag;
-  pf.start = uo_b1->core.pos;
-  pf.mapQ = uo_b1->core.qual;
+  pf.qName = bam_get_qname (br_b1);
+  pf.flag = br_b1->core.flag;
+  pf.start = br_b1->core.pos;
+  pf.mapQ = br_b1->core.qual;
   pf.mtidName = mTidName != NULL ? mTidName : "";
-  pf.mStart = uo_b1->core.mpos;  // <0 == unaligned (or no mate)
-  pf.rawCig = {p_cig, p_cig + nCig};
-  pf.nCig = uo_b1->core.n_cigar;
+  pf.mStart = br_b1->core.mpos;  // <0 == unaligned (or no mate)
+  pf.rawCig = {br_cig, br_cig + nCig};
+  pf.nCig = br_b1->core.n_cigar;
 
   {
     /* stringify seq, qual */
     // ASSUMPTION: seq and qual data present.
-    auto& ru_seq = pf.seqBases;
-    auto& ru_qual = pf.qualAscii;
-    const auto lq = static_cast<size_t> (uo_b1->core.l_qseq);
-    ru_seq.resize (lq);
-    ru_qual.resize (lq);
+    auto& pfSeq = pf.seqBases;
+    auto& pfQual = pf.qualAscii;
+    const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
+    pfSeq.resize (lq);
+    pfQual.resize (lq);
 
-    const uint8_t* p_qs = bam_get_seq (uo_b1);
-    const uint8_t* p_qq = bam_get_qual (uo_b1);
+    const uint8_t* br_qs = bam_get_seq (br_b1);
+    const uint8_t* br_qq = bam_get_qual (br_b1);
     for (size_t j = 0; j < lq; ++j) {
-      ru_seq[j] = seq_nt16_str[bam_seqi (p_qs, j)];
-      ru_qual[j] = static_cast<char> (p_qq[j] + 33);
+      pfSeq[j] = seq_nt16_str[bam_seqi (br_qs, j)];
+      pfQual[j] = static_cast<char> (br_qq[j] + 33);
     }
-    pf.baseQual = p_qq[p1->qpos];
-    pf.base = ru_seq[static_cast<size_t> (p1->qpos)];
+    pf.baseQual = br_qq[br_p1->qpos];
+    pf.base = pfSeq[static_cast<size_t> (br_p1->qpos)];
   }
 
   {
     /* stringify cigar */
     // ASSUMPTION: cigar available and correct.
-    pf.cig = stringify_cigar (p_cig, nCig);
+    pf.cig = stringify_cigar (br_cig, nCig);
     pf.end = pf.start +
-             bam_cigar2rlen (static_cast<int> (nCig), p_cig);
+             bam_cigar2rlen (static_cast<int> (nCig), br_cig);
   }
 
   {
     /* aux to json; left empty if no aux tags present */
     auto& auxJson = pf.auxJson;
     auxJson.clear();
-    const uint8_t* p_dataEnd = uo_b1->data + uo_b1->l_data;
-    const uint8_t* p_aux1 = bam_aux_first (uo_b1);
-    if (p_aux1 != NULL) {
+    const uint8_t* br_dataEnd = br_b1->data + br_b1->l_data;
+    const uint8_t* br_aux1 = bam_aux_first (br_b1);
+    if (br_aux1 != NULL) {
       auxJson += '{';
       std::string ru_aux1{};
-      for (; p_aux1;) {
+      for (; br_aux1 != nullptr;) {
         ru_aux1.clear();
-        auto convRet = aux1_to_json (p_aux1, p_dataEnd, ru_aux1);
+        auto convRet =
+            aux1_to_json (br_aux1, br_dataEnd, ru_aux1);
         if (!convRet) {
           return std::unexpected{convRet.error()};
         }
         auxJson += ru_aux1;
-        p_aux1 = bam_aux_next (uo_b1, p_aux1);
-        if (p_aux1 == NULL) {
+        br_aux1 = bam_aux_next (br_b1, br_aux1);
+        if (br_aux1 == NULL) {
           break;
         }
         auxJson += ',';

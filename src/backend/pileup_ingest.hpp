@@ -46,13 +46,13 @@ struct PileupFields {
 
 /* htslib PILEUP MACHINERY */
 struct PileupCapture {
-  htsFile* uo_fh = nullptr;  // UnOwned
-  hts_itr_t* o_it = nullptr;  // Owned
+  htsFile* br_fh = nullptr;  // borrowed
+  hts_itr_t* o_it = nullptr;
 };
 struct PreparedPileup {
   PileupCapture* o_cap = nullptr;
   bam_plp_t o_plp = nullptr;
-  const bam_pileup1_t* plpArr = nullptr;
+  const bam_pileup1_t* br_plpArr = nullptr;
   size_t nPlp = 0;
 
   ~PreparedPileup()
@@ -64,7 +64,7 @@ struct PreparedPileup {
     if (o_plp) {
       bam_plp_destroy (o_plp);
     }
-    plpArr = nullptr;
+    br_plpArr = nullptr;
   }
   PreparedPileup() = default;
   PreparedPileup (PreparedPileup&) = delete;
@@ -72,12 +72,12 @@ struct PreparedPileup {
   PreparedPileup (PreparedPileup&& o) noexcept
       : o_cap (o.o_cap),
         o_plp (o.o_plp),
-        plpArr (o.plpArr),
+        br_plpArr (o.br_plpArr),
         nPlp (o.nPlp)
   {
     o.o_cap = nullptr;
     o.o_plp = nullptr;
-    o.plpArr = nullptr;
+    o.br_plpArr = nullptr;
     o.nPlp = 0;
   };
   PreparedPileup& operator= (PreparedPileup&&) = delete;
@@ -104,10 +104,10 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp);
 prepare_insert_reads_stmt (PileupDB& db);
 
 // Insert reads covering a pileup position into database.
-// plpArr/nPlp: the pileup array produced by prepare_pileup, for the
+// br_plpArr/nPlp: the pileup array produced by prepare_pileup, for the
 // locus identified by lociId.
 [[nodiscard]] VoidOrErr insert_reads_internal (
-    PileupDB& db, const bam_pileup1_t* plpArr, size_t nPlp,
+    PileupDB& db, const bam_pileup1_t* br_plpArr, size_t nPlp,
     int lociId, const Tid2StrFn& tid2str
 );
 
@@ -123,24 +123,26 @@ prepare_insert_reads_stmt (PileupDB& db);
 // convert to database-facing interface type
 // NOTE: noexcept?
 VoidOrErr fill_fields (
-    PileupFields& pf, const bam_pileup1_t* p1,
+    PileupFields& pf, const bam_pileup1_t* br_p1,
     const char* mTidName
 );
 
 // Render a CIGAR array as its textual form (e.g. "10S40M5I2D").
-std::string stringify_cigar (const uint32_t* cig, size_t nCig);
+std::string stringify_cigar (
+    const uint32_t* br_cig, size_t nCig
+);
 
 // Escape a raw aux string value for embedding in a JSON string literal.
 void append_json_escaped (
-    const char* p_data, size_t len, std::string& out
+    const char* br_data, size_t len, std::string& out
 );
 
 // Convert one raw htslib aux tag into a `"TAG":value` JSON fragment,
-// appended to entryOut. p_aux1 must point at the tag's type-char byte
+// appended to entryOut. br_aux1 must point at the tag's type-char byte
 // (the 2-byte tag name occupies the two bytes immediately before it);
-// p_auxEnd bounds the whole aux buffer.
+// br_auxEnd bounds the whole aux buffer.
 [[nodiscard]] VoidOrErr aux1_to_json (
-    const uint8_t* p_aux1, const uint8_t* p_auxEnd,
+    const uint8_t* br_aux1, const uint8_t* br_auxEnd,
     std::string& entryOut
 );
 

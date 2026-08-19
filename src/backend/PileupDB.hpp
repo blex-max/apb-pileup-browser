@@ -85,183 +85,192 @@ enum SelectFields {
   ncig
 };
 
-inline int64_t get_id (sqlite3_stmt* row)
+inline int64_t get_id (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int64 (row, SelectFields::id);
+  return sqlite3_column_int64 (br_row, SelectFields::id);
 }
-inline int64_t get_loci_id (sqlite3_stmt* row)
+inline int64_t get_loci_id (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int64 (row, SelectFields::loci_id);
+  return sqlite3_column_int64 (br_row, SelectFields::loci_id);
 }
-inline std::string get_qname (sqlite3_stmt* row)
+inline std::string get_qname (sqlite3_stmt* br_row)
 {
-  if (sqlite3_column_type (row, SelectFields::qname) ==
+  if (sqlite3_column_type (br_row, SelectFields::qname) ==
       SQLITE_NULL) {
     return "";
   }
-  const auto* p = sqlite3_column_text (row, SelectFields::qname);
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::qname);
   const auto len =
-      sqlite3_column_bytes (row, SelectFields::qname);
+      sqlite3_column_bytes (br_row, SelectFields::qname);
   return std::string (
-      reinterpret_cast<const char*> (p),
+      reinterpret_cast<const char*> (br_p),
       static_cast<size_t> (len)
   );
 }
-inline uint16_t get_flag (sqlite3_stmt* row)
+inline uint16_t get_flag (sqlite3_stmt* br_row)
 {
   return static_cast<uint16_t> (
-      sqlite3_column_int (row, SelectFields::flag)
+      sqlite3_column_int (br_row, SelectFields::flag)
   );
 }
-inline int64_t get_rstart (sqlite3_stmt* row)
+inline int64_t get_rstart (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int64 (row, SelectFields::rstart);
+  return sqlite3_column_int64 (br_row, SelectFields::rstart);
 }
-inline int64_t get_rend (sqlite3_stmt* row)
+inline int64_t get_rend (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int64 (row, SelectFields::rend);
+  return sqlite3_column_int64 (br_row, SelectFields::rend);
 }
-inline uint8_t get_mapq (sqlite3_stmt* row)
+inline uint8_t get_mapq (sqlite3_stmt* br_row)
 {
   return static_cast<uint8_t> (
-      sqlite3_column_int (row, SelectFields::mapq)
+      sqlite3_column_int (br_row, SelectFields::mapq)
   );
 }
-inline char get_base (sqlite3_stmt* row)
+inline char get_base (sqlite3_stmt* br_row)
 {
-  const auto* p = sqlite3_column_text (row, SelectFields::base);
-  return static_cast<char> (p[0]);
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::base);
+  return static_cast<char> (br_p[0]);
 }
-inline uint8_t get_basequal (sqlite3_stmt* row)
+inline uint8_t get_basequal (sqlite3_stmt* br_row)
 {
   return static_cast<uint8_t> (
-      sqlite3_column_int (row, SelectFields::basequal)
+      sqlite3_column_int (br_row, SelectFields::basequal)
   );
 }
-inline uint64_t get_qpos (sqlite3_stmt* row)
+inline uint64_t get_qpos (sqlite3_stmt* br_row)
 {
   return static_cast<uint64_t> (
-      sqlite3_column_int (row, SelectFields::qpos)
+      sqlite3_column_int (br_row, SelectFields::qpos)
   );
 }
-inline int64_t get_indel (sqlite3_stmt* row)
+inline int64_t get_indel (sqlite3_stmt* br_row)
 {
   return static_cast<int64_t> (
-      sqlite3_column_int (row, SelectFields::indel)
+      sqlite3_column_int (br_row, SelectFields::indel)
   );
 }
-inline bool get_is_del (sqlite3_stmt* row)
+inline bool get_is_del (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int (row, SelectFields::is_del) != 0;
+  return sqlite3_column_int (br_row, SelectFields::is_del) != 0;
 }
-inline bool get_is_head (sqlite3_stmt* row)
+inline bool get_is_head (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int (row, SelectFields::is_head) != 0;
+  return sqlite3_column_int (br_row, SelectFields::is_head) != 0;
 }
-inline bool get_is_tail (sqlite3_stmt* row)
+inline bool get_is_tail (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int (row, SelectFields::is_tail) != 0;
+  return sqlite3_column_int (br_row, SelectFields::is_tail) != 0;
 }
-inline bool get_is_refskip (sqlite3_stmt* row)
+inline bool get_is_refskip (sqlite3_stmt* br_row)
 {
-  return sqlite3_column_int (row, SelectFields::is_refskip) != 0;
+  return sqlite3_column_int (br_row, SelectFields::is_refskip) !=
+         0;
 }
-inline std::string get_cigar (sqlite3_stmt* row)
+inline std::string get_cigar (sqlite3_stmt* br_row)
 {
-  const auto* p = sqlite3_column_text (row, SelectFields::cigar);
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::cigar);
   const auto len =
-      sqlite3_column_bytes (row, SelectFields::cigar);
+      sqlite3_column_bytes (br_row, SelectFields::cigar);
   return std::string (
-      reinterpret_cast<const char*> (p),
+      reinterpret_cast<const char*> (br_p),
       static_cast<size_t> (len)
   );
 }
-inline std::string get_seq (sqlite3_stmt* row)
+inline std::string get_seq (sqlite3_stmt* br_row)
 {
-  const auto* p = sqlite3_column_text (row, SelectFields::seq);
-  const auto len = sqlite3_column_bytes (row, SelectFields::seq);
-  return std::string (
-      reinterpret_cast<const char*> (p),
-      static_cast<size_t> (len)
-  );
-}
-inline std::string get_qual (sqlite3_stmt* row)
-{
-  const auto* p = sqlite3_column_text (row, SelectFields::qual);
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::seq);
   const auto len =
-      sqlite3_column_bytes (row, SelectFields::qual);
+      sqlite3_column_bytes (br_row, SelectFields::seq);
   return std::string (
-      reinterpret_cast<const char*> (p),
+      reinterpret_cast<const char*> (br_p),
       static_cast<size_t> (len)
   );
 }
-inline std::string get_mtid (sqlite3_stmt* row)
+inline std::string get_qual (sqlite3_stmt* br_row)
 {
-  if (sqlite3_column_type (row, SelectFields::mtid) ==
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::qual);
+  const auto len =
+      sqlite3_column_bytes (br_row, SelectFields::qual);
+  return std::string (
+      reinterpret_cast<const char*> (br_p),
+      static_cast<size_t> (len)
+  );
+}
+inline std::string get_mtid (sqlite3_stmt* br_row)
+{
+  if (sqlite3_column_type (br_row, SelectFields::mtid) ==
       SQLITE_NULL) {
     return "";
   }
-  const auto* p = sqlite3_column_text (row, SelectFields::mtid);
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::mtid);
   const auto len =
-      sqlite3_column_bytes (row, SelectFields::mtid);
+      sqlite3_column_bytes (br_row, SelectFields::mtid);
   return std::string (
-      reinterpret_cast<const char*> (p),
+      reinterpret_cast<const char*> (br_p),
       static_cast<size_t> (len)
   );
 }
 // NULL (no mate/next-read reference) round-trips to -1, mirroring
 // bind_pileup_fields' pf.mStart < 0 => NULL convention on the way in.
-inline int64_t get_mstart (sqlite3_stmt* row)
+inline int64_t get_mstart (sqlite3_stmt* br_row)
 {
-  if (sqlite3_column_type (row, SelectFields::mstart) ==
+  if (sqlite3_column_type (br_row, SelectFields::mstart) ==
       SQLITE_NULL) {
     return -1;
   }
-  return sqlite3_column_int64 (row, SelectFields::mstart);
+  return sqlite3_column_int64 (br_row, SelectFields::mstart);
 }
-inline std::string get_tags (sqlite3_stmt* row)
+inline std::string get_tags (sqlite3_stmt* br_row)
 {
-  if (sqlite3_column_type (row, SelectFields::tags) ==
+  if (sqlite3_column_type (br_row, SelectFields::tags) ==
       SQLITE_NULL) {
     return "";
   }
-  const auto* p = sqlite3_column_text (row, SelectFields::tags);
+  const auto* br_p =
+      sqlite3_column_text (br_row, SelectFields::tags);
   const auto len =
-      sqlite3_column_bytes (row, SelectFields::tags);
+      sqlite3_column_bytes (br_row, SelectFields::tags);
   return std::string (
-      reinterpret_cast<const char*> (p),
+      reinterpret_cast<const char*> (br_p),
       static_cast<size_t> (len)
   );
 }
 // Unlike the text accessors above, this returns a pointer straight into the
-// statement's row buffer rather than an owned copy -- valid only until the
+// statement's br_row buffer rather than an owned copy -- valid only until the
 // next type-conversion call on this column, or a step/reset/finalize.
 // Deliberate: cig_uint32 is only ever needed transiently, in the same
-// row-processing scope it's fetched in.
-inline const uint32_t* get_cigar_blob (sqlite3_stmt* row)
+// br_row-processing scope it's fetched in.
+inline const uint32_t* get_cigar_blob (sqlite3_stmt* br_row)
 {
   return static_cast<const uint32_t*> (
-      sqlite3_column_blob (row, SelectFields::cig_uint32)
+      sqlite3_column_blob (br_row, SelectFields::cig_uint32)
   );
 }
-inline uint64_t get_ncig (sqlite3_stmt* row)
+inline uint64_t get_ncig (sqlite3_stmt* br_row)
 {
   return static_cast<uint64_t> (
-      sqlite3_column_int (row, SelectFields::ncig)
+      sqlite3_column_int (br_row, SelectFields::ncig)
   );
 }
 
-// Steps `stmt` forward by one row. Returns true if a row is now available
+// Steps `br_stmt` forward by one row. Returns true if a row is now available
 // -- extract whatever columns you need via the get_* accessors above --
 // or false once the result set is exhausted. Has no opinion on what was
 // selected or in what order; it is not specific to the reads table's
 // column layout.
 [[nodiscard]] BoolOrErr next_read (
-    sqlite3_stmt* stmt, const PileupDB& db
+    sqlite3_stmt* br_stmt, const PileupDB& db
 );
 
 struct DynamicSelectReadsStmt : public SqliteStmt {
-  static inline const std::string_view rsql_prefix =
+  static inline const std::string_view sh_sqlPrefix =
       "SELECT * FROM reads";
 };
 struct DynamicFragments {
@@ -277,7 +286,7 @@ inline SelectStmtOrErr prepare_select_reads (
 {
   DynamicSelectReadsStmt stmt;
 
-  std::string rsql_builtStmt{stmt.rsql_prefix};
+  std::string rsql_builtStmt{stmt.sh_sqlPrefix};
 
   // build WHERE
   if (!frags.where.empty()) {
@@ -304,7 +313,7 @@ inline SelectStmtOrErr prepare_select_reads (
   int rc;
   if (rc = sqlite3_prepare_v2 (
           db, rsql_builtStmt.c_str(),
-          static_cast<int> (rsql_builtStmt.size()), &stmt.o_ptr,
+          static_cast<int> (rsql_builtStmt.size()), &stmt.o_stmt,
           NULL
       );
       rc != SQLITE_OK) {
@@ -326,7 +335,7 @@ inline SelectStmtOrErr prepare_select_reads (
 };
 
 struct DynamicCountReadsStmt : public SqliteStmt {
-  static inline const std::string_view rsql_prefix =
+  static inline const std::string_view sh_sqlPrefix =
       "SELECT COUNT(*) FROM reads";
 };
 
@@ -337,7 +346,7 @@ inline CountStmtOrErr prepare_count_reads (
 {
   DynamicCountReadsStmt stmt;
 
-  std::string rsql_builtStmt{stmt.rsql_prefix};
+  std::string rsql_builtStmt{stmt.sh_sqlPrefix};
 
   // build WHERE
   if (!where.empty()) {
@@ -359,7 +368,7 @@ inline CountStmtOrErr prepare_count_reads (
   int rc;
   if (rc = sqlite3_prepare_v2 (
           db, rsql_builtStmt.c_str(),
-          static_cast<int> (rsql_builtStmt.size()), &stmt.o_ptr,
+          static_cast<int> (rsql_builtStmt.size()), &stmt.o_stmt,
           NULL
       );
       rc != SQLITE_OK) {

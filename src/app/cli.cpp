@@ -16,7 +16,7 @@
 #define APB_VERSION "undef"
 #endif
 
-static constexpr std::string_view CLI_HELP =
+static constexpr std::string_view sh_cliHelp =
     R"txt(usage: apb [options] MODE [FILE] [LOCI] [REF]
 
  apb is an terminal-based genome browser designed for viewing
@@ -120,7 +120,7 @@ ArgsOrErr parse_args (int argc, char** argv)
   // all exit program
   cli.add_argument ("-h", "--help")
       .action ([] (const auto&) {
-        std::cout << CLI_HELP << "\n";
+        std::cout << sh_cliHelp << "\n";
         std::exit (0);
       })
       .default_value (false)
@@ -173,7 +173,7 @@ ArgsOrErr parse_args (int argc, char** argv)
   }
   catch (const std::exception& ex) {
     std::ostringstream oss;
-    oss << ex.what() << "\n" << CLI_HELP << "\n";
+    oss << ex.what() << "\n" << sh_cliHelp << "\n";
     return std::unexpected (make_cli_err (oss.str()));
   }
 
@@ -184,7 +184,7 @@ ArgsOrErr parse_args (int argc, char** argv)
   );
   if (!modeArgsRet) {
     std::ostringstream oss;
-    oss << modeArgsRet.error().msg << "\n" << CLI_HELP << "\n";
+    oss << modeArgsRet.error().msg << "\n" << sh_cliHelp << "\n";
     return std::unexpected (make_cli_err (oss.str()));
   }
 
