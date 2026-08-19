@@ -264,7 +264,7 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
 }
 
 [[nodiscard]] IntOrErr insert_loci (
-    PileupDB& db, const LocusData& locus
+    PileupDB& db, const PileupMetadata& locus
 )
 {
   /*

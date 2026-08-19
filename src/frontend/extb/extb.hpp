@@ -58,12 +58,14 @@ template <typename C>
 concept CellType = std::derived_from<C, Cell>;
 
 template <CellType C>
-C operator+ (C c, const Delta& d) noexcept;
-template <CellType C>
-C operator- (C c, const Delta& d) noexcept;
+Delta diff (const C& from, const C& to) noexcept;
 
-// template <CellType C>
-// void operator+= (C& c, const Delta& d) noexcept;
+template <CellType C>
+C operator+ (const C& c, const Delta& d) noexcept;
+template <CellType C>
+C operator- (const C& c, const Delta& d) noexcept;
+template <CellType C>
+void operator+= (C& c, const Delta& d) noexcept;
 
 // all drawing functions may operate on a
 // single global cell, a range of global cells,
@@ -98,8 +100,6 @@ struct Style {
   Style (uintattr_t attr) : fg (attr), bg (attr) {}
   Style() = delete;
 };
-
-// NOTE: std::expected return for global drawing fns?
 
 // Draw a character to cell/s.
 template <GlobalCellSource S>
@@ -160,9 +160,8 @@ bool check_attr_all_back (S&& gcs, const Style& style);
 // write ascii string to display.
 // NOTE: may expand to cover
 // UTF-8, etc., in future.
-// (and by extension extb::set_ex)
 int write_ascii_string (
-    GlobalCell start, int x_bound, std::string_view s,
+    GlobalCell start, int xlim, std::string_view s,
     const Style& style = {0}
 );
 
@@ -223,27 +222,34 @@ inline Delta dY (int n) noexcept { return {0, n}; }
 inline Delta dXY (int nX, int nY) noexcept { return {nX, nY}; };
 
 template <CellType C>
-C operator+ (C c, const Delta& d) noexcept
+Delta diff (const C& from, const C& to) noexcept
+{
+  return {to.x - from.x, to.y - from.y};
+}
+
+
+template <CellType C>
+void operator+= (C& c, const Delta& d) noexcept
 {
   c.x += d.dx;
   c.y += d.dy;
-  return c;
 }
 
 template <CellType C>
-C operator- (C c, const Delta& d) noexcept
+C operator+ (const C& c, const Delta& d) noexcept
 {
-  c.x -= d.dx;
-  c.y -= d.dy;
-  return c;
+  // c.x += d.dx;
+  // c.y += d.dy;
+  return {c.x + d.dx, c.y + d.dy};
 }
 
-// template <CellType C>
-// void operator+= (C& c, const Delta& d) noexcept
-// {
-//   c.x += d.dx;
-//   c.y += d.dy;
-// }
+template <CellType C>
+C operator- (const C& c, const Delta& d) noexcept
+{
+  // c.x -= d.dx;
+  // c.y -= d.dy;
+  return {c.x - d.dx, c.y - d.dy};
+}
 
 template <GlobalCellSource S>
 int set (S&& gcs, uint32_t ch, const Style& style)
@@ -403,20 +409,20 @@ inline bool valid (const Cell& c) noexcept
 
 // returns nchars written
 inline int write_ascii_string (
-    GlobalCell start, int x_bound, std::string_view s,
+    GlobalCell start, int xlim, std::string_view s,
     const Style& style
 )
 {
-  if (!valid (start) || s.empty() || x_bound <= start.x) {
+  if (!valid (start) || s.empty() || xlim <= start.x) {
     return 0;
   }
 
-  const auto xlim = std::min<size_t> (
-      s.size(), static_cast<size_t> (x_bound - start.x)
+  const auto xlimDerived = std::min<size_t> (
+      s.size(), static_cast<size_t> (xlim - start.x)
   );
 
   int nout = 0;
-  for (size_t x = 0; x < xlim; ++x) {
+  for (size_t x = 0; x < xlimDerived; ++x) {
     const auto rc =
         set (start, static_cast<unsigned char> (s[x]), style);
     if (rc != TB_OK) {

@@ -93,13 +93,13 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_PGUP: {
-      auto pageSize = height (state.ui.browsr.queryBox);
+      auto pageSize = height (state.ui.browsr.seqPane);
       scrollRow = std::max (scrollRow - pageSize, 0);
       break;
     }
 
     case TB_KEY_PGDN: {
-      auto pageSize = height (state.ui.browsr.queryBox);
+      auto pageSize = height (state.ui.browsr.seqPane);
       scrollRow += pageSize;
       break;
     }

@@ -115,12 +115,12 @@ inline GlobalCell vertexB (const Box& b) noexcept
 
 inline GlobalCell vertexC (const Box& b) noexcept
 {
-  return {b.xspan.first, b.yspan.last - 1};
+  return {b.xspan.last - 1, b.yspan.last - 1};
 }
 
 inline GlobalCell vertexD (const Box& b) noexcept
 {
-  return {b.xspan.last - 1, b.yspan.last - 1};
+  return {b.xspan.first, b.yspan.last - 1};
 }
 
 inline HLine edgeAB (const Box& b) noexcept

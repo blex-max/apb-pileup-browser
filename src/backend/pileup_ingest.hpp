@@ -93,7 +93,7 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp);
 
 // insert pileup loci into database, returning id.
 [[nodiscard]] IntOrErr insert_loci (
-    PileupDB& db, const LocusData& locus
+    PileupDB& db, const PileupMetadata& locus
 );
 
 // Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use

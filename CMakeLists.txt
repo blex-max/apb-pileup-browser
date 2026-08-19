@@ -112,6 +112,7 @@ target_compile_options(apb
   -Wfloat-equal
   -Wnull-dereference
   -Wformat=2
+  -Werror=return-type
 )
 target_include_directories(apb
   PRIVATE

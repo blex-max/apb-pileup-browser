@@ -28,6 +28,6 @@ struct DBBundle {
   PileupDB db;
   DynamicSelectReadsStmt stmt;
   DynamicFragments userClause{};
-  LocusData
+  PileupMetadata
       locus;  // cached loci-table row; queried once at init(),
 };
