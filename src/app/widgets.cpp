@@ -27,6 +27,7 @@ static ScreenProjection align_seq_to_box (
     int64_t boxCenterGPos, int boxWidth, int64_t seqGStart
 )
 {
+  // TODO: probably inline this and remove func
   const int64_t leftmostVisibleGPos =
       boxCenterGPos - (boxWidth / 2);
   const int64_t distBoxEdgeToContentStart =
@@ -55,7 +56,7 @@ static void set_screen_size (UIBundle& ui)
 }
 static std::pair<int, int> get_screen_size (UIBundle& ui)
 {
-  return {ui.screenH, ui.screenW};
+  return {ui.screenW, ui.screenH};
 }
 
 void set_overlay_widget (UIBundle& ui, TextBlockRef content)
@@ -64,7 +65,7 @@ void set_overlay_widget (UIBundle& ui, TextBlockRef content)
     return;
   }
   auto& oWgt = ui.help;
-  const auto [screenH, screenW] = get_screen_size (ui);
+  const auto [screenW, screenH] = get_screen_size (ui);
 
   // dynamically sized to content
   const auto framedContentH =
@@ -83,16 +84,16 @@ void set_overlay_widget (UIBundle& ui, TextBlockRef content)
                       ))
   );
 
-  const auto yOff =
-      static_cast<int> (std::floor ((screenH - helpH) / 2));
   const auto xOff =
       static_cast<int> (std::floor ((screenW - helpW) / 2));
+  const auto yOff =
+      static_cast<int> (std::floor ((screenH - helpH) / 2));
 
-  e2::Span hYSpan{yOff, yOff + helpH};
-  e2::Span hXSpan{xOff, xOff + helpW};
+  e2::Span ySpan{yOff, yOff + helpH};
+  e2::Span xSpan{xOff, xOff + helpW};
 
-  oWgt.frame = e2::Box{hXSpan, hYSpan};
-  oWgt.contentBox = e2::Box{body (hXSpan), body (hYSpan)};
+  oWgt.frame = e2::Box{xSpan, ySpan};
+  oWgt.contentBox = e2::Box{body (xSpan), body (ySpan)};
   oWgt.content = content;
 }
 
@@ -108,19 +109,19 @@ void draw_overlay (const OverlayWgt& oWgt)
   clear (box);
   clear (frame);
 
-  set (north_edge (frame), boxch::horzLine);
-  set (east_edge (frame), boxch::vertLine);
-  set (south_edge (frame), boxch::horzLine);
-  set (west_edge (frame), boxch::vertLine);
+  set (edgeAB (frame), boxch::horzLine);
+  set (edgeBC (frame), boxch::vertLine);
+  set (edgeCD (frame), boxch::horzLine);
+  set (edgeDA (frame), boxch::vertLine);
 
-  set (nw_vertex (frame), boxch::topLeftRoundCorner);
-  set (ne_vertex (frame), boxch::topRightRoundCorner);
-  set (sw_vertex (frame), boxch::bottomLeftRoundCorner);
-  set (se_vertex (frame), boxch::bottomRightRoundCorner);
+  set (vertexA (frame), boxch::topLeftRoundCorner);
+  set (vertexB (frame), boxch::topRightRoundCorner);
+  set (vertexC (frame), boxch::bottomLeftRoundCorner);
+  set (vertexD (frame), boxch::bottomRightRoundCorner);
 
   auto xEnd = last (box.xspan);
 
-  auto writeHead = nw_vertex (frame);
+  auto writeHead = vertexA (frame);
   writeHead.x += 1;
   writeHead.x += e2::write_ascii_string (
       writeHead, xEnd, " q: close overlay ", TB_DIM
@@ -134,7 +135,7 @@ void draw_overlay (const OverlayWgt& oWgt)
   }
 
   const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
-  auto lnY = extb::nw_vertex (box);
+  auto lnY = extb::vertexA (box);
   for (int i = 0; i < lnN && i < std::ssize (content); ++i) {
     e2::write_ascii_string (
         lnY, xEnd, content[static_cast<size_t> (i) + lnOff]
@@ -167,7 +168,7 @@ void size_browser_panes (BrowserWgt& bWgt, double seqPaneFrac)
       construct_relative (bYSpan, 0, size (bYSpan) - 1)
   };
   bWgt.refLine = {seqX, first (bYSpan) + 1};
-  bWgt.headerLine = {dataX, first (bYSpan) + 1};
+  bWgt.tableHeaderLine = {dataX, first (bYSpan) + 1};
   bWgt.headerSep = {
       bXSpan, first (bYSpan) + 2
   };  // overlapping, to set connectors
@@ -209,10 +210,10 @@ VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac)
   PLOGD << "Calculating widget size";
 
   set_screen_size (ui);
-  const auto [screenH, screenW] = get_screen_size (ui);
+  const auto [screenW, screenH] = get_screen_size (ui);
 
+  const e2::Span screenX{0, screenW};
   const e2::Span screenY{0, screenH};
-  e2::Span screenX{0, screenW};
 
   // vertical sectioning of terminal
   const e2::Span mainY{screenY.first, screenY.last - sh_cmdH};
@@ -253,22 +254,18 @@ VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac)
 static void draw_browser_chrome (BrowserWgt& bWgt)
 {
   auto& bFrame = bWgt.frame;
-  set (nw_vertex (bFrame), boxch::topLeftRoundCorner, TB_DIM);
-  set (ne_vertex (bFrame), boxch::topRightRoundCorner, TB_DIM);
+  set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
+  set (vertexB (bFrame), boxch::topRightRoundCorner, TB_DIM);
 
-  set (body (north_edge (bFrame)), boxch::horzLine, TB_DIM);
+  set (body (edgeAB (bFrame)), boxch::horzLine, TB_DIM);
   // main frame is open at the bottom (the cmd frame closes it), so the
   // side edges skip only the top corner and run to the last row.
   set (
-      construct_relative (
-          west_edge (bFrame), 1, height (bFrame)
-      ),
+      construct_relative (edgeDA (bFrame), 1, height (bFrame)),
       boxch::vertLine, TB_DIM
   );
   set (
-      construct_relative (
-          east_edge (bFrame), 1, height (bFrame)
-      ),
+      construct_relative (edgeBC (bFrame), 1, height (bFrame)),
       boxch::vertLine, TB_DIM
   );
 
@@ -289,16 +286,14 @@ static void draw_browser_chrome (BrowserWgt& bWgt)
 static void draw_cmd_chrome (CmdWgt& cWgt)
 {
   auto& cFrame = cWgt.frame;
-  set (nw_vertex (cFrame), boxch::topLeftRoundCorner, TB_DIM);
-  set (ne_vertex (cFrame), boxch::topRightRoundCorner, TB_DIM);
-  set (sw_vertex (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
-  set (
-      se_vertex (cFrame), boxch::bottomRightRoundCorner, TB_DIM
-  );
+  set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
+  set (vertexB (cFrame), boxch::topRightRoundCorner, TB_DIM);
+  set (vertexC (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
+  set (vertexD (cFrame), boxch::bottomRightRoundCorner, TB_DIM);
 
-  set (body (north_edge (cFrame)), boxch::horzHeavy, TB_DIM);
-  set (body (west_edge (cFrame)), boxch::vertLine, TB_DIM);
-  set (body (east_edge (cFrame)), boxch::vertLine, TB_DIM);
+  set (body (edgeAB (cFrame)), boxch::horzHeavy, TB_DIM);
+  set (body (edgeDA (cFrame)), boxch::vertLine, TB_DIM);
+  set (body (edgeBC (cFrame)), boxch::vertLine, TB_DIM);
   set (body (cWgt.statusSep), boxch::horzLine, TB_DIM);
 
   set (cWgt.inputCaret, ':');
@@ -408,7 +403,7 @@ static void draw_sequence (
   const auto rawSeq = get_seq (br_dbRow);
 
   auto writeHead =
-      e2::GlobalCell{nw_vertex (queryBox) + e2::dY (boxRow)};
+      e2::GlobalCell{vertexA (queryBox) + e2::dY (boxRow)};
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
   }
@@ -550,7 +545,7 @@ static void draw_sequence (
 }
 
 static VoidOrErr draw_query_data (
-    BrowserWgt& pWgt, DynamicSelectReadsStmt& stmt,
+    BrowserWgt& bWgt, DynamicSelectReadsStmt& stmt,
     const PileupDB& db, const LocusData& locus,
     const DataColList& displayCols
 )
@@ -559,11 +554,11 @@ static VoidOrErr draw_query_data (
 
   sqlite3_reset (stmt);
 
-  auto& qBox = pWgt.queryBox;
-  auto& dBox = pWgt.dataBox;
-  auto& hLine = pWgt.headerLine;
+  auto& qBox = bWgt.queryBox;
+  auto& dBox = bWgt.dataBox;
+  auto& hdrLine = bWgt.tableHeaderLine;
 
-  draw_data_table_header (hLine, displayCols);
+  draw_data_table_header (hdrLine, displayCols);
 
   auto nRow = height (qBox);
 
@@ -578,7 +573,7 @@ static VoidOrErr draw_query_data (
     if (!(*nrRet)) {
       break;  // reads exhausted
     }
-    if (iRead < pWgt.rowStart) {
+    if (iRead < bWgt.rowStart) {
       continue;  // scrolling
     }
     draw_sequence (qBox, iRow, stmt, locus);
@@ -586,10 +581,10 @@ static VoidOrErr draw_query_data (
     ++iRow;
   }
 
-  auto pileupX = first (qBox.xspan) + (width (qBox) / 2);
-  add_attr (e2::VLine{pileupX, qBox.yspan}, TB_REVERSE);
+  auto pileupXPos = first (qBox.xspan) + (width (qBox) / 2);
+  add_attr (e2::VLine{pileupXPos, qBox.yspan}, TB_REVERSE);
   set (
-      e2::GlobalCell{pileupX, first (qBox.yspan) - 1}, '|',
+      e2::GlobalCell{pileupXPos, first (qBox.yspan) - 1}, '|',
       TB_DIM
   );
 
@@ -616,30 +611,30 @@ static void draw_pileup_ambient (
 
   // locus info
   {
-    auto cursor = first (pWgt.infoLine);
+    auto writeHead = first (pWgt.infoLine);
     const auto lineEnd = last (pWgt.infoLine.xspan);
-    cursor.x++;  // initial space
-    cursor.x += e2::write_ascii_string (
-        cursor, lineEnd, "LOCUS:", TB_DIM
+    writeHead.x++;  // initial space
+    writeHead.x += e2::write_ascii_string (
+        writeHead, lineEnd, "LOCUS:", TB_DIM
     );
-    cursor.x++;  // space
-    cursor.x += e2::write_ascii_string (
-        cursor, lineEnd,
+    writeHead.x++;  // space
+    writeHead.x += e2::write_ascii_string (
+        writeHead, lineEnd,
         fmt::format ("{}:{}", locusData.contig, locusData.pos)
     );
-    cursor.x++;  // space
-    set (cursor, boxch::vertLine, TB_DIM);
-    cursor.x += 2;  // past bar, then space
-    cursor.x += e2::write_ascii_string (
-        cursor, lineEnd, "SPAN:", TB_DIM
+    writeHead.x++;  // space
+    set (writeHead, boxch::vertLine, TB_DIM);
+    writeHead.x += 2;  // past bar, then space
+    writeHead.x += e2::write_ascii_string (
+        writeHead, lineEnd, "SPAN:", TB_DIM
     );
-    cursor.x++;  // space
-    cursor.x += e2::write_ascii_string (
-        cursor, lineEnd,
+    writeHead.x++;  // space
+    writeHead.x += e2::write_ascii_string (
+        writeHead, lineEnd,
         fmt::format ("{}-{}", locusData.start, locusData.end)
     );
-    cursor.x++;  // space
-    set (cursor, boxch::vertLine, TB_DIM);
+    writeHead.x++;  // space
+    set (writeHead, boxch::vertLine, TB_DIM);
   }
 }
 
@@ -663,7 +658,7 @@ static VoidOrErr draw_piluep (
 // --- end draw browser pane --- //
 
 
-static void draw_cmd_ambient (
+static void draw_cmd (
     CmdWgt& cWgt, const DynamicFragments& userQuery
 )
 {
@@ -715,18 +710,17 @@ VoidOrErr draw_main_ui (
   PLOGD << "Drawing widgets";
 
 
-  // NOTE: Worry about border stylisation last!
   draw_layout_chrome (ui.browsr, ui.cmd);
 
   auto dpRet = draw_piluep (
       ui.browsr, db.stmt, db.db, db.locus, colsRequested
   );
   if (!dpRet) {
-    // TODO: not really well thought out.
+    // TODO: not really well thought out error handling.
     return std::unexpected (dpRet.error());
   }
 
-  draw_cmd_ambient (ui.cmd, db.userClause);
+  draw_cmd (ui.cmd, db.userClause);
 
   return {};
 }
