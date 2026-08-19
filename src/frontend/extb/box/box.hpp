@@ -16,15 +16,20 @@ struct Box {
 };
 int width (const Box& b) noexcept;
 int height (const Box& b) noexcept;
-// compass directions NESW
-GlobalCell nw_vertex (const Box& b) noexcept;
-GlobalCell ne_vertex (const Box& b) noexcept;
-GlobalCell sw_vertex (const Box& b) noexcept;
-GlobalCell se_vertex (const Box& b) noexcept;
-HLine north_edge (const Box& b) noexcept;
-HLine south_edge (const Box& b) noexcept;
-VLine west_edge (const Box& b) noexcept;
-VLine east_edge (const Box& b) noexcept;
+/*
+box edges & verticies:
+  A---B
+  |   |
+  D---C
+*/
+GlobalCell vertexA (const Box& b) noexcept;
+GlobalCell vertexB (const Box& b) noexcept;
+GlobalCell vertexC (const Box& b) noexcept;
+GlobalCell vertexD (const Box& b) noexcept;
+HLine edgeAB (const Box& b) noexcept;
+VLine edgeBC (const Box& b) noexcept;
+HLine edgeCD (const Box& b) noexcept;
+VLine edgeDA (const Box& b) noexcept;
 bool valid (const Box& b) noexcept;
 GlobalCell to_global (const Box& b, const LocalCell& c);
 bool contains_global (
@@ -49,7 +54,7 @@ GlobalCellRange auto inline cell_source (Box box)
   const int count = size (box.yspan) * width;
   return std::views::iota (0, count) |
          std::views::transform ([box, width] (int index) {
-           return nw_vertex (box) +
+           return vertexA (box) +
                   dXY (index % width, index / width);
          });
 }
@@ -98,42 +103,42 @@ inline GlobalCell to_global (const Box& b, const LocalCell& c)
   return {};
 }
 
-inline GlobalCell nw_vertex (const Box& b) noexcept
+inline GlobalCell vertexA (const Box& b) noexcept
 {
   return {b.xspan.first, b.yspan.first};
 }
 
-inline GlobalCell ne_vertex (const Box& b) noexcept
+inline GlobalCell vertexB (const Box& b) noexcept
 {
   return {b.xspan.last - 1, b.yspan.first};
 }
 
-inline GlobalCell sw_vertex (const Box& b) noexcept
+inline GlobalCell vertexC (const Box& b) noexcept
 {
   return {b.xspan.first, b.yspan.last - 1};
 }
 
-inline GlobalCell se_vertex (const Box& b) noexcept
+inline GlobalCell vertexD (const Box& b) noexcept
 {
   return {b.xspan.last - 1, b.yspan.last - 1};
 }
 
-inline HLine north_edge (const Box& b) noexcept
+inline HLine edgeAB (const Box& b) noexcept
 {
   return {b.xspan, first (b.yspan)};
 }
 
-inline HLine south_edge (const Box& b) noexcept
+inline HLine edgeCD (const Box& b) noexcept
 {
   return {b.xspan, last (b.yspan) - 1};
 }
 
-inline VLine west_edge (const Box& b) noexcept
+inline VLine edgeDA (const Box& b) noexcept
 {
   return {first (b.xspan), b.yspan};
 }
 
-inline VLine east_edge (const Box& b) noexcept
+inline VLine edgeBC (const Box& b) noexcept
 {
   return {last (b.xspan) - 1, b.yspan};
 }

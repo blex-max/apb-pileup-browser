@@ -13,7 +13,7 @@ namespace e2 = extb;
 struct BrowserWgt {
   e2::Box frame;
   e2::HLine refLine;
-  e2::HLine headerLine;
+  e2::HLine tableHeaderLine;
   e2::HLine headerSep;
   e2::Box queryBox;
   e2::VLine vSep;
