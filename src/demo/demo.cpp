@@ -59,8 +59,6 @@ VoidOrErr insert_demo_data (
   constexpr size_t maxDelLen = 4;
   constexpr size_t maxInsLen = 4;
   constexpr size_t maxClipLen = 20;
-  constexpr int minQual = 20;
-  constexpr int maxQual = 40;
   constexpr char pileupAlt = 'T';
   constexpr double pileupVaf = 0.30;
 
@@ -83,7 +81,6 @@ VoidOrErr insert_demo_data (
   std::bernoulli_distribution snvAlleleDist (pileupVaf);
   std::uniform_int_distribution<size_t> delLenGen (1, maxDelLen);
   std::uniform_int_distribution<size_t> insLenGen (1, maxInsLen);
-  std::uniform_int_distribution<int> qualGen (minQual, maxQual);
 
   // At most one of {deletion, insertion, leading clip, trailing clip}
   // per read -- keeps CIGAR/index math to a handful of cases instead of
@@ -187,7 +184,7 @@ VoidOrErr insert_demo_data (
     std::string seq (seqLen, ' ');
     std::string qual (seqLen, ' ');
     for (size_t j = 0; j < seqLen; ++j) {
-      qual[j] = static_cast<char> (qualGen (rng) + 33);
+      qual[j] = 'F';
 
       if (j == static_cast<size_t> (finalQPos)) {
         // Designed SNV at the pileup locus: a fixed alt base at a fixed
