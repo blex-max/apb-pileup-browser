@@ -11,6 +11,7 @@ Checks: >
   -misc-non-private-member-variables-in-classes,
   -misc-use-anonymous-namespace,
   -performance-avoid-endl,
+  -readability-avoid-const-params-in-decls,
   -readability-identifier-length,
   -readability-named-parameter,
   -readability-magic-numbers,

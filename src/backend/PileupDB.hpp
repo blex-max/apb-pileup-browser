@@ -59,7 +59,7 @@ LocusData make_locus_data (
 LocusOrErr get_locus_data (const PileupDB& db);
 
 // TIED TO SCHEMA CREATE ORDER
-enum SelectFields {
+enum SelectFields : uint8_t {
   id,  // 0
   loci_id,
   qname,
@@ -286,7 +286,9 @@ inline SelectStmtOrErr prepare_select_reads (
 {
   DynamicSelectReadsStmt stmt;
 
-  std::string rsql_builtStmt{stmt.sh_sqlPrefix};
+  std::string rsql_builtStmt{
+      DynamicSelectReadsStmt::sh_sqlPrefix
+  };
 
   // build WHERE
   if (!frags.where.empty()) {
@@ -325,7 +327,7 @@ inline SelectStmtOrErr prepare_select_reads (
     )};
   }
 
-  if (!sqlite3_stmt_readonly (stmt)) {
+  if (sqlite3_stmt_readonly (stmt) == 0) {
     return std::unexpected{
         make_internal_err ("Statement would modify database.")
     };
@@ -346,7 +348,9 @@ inline CountStmtOrErr prepare_count_reads (
 {
   DynamicCountReadsStmt stmt;
 
-  std::string rsql_builtStmt{stmt.sh_sqlPrefix};
+  std::string rsql_builtStmt{
+      DynamicCountReadsStmt::sh_sqlPrefix
+  };
 
   // build WHERE
   if (!where.empty()) {
@@ -380,7 +384,7 @@ inline CountStmtOrErr prepare_count_reads (
     )};
   }
 
-  if (!sqlite3_stmt_readonly (stmt)) {
+  if (sqlite3_stmt_readonly (stmt) == 0) {
     return std::unexpected{
         make_internal_err ("Statement would modify database.")
     };

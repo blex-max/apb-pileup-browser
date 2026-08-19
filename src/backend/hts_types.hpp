@@ -33,13 +33,13 @@ struct AlnFile {
 
   ~AlnFile() noexcept
   {
-    if (o_idx) {
+    if (o_idx != nullptr) {
       hts_idx_destroy (o_idx);
     }
-    if (o_hdr) {
+    if (o_hdr != nullptr) {
       sam_hdr_destroy (o_hdr);
     }
-    if (o_fh) {
+    if (o_fh != nullptr) {
       hts_close (o_fh);
     }
   }
@@ -55,13 +55,13 @@ struct AlnFile {
   AlnFile& operator= (AlnFile&& o) noexcept
   {
     if (this != &o) {
-      if (o_idx) {
+      if (o_idx != nullptr) {
         hts_idx_destroy (o_idx);
       }
-      if (o_hdr) {
+      if (o_hdr != nullptr) {
         sam_hdr_destroy (o_hdr);
       }
-      if (o_fh) {
+      if (o_fh != nullptr) {
         hts_close (o_fh);
       }
       o_fh = o.o_fh;
@@ -95,7 +95,7 @@ struct FastaFile {
   FastaFile& operator= (FastaFile&& o) noexcept
   {
     if (this != &o) {
-      if (o_fai) {
+      if (o_fai != nullptr) {
         fai_destroy (o_fai);
       }
       o_fai = o.o_fai;
@@ -106,7 +106,7 @@ struct FastaFile {
 
   ~FastaFile()
   {
-    if (o_fai) {
+    if (o_fai != nullptr) {
       fai_destroy (o_fai);
     }
   }

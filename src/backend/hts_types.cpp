@@ -9,7 +9,7 @@ AlnOrErr load_aln (const char* br_fn)
 {
   AlnFile aln;
   aln.o_fh = hts_open (br_fn, "r");
-  if (!aln.o_fh) {
+  if (aln.o_fh == nullptr) {
     return std::unexpected (make_htslib_err (
         -1, fmt::format (
                 "Could not open alignment file at {}", br_fn
@@ -17,7 +17,7 @@ AlnOrErr load_aln (const char* br_fn)
     ));
   }
   aln.o_hdr = sam_hdr_read (aln.o_fh);
-  if (!aln.o_hdr) {
+  if (aln.o_hdr == nullptr) {
     return std::unexpected (make_htslib_err (
         -1,
         "Could not read header "
@@ -25,7 +25,7 @@ AlnOrErr load_aln (const char* br_fn)
     ));
   }
   aln.o_idx = sam_index_load (aln.o_fh, br_fn);
-  if (!aln.o_idx) {
+  if (aln.o_idx == nullptr) {
     return std::unexpected (make_htslib_err (
         -1, fmt::format ("Could not load index for {}", br_fn)
     ));
@@ -42,7 +42,7 @@ FastaOrErr load_fasta (const char* br_fn)
       br_fn, NULL, NULL, 0, fai_format_options::FAI_FASTA
   );
 
-  if (!ff.o_fai) {
+  if (ff.o_fai == nullptr) {
     return std::unexpected (make_htslib_err (
         -1,
         fmt::format ("Could not open fasta file at {}", br_fn)
@@ -58,7 +58,7 @@ RefSliceOrErr fetch_region (
 )
 {
   hts_pos_t rc;
-  auto o_fetch = faidx_fetch_seq64 (
+  auto* o_fetch = faidx_fetch_seq64 (
       ff, contigName.data(), regStart, regEnd - 1, &rc
   );
   if (o_fetch == NULL) {
