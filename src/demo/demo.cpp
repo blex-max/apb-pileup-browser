@@ -12,23 +12,23 @@
 #include "backend/pileup_ingest.hpp"
 #include "shared/err.hpp"
 
+static const char sh_bases[] = "ACGT";
+
 // Deterministic reference sequence
 static std::string fixed_ref_seq (size_t len)
 {
-  static const char bases[] = "ACGT";
   std::string out;
   out.reserve (len);
   for (size_t i = 0; i < len; ++i) {
-    out += bases[i % 4];
+    out += sh_bases[i % 4];
   }
   return out;
 }
 
 static char random_base (std::mt19937& rng)
 {
-  static const char bases[] = "ATCG";
   std::uniform_int_distribution<size_t> pick (0, 3);
-  return bases[pick (rng)];
+  return sh_bases[pick (rng)];
 }
 
 // A base guaranteed to differ from refBase, for injecting mismatches
@@ -55,16 +55,16 @@ VoidOrErr insert_demo_data (
   refSeq[static_cast<size_t> (pileupPos)] =
       'A';  // known ref base at the variant site
 
-  constexpr double k_mismatchRate = 0.01;
-  constexpr size_t k_maxDelLen = 4;
-  constexpr size_t k_maxInsLen = 4;
-  constexpr size_t k_maxClipLen = 20;
-  constexpr int k_minQual = 20;
-  constexpr int k_maxQual = 40;
-  constexpr char k_variantAlt = 'T';
-  constexpr double k_variantAF = 0.30;
+  constexpr double mismatchRate = 0.01;
+  constexpr size_t maxDelLen = 4;
+  constexpr size_t maxInsLen = 4;
+  constexpr size_t maxClipLen = 20;
+  constexpr int minQual = 20;
+  constexpr int maxQual = 40;
+  constexpr char pileupAlt = 'T';
+  constexpr double pileupVaf = 0.30;
 
-  // Headroom of k_maxDelLen reserved unconditionally so start+qLen+delLen
+  // Headroom of maxDelLen reserved unconditionally so start+qLen+delLen
   // can never exceed regWidth, whether or not a given read ends up with
   // a deletion. Clips only ever shrink a read's ref-consumed length, so
   // they need no extra headroom here. Insertions likewise need none: an
@@ -77,25 +77,19 @@ VoidOrErr insert_demo_data (
   // seqBases/qualAscii. Reserving start >= 1 keeps qPos in [0, qLen-1]
   // for every read.
   std::uniform_int_distribution<size_t> gstartGen (
-      1, qLen - k_maxDelLen
+      1, qLen - maxDelLen
   );
-  std::bernoulli_distribution mismatchDist (k_mismatchRate);
-  std::bernoulli_distribution snvAlleleDist (k_variantAF);
-  std::uniform_int_distribution<size_t> delLenGen (
-      1, k_maxDelLen
-  );
-  std::uniform_int_distribution<size_t> insLenGen (
-      1, k_maxInsLen
-  );
-  std::uniform_int_distribution<int> qualGen (
-      k_minQual, k_maxQual
-  );
+  std::bernoulli_distribution mismatchDist (mismatchRate);
+  std::bernoulli_distribution snvAlleleDist (pileupVaf);
+  std::uniform_int_distribution<size_t> delLenGen (1, maxDelLen);
+  std::uniform_int_distribution<size_t> insLenGen (1, maxInsLen);
+  std::uniform_int_distribution<int> qualGen (minQual, maxQual);
 
   // At most one of {deletion, insertion, leading clip, trailing clip}
   // per read -- keeps CIGAR/index math to a handful of cases instead of
   // a combinatorial explosion. Weights are just "occasional variety",
   // tunable.
-  enum class ReadVariant {
+  enum class ReadVariant : uint8_t {
     None,
     Deletion,
     LeadClip,
@@ -161,7 +155,7 @@ VoidOrErr insert_demo_data (
       case ReadVariant::LeadClip:
       case ReadVariant::TailClip: {
         const size_t maxClip = std::min (
-            k_maxClipLen, qLen - 1 - static_cast<size_t> (qPos)
+            maxClipLen, qLen - 1 - static_cast<size_t> (qPos)
         );
         std::uniform_int_distribution<size_t> clipGen (
             1, maxClip
@@ -200,7 +194,7 @@ VoidOrErr insert_demo_data (
         // VAF, distinct from (and not diluted by) the generic background
         // mismatch roll below.
         seq[j] = snvAlleleDist (rng)
-                     ? k_variantAlt
+                     ? pileupAlt
                      : refSeq[static_cast<size_t> (pileupPos)];
         continue;
       }
@@ -316,12 +310,8 @@ VoidOrErr insert_demo_data (
     ru_pf.isTail =
         (finalQPos == static_cast<int32_t> (qLen - 1));
 
-    if (ru_pf.start < span.start) {
-      span.start = ru_pf.start;
-    }
-    if (ru_pf.end > span.end) {
-      span.end = ru_pf.end;
-    }
+    span.start = std::min (ru_pf.start, span.start);
+    span.end = std::max (ru_pf.end, span.end);
 
     reads.push_back (std::move (ru_pf));
   }

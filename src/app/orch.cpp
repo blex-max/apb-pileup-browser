@@ -119,9 +119,9 @@ VoidOrErr loop (AppState& state)
     }
 
     PLOGD << fmt::format (
-        "Processed frame {}", state.mData.c_frame
+        "Processed frame {}", state.mData.frameCount
     );
-    ++state.mData.c_frame;
+    ++state.mData.frameCount;
   }
 
   return {};

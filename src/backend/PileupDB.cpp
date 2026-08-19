@@ -16,7 +16,7 @@ VoidOrErr init_db (PileupDB& db)
 {
   int sqlRc = 0;
 
-  if (sqlRc = sqlite3_open (":memory:", &db.o_ptr);
+  if (sqlRc = sqlite3_open (":memory:", &db.o_conn);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
@@ -27,41 +27,42 @@ VoidOrErr init_db (PileupDB& db)
     return sqlite3_exec (db, stmt.data(), NULL, NULL, NULL);
   };
 
-  if (sqlRc = excFn (rsql_SetTempStoreMemory);
+  if (sqlRc = excFn (sh_sqlSetTempStoreMemory);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (rsql_PragmaForeignKeys);
+  if (sqlRc = excFn (sh_sqlPragmaForeignKeys);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (rsql_CreateMetaDataTable);
+  if (sqlRc = excFn (sh_sqlCreateMetaDataTable);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (rsql_CreateLociTable); sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
-  }
-
-  if (sqlRc = excFn (rsql_CreateReadsTable);
+  if (sqlRc = excFn (sh_sqlCreateLociTable);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (rsql_CreateReadsLociIdIndex);
+  if (sqlRc = excFn (sh_sqlCreateReadsTable);
+      sqlRc != SQLITE_OK) {
+    return std::unexpected{
+        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
+    };
+  }
+
+  if (sqlRc = excFn (sh_sqlCreateReadsLociIdIndex);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
@@ -80,51 +81,52 @@ VoidOrErr dump_to_disk (
     via sqlite3's online backup API.
   */
   int sqlRc = SQLITE_OK;
-  sqlite3* o_fileDb = NULL;
-  sqlite3_backup* o_backup = NULL;
+  sqlite3* o_dumpConn = NULL;
+  sqlite3_backup* o_backupConn = NULL;
 
-  if (sqlRc = sqlite3_open (path.c_str(), &o_fileDb);
+  if (sqlRc = sqlite3_open (path.c_str(), &o_dumpConn);
       sqlRc != SQLITE_OK) {
     goto err_sql;
   }
 
-  if (o_backup =
-          sqlite3_backup_init (o_fileDb, "main", db, "main");
-      o_backup == NULL) {
-    sqlRc = sqlite3_errcode (o_fileDb);
+  if (o_backupConn =
+          sqlite3_backup_init (o_dumpConn, "main", db, "main");
+      o_backupConn == NULL) {
+    sqlRc = sqlite3_errcode (o_dumpConn);
     goto err_sql;
   }
 
   // -1: copy all remaining pages in a single step.
   // ASSUMPTION: db is quiescent (no concurrent writer holding
   // a lock) for the duration of the copy.
-  if (sqlRc = sqlite3_backup_step (o_backup, -1);
+  if (sqlRc = sqlite3_backup_step (o_backupConn, -1);
       sqlRc != SQLITE_DONE) {
-    sqlite3_backup_finish (o_backup);
+    sqlite3_backup_finish (o_backupConn);
     goto err_sql;
   }
 
-  if (sqlRc = sqlite3_backup_finish (o_backup);
+  if (sqlRc = sqlite3_backup_finish (o_backupConn);
       sqlRc != SQLITE_OK) {
     goto err_sql;
   }
-  o_backup = NULL;  // fin
+  o_backupConn = NULL;  // fin
 
-  if (sqlRc = sqlite3_close_v2 (o_fileDb); sqlRc != SQLITE_OK) {
+  if (sqlRc = sqlite3_close_v2 (o_dumpConn);
+      sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))
     };
   }
-  o_fileDb = NULL;
+  o_dumpConn = NULL;
 
   return {};
 
 err_sql: {
   // NOTE: per sqlite3 docs, errors from backup_init/backup_step
-  // are stored on the *destination* handle, so o_fileDb is the
+  // are stored on the *destination* handle, so o_dumpConn is the
   // right handle to query here in every failure case above.
-  const std::string errMsg = sqlite3_errmsg (o_fileDb);
-  sqlite3_close_v2 (o_fileDb);
+  const std::string errMsg = sqlite3_errmsg (o_dumpConn);
+  sqlite3_close_v2 (o_dumpConn);
   return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
 }
 }
@@ -329,8 +331,8 @@ LocusOrErr get_locus_data (const PileupDB& db)
 
   sqlite3_stmt* o_stmt = NULL;
   int sqlRc = sqlite3_prepare_v2 (
-      db, rsql_SelectLoci.data(),
-      static_cast<int> (rsql_SelectLoci.size()), &o_stmt, NULL
+      db, sh_sqlSelectLoci.data(),
+      static_cast<int> (sh_sqlSelectLoci.size()), &o_stmt, NULL
   );
   if (sqlRc != SQLITE_OK) {
     return std::unexpected{
@@ -398,9 +400,9 @@ std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, rsql_InsertMetadata.data(),
-          static_cast<int> (rsql_InsertMetadata.size()),
-          &stmt.o_ptr, NULL
+          db, sh_sqlInsertMetadata.data(),
+          static_cast<int> (sh_sqlInsertMetadata.size()),
+          &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
     return std::unexpected{
@@ -412,7 +414,7 @@ std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
 
 }  // namespace
 
-VoidOrErr insert_metadata (PileupDB& db, const AlnFile& _)
+VoidOrErr insert_metadata (PileupDB& db, const AlnFile&)
 {
   /*
     insert provenance metadata into database.
@@ -497,7 +499,7 @@ VoidOrErr insert_pileup (
     return sam_hdr_tid2name (aln.o_hdr, tid);
   };
   auto irRet = insert_reads_internal (
-      db, reads.plpArr, reads.nPlp, lociId, tid2str
+      db, reads.br_plpArr, reads.nPlp, lociId, tid2str
   );
   if (!irRet) {
     return std::unexpected{irRet.error()};
@@ -505,9 +507,9 @@ VoidOrErr insert_pileup (
   return {};
 };
 
-BoolOrErr next_read (sqlite3_stmt* stmt, const PileupDB& db)
+BoolOrErr next_read (sqlite3_stmt* br_stmt, const PileupDB& db)
 {
-  const int rc = sqlite3_step (stmt);
+  const int rc = sqlite3_step (br_stmt);
   if (rc == SQLITE_DONE) {
     return false;
   }

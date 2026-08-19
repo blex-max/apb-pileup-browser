@@ -14,7 +14,7 @@
 #include "backend/PileupDB.hpp"
 
 // A command is a function paired with the name and help text
-// bundled with it, declared alongside the function. CMD_TABLE at
+// bundled with it, declared alongside the function. sh_cmdTable at
 // the foot of the file is the registry of those pairings.
 struct Command {
   std::string_view name;
@@ -25,7 +25,7 @@ struct Command {
 
 // TODO: add generic failure,
 // on failure, emit generic failure + cmd usage
-static constexpr std::string CMD_GENERIC_SUCCESS = "OK!";
+static constexpr std::string sh_cmdGenericSuccess = "OK!";
 
 static std::pair<std::string_view, std::string_view>
 split_first_space (std::string_view s)
@@ -62,7 +62,7 @@ static CmdResult quit (std::string_view, AppState& state)
   state.conf.run = false;
   return {true, "Bye!"};
 }
-static constexpr Command CMD_QUIT{
+static constexpr Command sh_cmdQuit{
     "quit", "q", "Exit the browser.", &quit
 };
 
@@ -79,8 +79,8 @@ static CmdResult pileup_show (
   }
 
   for (const auto& req : newRequests) {
-    const auto* reqCol = find_col (req);
-    if (reqCol == nullptr) {
+    const auto* br_reqCol = find_cols (req);
+    if (br_reqCol == nullptr) {
       return {
           false, fmt::format (
                      "Cannot show unknown "
@@ -91,11 +91,11 @@ static CmdResult pileup_show (
     }
     if (std::find (
             begin (existingRequests), end (existingRequests),
-            reqCol
+            br_reqCol
         ) != end (existingRequests)) {
       continue;
     }
-    existingRequests.push_back (reqCol);
+    existingRequests.push_back (br_reqCol);
   }
 
   return {
@@ -103,7 +103,7 @@ static CmdResult pileup_show (
       fmt::format ("Showing query properties: {}", newRequests)
   };
 }
-static constexpr Command CMD_SHOW{
+static constexpr Command sh_cmdShow{
     "show", "",
     "Add read properties to the pileup table. Takes one or more "
     "property names separated by spaces.",
@@ -123,12 +123,12 @@ static CmdResult pileup_hide (
   }
 
   for (const auto& req : reqsToRemove) {
-    const auto* reqCol = find_col (req);
-    if (reqCol == nullptr) {
+    const auto* br_reqCol = find_cols (req);
+    if (br_reqCol == nullptr) {
       // NOTE: silent noop
       continue;
     }
-    existingRequests.remove (reqCol);
+    existingRequests.remove (br_reqCol);
   }
 
   return {
@@ -136,7 +136,7 @@ static CmdResult pileup_hide (
       fmt::format ("Hiding query properties {}", reqsToRemove)
   };
 }
-static constexpr Command CMD_HIDE{
+static constexpr Command sh_cmdHide{
     "hide", "",
     "Remove read properties from the pileup table. Names that "
     "are not properties are ignored.",
@@ -144,7 +144,7 @@ static constexpr Command CMD_HIDE{
 };
 
 static const std::unordered_set<std::string_view>
-    VALID_CONJUNCTIONS{"AND", "and", "OR", "or"};
+    sh_validConjunctions{"AND", "and", "OR", "or"};
 
 static std::string stringify_where (
     const std::vector<std::string>& where
@@ -174,7 +174,7 @@ static CmdResult apply_query_clause (
   }
   state.db.userClause = std::move (newClause);
   state.db.stmt = std::move (*prepRet);
-  state.ui.main.rowStart = 0;  // reset row view
+  state.ui.browsr.rowStart = 0;  // reset row view
   return {true, std::string (successMsg)};
 }
 
@@ -204,10 +204,10 @@ static CmdResult init_where (
   );
 
   return apply_query_clause (
-      state, std::move (newClause), CMD_GENERIC_SUCCESS
+      state, std::move (newClause), sh_cmdGenericSuccess
   );
 }
-static constexpr Command CMD_WHERE{
+static constexpr Command sh_cmdWhere{
     "where", "w",
     "Start a query with an SQL WHERE condition. Fails if a "
     "query is already present; extend it with and/or, or clear "
@@ -240,10 +240,10 @@ static CmdResult and_where (
   );
 
   return apply_query_clause (
-      state, std::move (curClauseCopy), CMD_GENERIC_SUCCESS
+      state, std::move (curClauseCopy), sh_cmdGenericSuccess
   );
 }
-static constexpr Command CMD_AND{
+static constexpr Command sh_cmdAnd{
     "and", "", "Extend the query with an AND condition.",
     &and_where
 };
@@ -273,10 +273,10 @@ static CmdResult or_where (
   );
 
   return apply_query_clause (
-      state, std::move (curClauseCopy), CMD_GENERIC_SUCCESS
+      state, std::move (curClauseCopy), sh_cmdGenericSuccess
   );
 }
-static constexpr Command CMD_OR{
+static constexpr Command sh_cmdOr{
     "or", "", "Extend the query with an OR condition.", &or_where
 };
 
@@ -302,7 +302,7 @@ static CmdResult remove_last_where (
       fmt::format ("Removed clause: {}", rmClause)
   );
 };
-static constexpr Command CMD_BACK{
+static constexpr Command sh_cmdBack{
     "back", "",
     "Drop the most recently added condition from the query.",
     &remove_last_where
@@ -323,7 +323,7 @@ static CmdResult clear_where (
       state, std::move (newClause), "Cleared WHERE clause"
   );
 }
-static constexpr Command CMD_CLEAR_WHERE{
+static constexpr Command sh_cmdClearWhere{
     "clear-where", "cw",
     "Drop every condition from the query, keeping the sort "
     "order.",
@@ -346,10 +346,10 @@ static CmdResult order_by (
   newClause.orderBy = rsql_clause;
 
   return apply_query_clause (
-      state, std::move (newClause), CMD_GENERIC_SUCCESS
+      state, std::move (newClause), sh_cmdGenericSuccess
   );
 }
-static constexpr Command CMD_ORDER{
+static constexpr Command sh_cmdOrder{
     "order", "o", "Sort rows by an SQL ORDER BY expression.",
     &order_by
 };
@@ -363,7 +363,7 @@ static CmdResult count (
     std::string clause{"AND "};
     if (!where.empty()) {
       auto connective = split_first_space (rsql_clause).first;
-      if (VALID_CONJUNCTIONS.contains (connective)) {
+      if (sh_validConjunctions.contains (connective)) {
         return {
             false,
             "Count clauses should not be prepended with "
@@ -398,7 +398,7 @@ static CmdResult count (
             )
   };
 }
-static constexpr Command CMD_COUNT{
+static constexpr Command sh_cmdCount{
     "count", "",
     "Count the reads matching the query. An optional condition "
     "is ANDed with the query for this count only, and must not "
@@ -423,7 +423,7 @@ static CmdResult reset_query (
       state, std::move (newClause), "Reset query"
   );
 }
-static constexpr Command CMD_CLEAR{
+static constexpr Command sh_cmdClear{
     "clear", "",
     "Reset the query: drop every condition and the sort order.",
     &reset_query
@@ -446,7 +446,7 @@ static CmdResult fold_pane (
   auto& qbf = state.conf.seqPaneFrac;
   static std::unordered_map<
       std::string_view, std::function<void (CmdResult&)>>
-      PANE_SPECIFIERS{
+      paneSpecifiers{
           {"seq",
            [&qbf] (CmdResult& out) {
              if (qbf == 0.01) {
@@ -475,7 +475,7 @@ static CmdResult fold_pane (
     if (qbf != 0.5) {
       qbf = 0.5;
       size_browser_panes (
-          state.ui.main, state.conf.seqPaneFrac
+          state.ui.browsr, state.conf.seqPaneFrac
       );  // shouldn't error in this context (I hope)
       out.msg = "Reset view to default";
       out.success = true;
@@ -496,11 +496,11 @@ static CmdResult fold_pane (
 
   const auto pane_arg = tokens[0];
 
-  if (const auto& it = PANE_SPECIFIERS.find (pane_arg);
-      it != PANE_SPECIFIERS.end()) {
+  if (const auto& it = paneSpecifiers.find (pane_arg);
+      it != paneSpecifiers.end()) {
     it->second (out);
     size_browser_panes (
-        state.ui.main, state.conf.seqPaneFrac
+        state.ui.browsr, state.conf.seqPaneFrac
     );  // shouldn't error in this context (I hope)
     out.success = true;
   }
@@ -514,7 +514,7 @@ static CmdResult fold_pane (
   return out;
 }
 // TODO: is `pane` a better name?
-static constexpr Command CMD_FOLD_PANE{
+static constexpr Command sh_cmdFoldPane{
     "fold", "",
     "fold [seq, data] - show/hide either of the sequence or "
     "data panes, or reset to default with no args",
@@ -539,7 +539,7 @@ static CmdResult dump_db (std::string_view args, AppState& state)
 
   return {true, fmt::format ("Dumped database to {}", path)};
 }
-static constexpr Command CMD_DUMP{
+static constexpr Command sh_cmdDump{
     "dump", "",
     "Write the in-memory database to a file. Takes a single "
     "path. The current query is not preserved.",
@@ -548,18 +548,18 @@ static constexpr Command CMD_DUMP{
 
 static CmdResult dump_readme (std::string_view args, AppState&)
 {
-  static constexpr std::string k_readmeFileName =
+  static constexpr std::string sh_readmeFilename =
       "APB-README.md";
   std::string outPath;
   const auto tokens = split_whitespace (args);
   if (tokens.empty()) {
     outPath = "./";
-    outPath += k_readmeFileName;
+    outPath += sh_readmeFilename;
   }
   else if (tokens.size() == 1) {
     outPath = tokens[0];
     outPath += "/";
-    outPath += k_readmeFileName;
+    outPath += sh_readmeFilename;
   }
   else {
     return {
@@ -584,25 +584,13 @@ static CmdResult dump_readme (std::string_view args, AppState&)
   }
   return {true, "readme written to " + outPath};
 }
-static constexpr Command CMD_README{
+static constexpr Command sh_cmdReadme{
     "readme", "",
     "Dumps readme shipped with repo to a provided directory, or "
     "the working directory if no path is given.",
     &dump_readme
 };
 
-// NOTE: must have navigation help in overlay
-// maybe help should show that, and give a second
-// command which will show the command reference
-// table. I think probably!
-/* PLAN: this will show command reference table,
-   and instruct to read/dump the readme for more
-   info.
-   Much less work than trying to build essentially
-   my own internal man window, and minimises sources
-   of truth by prioritising readme.
-   If an arg is passed, will show usage. */
-// forward declare find_cmd for lookup in help
 static const Command* find_cmd (std::string_view name);
 static CmdResult show_help (
     std::string_view args, AppState& state
@@ -633,9 +621,9 @@ static CmdResult show_help (
       );
       out.success = true;
     }
-    else if (const auto* cmd = find_cmd (tokens[0])) {
+    else if (const auto* br_cmd = find_cmd (tokens[0])) {
       // not sure this branch adds value
-      out.msg = cmd->usage;
+      out.msg = br_cmd->usage;
       out.success = !out.msg.empty();
     }
     else {
@@ -652,24 +640,25 @@ static CmdResult show_help (
   }
   return out;
 }
-static constexpr Command CMD_HELP{
+static constexpr Command sh_cmdHelp{
     "help", "?", "Show this help.", &show_help
 };
 
 // Registry
-static constexpr const Command* CMD_TABLE[]{
-    &CMD_QUIT,        &CMD_SHOW,  &CMD_HIDE,     &CMD_WHERE,
-    &CMD_AND,         &CMD_OR,    &CMD_BACK,     &CMD_ORDER,
-    &CMD_CLEAR_WHERE, &CMD_CLEAR, &CMD_COUNT,    &CMD_DUMP,
-    &CMD_README,      &CMD_HELP,  &CMD_FOLD_PANE
+static constexpr const Command* sh_cmdTable[]{
+    &sh_cmdQuit,   &sh_cmdShow,  &sh_cmdHide,
+    &sh_cmdWhere,  &sh_cmdAnd,   &sh_cmdOr,
+    &sh_cmdBack,   &sh_cmdOrder, &sh_cmdClearWhere,
+    &sh_cmdClear,  &sh_cmdCount, &sh_cmdDump,
+    &sh_cmdReadme, &sh_cmdHelp,  &sh_cmdFoldPane
 };
 
 static const Command* find_cmd (std::string_view name)
 {
-  for (const Command* cmd : CMD_TABLE) {
-    if (cmd->name == name ||
-        (!cmd->alias.empty() && cmd->alias == name)) {
-      return cmd;
+  for (const Command* br_cmd : sh_cmdTable) {
+    if (br_cmd->name == name ||
+        (!br_cmd->alias.empty() && br_cmd->alias == name)) {
+      return br_cmd;
     }
   }
   return nullptr;
@@ -678,8 +667,8 @@ static const Command* find_cmd (std::string_view name)
 CmdResult exec_cmd (std::string_view call, AppState& state)
 {
   auto [name, args] = split_first_space (call);
-  if (const Command* cmd = find_cmd (name)) {
-    return cmd->run (args, state);
+  if (const Command* br_cmd = find_cmd (name)) {
+    return br_cmd->run (args, state);
   }
   return {
       false, fmt::format ("Command \"{}\" not found!", name)

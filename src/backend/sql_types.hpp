@@ -3,10 +3,10 @@
 #include <sqlite3.h>
 
 struct SqliteConn {
-  sqlite3* o_ptr = nullptr;
+  sqlite3* o_conn = nullptr;
   operator sqlite3*() const
   {
-    return o_ptr;
+    return o_conn;
   }  // avoid having to route through a layer to access ptr
 
   SqliteConn() = default;
@@ -14,16 +14,17 @@ struct SqliteConn {
   SqliteConn (const SqliteConn&) = delete;
   SqliteConn& operator= (const SqliteConn&) = delete;
 
-  SqliteConn (SqliteConn&& other) noexcept : o_ptr (other.o_ptr)
+  SqliteConn (SqliteConn&& other) noexcept
+      : o_conn (other.o_conn)
   {
-    other.o_ptr = nullptr;
+    other.o_conn = nullptr;
   }
   SqliteConn& operator= (SqliteConn&&) = delete;
 
   ~SqliteConn()
   {
-    if (o_ptr) {
-      sqlite3_close_v2 (o_ptr);
+    if (o_conn != nullptr) {
+      sqlite3_close_v2 (o_conn);
     }
   }
 };
@@ -31,33 +32,34 @@ struct SqliteConn {
 /* STATEMENTS */
 
 struct SqliteStmt {
-  sqlite3_stmt* o_ptr = nullptr;
-  operator sqlite3_stmt*() const { return o_ptr; }
+  sqlite3_stmt* o_stmt = nullptr;
+  operator sqlite3_stmt*() const { return o_stmt; }
 
   SqliteStmt() = default;
   SqliteStmt (const SqliteStmt&) = delete;
   SqliteStmt& operator= (const SqliteStmt&) = delete;
 
-  SqliteStmt (SqliteStmt&& other) noexcept : o_ptr (other.o_ptr)
+  SqliteStmt (SqliteStmt&& other) noexcept
+      : o_stmt (other.o_stmt)
   {
-    other.o_ptr = nullptr;
+    other.o_stmt = nullptr;
   }
   SqliteStmt& operator= (SqliteStmt&& other) noexcept
   {
     if (this != &other) {
-      if (o_ptr) {
-        sqlite3_finalize (o_ptr);
+      if (o_stmt != nullptr) {
+        sqlite3_finalize (o_stmt);
       }
     }
-    o_ptr = other.o_ptr;
-    other.o_ptr = nullptr;
+    o_stmt = other.o_stmt;
+    other.o_stmt = nullptr;
     return *this;
   }
 
   ~SqliteStmt()
   {
-    if (o_ptr) {
-      sqlite3_finalize (o_ptr);
+    if (o_stmt != nullptr) {
+      sqlite3_finalize (o_stmt);
     }
   }
 };

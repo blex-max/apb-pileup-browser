@@ -26,7 +26,7 @@ static void handle_character_entry (
 static bool handle_nav (AppState& state, const tb_event& ev)
 {
   auto& cmdWgt = state.ui.cmd;
-  auto& scrollRow = state.ui.main.rowStart;
+  auto& scrollRow = state.ui.browsr.rowStart;
 
   switch (ev.key) {
     case TB_KEY_ENTER:
@@ -93,15 +93,13 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_PGUP: {
-      auto pageSize =
-          static_cast<int> (height (state.ui.main.queryBox));
+      auto pageSize = height (state.ui.browsr.queryBox);
       scrollRow = std::max (scrollRow - pageSize, 0);
       break;
     }
 
     case TB_KEY_PGDN: {
-      auto pageSize =
-          static_cast<int> (height (state.ui.main.queryBox));
+      auto pageSize = height (state.ui.browsr.queryBox);
       scrollRow += pageSize;
       break;
     }
@@ -152,11 +150,10 @@ static void nav_overlay (AppState& state, const tb_event& ev)
   }
   else if (ev.key != 0) {
     auto& lnOff = state.ui.help.contentLnOffset;
-    auto maxScroll = std::max<int> (
-        0, static_cast<int16_t> (state.ui.help.content.size()) -
-               static_cast<int16_t> (
-                   height (state.ui.help.contentBox)
-               )
+    const auto contentLines =
+        static_cast<int> (state.ui.help.content.size());
+    auto maxScroll = std::max (
+        0, contentLines - height (state.ui.help.contentBox)
     );
     switch (ev.key) {
       case TB_KEY_ARROW_DOWN:

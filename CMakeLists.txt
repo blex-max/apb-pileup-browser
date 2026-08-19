@@ -86,6 +86,7 @@ add_executable(apb
   src/app/subcommands.cpp
   src/app/widgets.cpp
   src/app/cmd.cpp
+  src/app/data_table_cols.cpp
   src/app/event.cpp
   src/app/text_blocks.cpp
   src/backend/PileupDB.cpp

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <ranges>
 
 #include "frontend/extb/box/span.hpp"
@@ -12,20 +11,20 @@ namespace extb {
 
 struct Box {
     // default-construct invalid
-  Span ispan;
-  Span jspan;
+    Span xspan;
+    Span yspan;
 };
-size_t width (const Box& b) noexcept;
-size_t height (const Box& b) noexcept;
+int width (const Box& b) noexcept;
+int height (const Box& b) noexcept;
 // compass directions NESW
 GlobalCell nw_vertex (const Box& b) noexcept;
 GlobalCell ne_vertex (const Box& b) noexcept;
 GlobalCell sw_vertex (const Box& b) noexcept;
 GlobalCell se_vertex (const Box& b) noexcept;
-JLine north_edge (const Box& b) noexcept;
-JLine south_edge (const Box& b) noexcept;
-ILine west_edge (const Box& b) noexcept;
-ILine east_edge (const Box& b) noexcept;
+HLine north_edge (const Box& b) noexcept;
+HLine south_edge (const Box& b) noexcept;
+VLine west_edge (const Box& b) noexcept;
+VLine east_edge (const Box& b) noexcept;
 bool valid (const Box& b) noexcept;
 GlobalCell to_global (const Box& b, const LocalCell& c);
 bool contains_global (
@@ -46,16 +45,12 @@ std::pair<const Span&, const Span&> spans (const Box& b);
 
 GlobalCellRange auto inline cell_source (Box box)
 {
-  const std::size_t width = size (box.jspan);
-  const std::size_t count = size (box.ispan) * width;
-  return std::views::iota (std::size_t{0}, count) |
-         std::views::transform ([box,
-                                 width] (std::size_t index) {
+  const int width = size (box.xspan);
+  const int count = size (box.yspan) * width;
+  return std::views::iota (0, count) |
+         std::views::transform ([box, width] (int index) {
            return nw_vertex (box) +
-                  dIJ (
-                      static_cast<int> (index / width),
-                      static_cast<int> (index % width)
-                  );
+                  dXY (index % width, index / width);
          });
 }
 
@@ -63,90 +58,89 @@ GlobalCellRange auto inline cell_source (Box box)
 
 // --- IMPLEMENTATION --- //
 
-inline size_t width (const Box& b) noexcept
+inline int width (const Box& b) noexcept
 {
-  return size (b.jspan);
+  return size (b.xspan);
 }
-inline size_t height (const Box& b) noexcept
+inline int height (const Box& b) noexcept
 {
-  return size (b.ispan);
+  return size (b.yspan);
 }
 
 inline bool contains_global (
     const Box& b, const GlobalCell& cglobal
 ) noexcept
 {
-  return cglobal.i >= b.ispan.first &&
-         cglobal.i < b.ispan.last &&
-         cglobal.j >= b.jspan.first && cglobal.j < b.jspan.last;
+  return cglobal.x >= b.xspan.first &&
+         cglobal.x < b.xspan.last &&
+         cglobal.y >= b.yspan.first && cglobal.y < b.yspan.last;
 }
 inline bool contains_local (
     const Box& b, const LocalCell& clocal
 ) noexcept
 {
-  auto wj = width (b);
-  auto hi = height (b);
-  return valid (clocal) && static_cast<size_t> (clocal.i) < hi &&
-         static_cast<size_t> (clocal.j) < wj;
+  auto wx = width (b);
+  auto hy = height (b);
+  return valid (clocal) && clocal.x < wx && clocal.y < hy;
 }
 
 inline bool valid (const Box& b) noexcept
 {
-  return valid (b.ispan) && valid (b.jspan);
+  return valid (b.xspan) && valid (b.yspan);
 }
 
 inline GlobalCell to_global (const Box& b, const LocalCell& c)
 {
   if (contains_local (b, c)) {
-    const auto moved = c + dIJ (b.ispan.first, b.jspan.first);
-    return {moved.i, moved.j};
+    const auto moved = c + dXY (b.xspan.first, b.yspan.first);
+    return {moved.x, moved.y};
   }
   return {};
 }
 
 inline GlobalCell nw_vertex (const Box& b) noexcept
 {
-  return {b.ispan.first, b.jspan.first};
+  return {b.xspan.first, b.yspan.first};
 }
 
 inline GlobalCell ne_vertex (const Box& b) noexcept
 {
-  return {b.ispan.first, b.jspan.last - 1};
+  return {b.xspan.last - 1, b.yspan.first};
 }
 
 inline GlobalCell sw_vertex (const Box& b) noexcept
 {
-  return {b.ispan.last - 1, b.jspan.first};
+  return {b.xspan.first, b.yspan.last - 1};
 }
 
 inline GlobalCell se_vertex (const Box& b) noexcept
 {
-  return {b.ispan.last - 1, b.jspan.last - 1};
+  return {b.xspan.last - 1, b.yspan.last - 1};
 }
 
-inline JLine north_edge (const Box& b) noexcept
+inline HLine north_edge (const Box& b) noexcept
 {
-  return {first (b.ispan), b.jspan};
+  return {b.xspan, first (b.yspan)};
 }
 
-inline JLine south_edge (const Box& b) noexcept
+inline HLine south_edge (const Box& b) noexcept
 {
-  return {last (b.ispan) - 1, b.jspan};
+  return {b.xspan, last (b.yspan) - 1};
 }
 
-inline ILine west_edge (const Box& b) noexcept
+inline VLine west_edge (const Box& b) noexcept
 {
-  return {b.ispan, first (b.jspan)};
+  return {first (b.xspan), b.yspan};
 }
 
-inline ILine east_edge (const Box& b) noexcept
+inline VLine east_edge (const Box& b) noexcept
 {
-  return {b.ispan, last (b.jspan) - 1};
+  return {last (b.xspan) - 1, b.yspan};
 }
 
 inline std::pair<const Span&, const Span&> spans (const Box& b)
 {
-  return {b.ispan, b.jspan};
+  return {b.xspan, b.yspan};
 }
 
 // --- END IMPLEMENTATION --- //
