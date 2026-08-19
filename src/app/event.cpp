@@ -41,7 +41,7 @@ static bool handle_nav (AppState& state, const tb_event& ev)
 
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
-      if (ev.mod & TB_MOD_ALT) {
+      if ((ev.mod & TB_MOD_ALT) != 0) {
         clear (cmdWgt.inputBuf);
       }
       else {
@@ -75,7 +75,7 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_ARROW_DOWN:
-      if (ev.mod & TB_MOD_SHIFT) {
+      if ((ev.mod & TB_MOD_SHIFT) != 0) {
         history_next (cmdWgt.history, cmdWgt.inputBuf);
       }
       else {
@@ -84,7 +84,7 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_ARROW_UP:
-      if (ev.mod & TB_MOD_SHIFT) {
+      if ((ev.mod & TB_MOD_SHIFT) != 0) {
         history_prev (cmdWgt.history, cmdWgt.inputBuf);
       }
       else {

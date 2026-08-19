@@ -3,7 +3,7 @@
 #include <string>
 
 struct EditBuf {
-  std::string text{};
+  std::string text;
   size_t curs = 0;
 };
 

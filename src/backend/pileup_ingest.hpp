@@ -57,11 +57,11 @@ struct PreparedPileup {
 
   ~PreparedPileup()
   {
-    if (o_cap) {
+    if (o_cap != nullptr) {
       hts_itr_destroy (o_cap->o_it);
       delete o_cap;
     }
-    if (o_plp) {
+    if (o_plp != nullptr) {
       bam_plp_destroy (o_plp);
     }
     br_plpArr = nullptr;

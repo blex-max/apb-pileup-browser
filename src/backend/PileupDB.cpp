@@ -458,7 +458,7 @@ VoidOrErr insert_pileup (
   }
   auto reads{std::move (*ppRet)};
 
-  auto contigName = sam_hdr_tid2name (aln.o_hdr, pos.tid);
+  const auto* contigName = sam_hdr_tid2name (aln.o_hdr, pos.tid);
 
   // With no covering reads there's no meaningful span to fetch a
   // reference slice for; fall back to a zero-width span at the pileup

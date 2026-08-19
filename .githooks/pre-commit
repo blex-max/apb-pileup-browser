@@ -23,6 +23,36 @@ if printf '%s\n' "$staged" | grep -qx 'src/app/text_blocks.cpp'; then
   git add README.md
 fi
 
+# A handful of readability checks are treated as hard errors rather than
+# just report.txt noise: each has a mechanical, always-correct fix and no
+# known false positive in this codebase, so a hit here is a regression, not
+# a judgment call. (See .clang-tidy for the full, non-blocking check list.)
+# Scanned across all of src/, not just staged files, because a hit
+# introduced in a header only surfaces via the .cpp files that include it.
+tidy_checks='-*,readability-implicit-bool-conversion,readability-qualified-auto,readability-redundant-casting,readability-simplify-boolean-expr,readability-use-std-min-max'
+if printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
+  if ! command -v run-clang-tidy >/dev/null 2>&1; then
+    echo "pre-commit: run-clang-tidy not found, skipping readability gate" >&2
+  elif [ ! -f build/compile_commands.json ]; then
+    echo "pre-commit: build/compile_commands.json not found (configure build/ first), skipping readability gate" >&2
+  else
+    tidy_log=$(mktemp)
+    trap 'rm -f "$tidy_log"' EXIT
+    isysroot_arg=()
+    if [[ "$(uname -s)" == "Darwin" ]] && command -v xcrun >/dev/null 2>&1; then
+      isysroot_arg=(-extra-arg="-isysroot$(xcrun --show-sdk-path)")
+    fi
+    if ! run-clang-tidy -quiet -p build -checks="$tidy_checks" \
+        -warnings-as-errors='*' "${isysroot_arg[@]}" \
+        "^$(pwd)/src/" >"$tidy_log" 2>&1; then
+      echo "pre-commit: clang-tidy found blocking readability issues:" >&2
+      grep -E ': (error|warning):' "$tidy_log" >&2
+      echo "pre-commit: please fix these" >&2
+      exit 1
+    fi
+  fi
+fi
+
 if ! command -v clang-format >/dev/null 2>&1; then
   echo "pre-commit: clang-format not found, skipping format check" >&2
   exit 0

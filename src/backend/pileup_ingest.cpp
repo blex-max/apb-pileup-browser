@@ -4,6 +4,7 @@
 #include <htslib/kstring.h>
 #include <htslib/sam.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -143,7 +144,8 @@ VoidOrErr aux1_to_json (
       ks_tokaux_t tokAux;
       const char* br_tok;
       bool firstTok = true;
-      for (br_tok = kstrtok (br_valStart, ",", &tokAux); br_tok;
+      for (br_tok = kstrtok (br_valStart, ",", &tokAux);
+           br_tok != nullptr;
            br_tok = kstrtok (NULL, NULL, &tokAux)) {
         const size_t tokLen =
             static_cast<size_t> (tokAux.p - br_tok);
@@ -197,7 +199,7 @@ PileupOrErr prepare_pileup (
   PreparedPileup out;
 
   PLOGD << "Initalising sam_itr_queryi";
-  auto o_alnIter =
+  auto* o_alnIter =
       sam_itr_queryi (aln.o_idx, pos.tid, pos.pos, pos.pos + 1);
   if (o_alnIter == NULL) {
     return std::unexpected{make_htslib_err (
@@ -209,7 +211,7 @@ PileupOrErr prepare_pileup (
 
   PLOGD << "Initialising bam_plp_t";
   out.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
-  auto o_plp = bam_plp_init (pileup_func, out.o_cap);
+  auto* o_plp = bam_plp_init (pileup_func, out.o_cap);
   if (o_plp == NULL) {
     return std::unexpected{make_htslib_err (
         -1,
@@ -236,7 +238,7 @@ PileupOrErr prepare_pileup (
       continue;  // doesn't cover variant
     }
     PLOGD << "Position found";
-    out.br_plpArr = const_cast<const bam_pileup1_t*> (br_plpArr);
+    out.br_plpArr = br_plpArr;
     out.nPlp = static_cast<size_t> (nPlp);
     return out;
   }
@@ -248,19 +250,15 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
 {
   GenomicSpan out{INT64_MAX, 0};
   for (size_t i = 0; i < plp.nPlp; i++) {
-    const auto b1 = plp.br_plpArr[i].b;
+    auto* const b1 = plp.br_plpArr[i].b;
     const auto rStart = b1->core.pos;
     const auto rEnd =
         rStart + bam_cigar2rlen (
                      static_cast<int> (b1->core.n_cigar),
                      bam_get_cigar (b1)
                  );
-    if (rStart < out.start) {
-      out.start = rStart;
-    }
-    if (rEnd > out.end) {
-      out.end = rEnd;
-    }
+    out.start = std::min (out.start, rStart);
+    out.end = std::max (out.end, rEnd);
   }
   return out;
 }
@@ -393,19 +391,27 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
       sqlRc != SQLITE_OK) {
     return sqlRc;
   }
-  if (sqlRc = sqlite3_bind_int (stmt, col++, pf.isDel);
+  if (sqlRc = sqlite3_bind_int (
+          stmt, col++, static_cast<int> (pf.isDel)
+      );
       sqlRc != SQLITE_OK) {
     return sqlRc;
   }
-  if (sqlRc = sqlite3_bind_int (stmt, col++, pf.isHead);
+  if (sqlRc = sqlite3_bind_int (
+          stmt, col++, static_cast<int> (pf.isHead)
+      );
       sqlRc != SQLITE_OK) {
     return sqlRc;
   }
-  if (sqlRc = sqlite3_bind_int (stmt, col++, pf.isTail);
+  if (sqlRc = sqlite3_bind_int (
+          stmt, col++, static_cast<int> (pf.isTail)
+      );
       sqlRc != SQLITE_OK) {
     return sqlRc;
   }
-  if (sqlRc = sqlite3_bind_int (stmt, col++, pf.isRefSkip);
+  if (sqlRc = sqlite3_bind_int (
+          stmt, col++, static_cast<int> (pf.isRefSkip)
+      );
       sqlRc != SQLITE_OK) {
     return sqlRc;
   }
