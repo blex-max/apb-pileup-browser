@@ -378,19 +378,23 @@ static void draw_data_table_row (
 }
 
 // draw sequence to seq pane
-static e2::Delta draw_sequence (
+static e2::Delta draw_aligned_data (
     const e2::GlobalCell& writeStart, int64_t writeXStartGPos,
     const e2::GlobalCell& writeLimits, sqlite3_stmt* br_dbRow,
     int64_t pileupSpanGStart,
     const std::remove_cvref<
-        decltype (PileupMetadata::refSlice)>::type& ref
+        decltype (PileupMetadata::refSlice)>::type& ref,
+    bool drawQualTrack, bool drawInsTrack, bool drawInsQualTrack
 )
 {
-  // TODO: mode arg, for display insertions and quality
-  // string in `tracks` below the read
   // NOTE: inlining to a single function
   // makes it easier to extend and maintain
   // drawing logic. Resist urge to modularise.
+
+  if (writeStart.x >= writeLimits.x ||
+      writeStart.y >= writeLimits.y) {
+    return {0, 0};  // no-op
+  }
 
   auto writeHead = writeStart;
   const auto readStart = get_rstart (br_dbRow);
@@ -403,7 +407,11 @@ static e2::Delta draw_sequence (
 
   const auto* br_cig = get_cigar_blob (br_dbRow);
   const auto nCig = get_ncig (br_dbRow);
-  const auto rawSeq = get_seq (br_dbRow);
+  const auto seq = get_seq (br_dbRow);
+  std::optional<decltype (get_qual (br_dbRow))> qual;
+  if (drawQualTrack && (writeStart.y + 1) < writeLimits.y) {
+    qual = get_qual (br_dbRow);
+  }
 
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
@@ -437,13 +445,13 @@ static e2::Delta draw_sequence (
           opLenRemain -= skipOpBases;
         }
 
-        // set bases
-        // masking bases that match the reference as '='.
+        // draw tracks
         for (size_t i = 0;
              i < opLenRemain && writeHead.x < writeLimits.x;
              ++i) {
           uintattr_t dispAttr = 0;
-          auto dispChar = rawSeq[iQuery + i];
+          auto dispChar = seq[iQuery + i];
+          // mask bases that match the reference with '='.
           if (ref && (dispChar == (*ref)[iRef + i])) {
             dispChar = '=';
             dispAttr = TB_DIM;
@@ -452,6 +460,13 @@ static e2::Delta draw_sequence (
               writeHead, static_cast<uint32_t> (dispChar),
               dispAttr
           );
+          if (qual) {
+            set (
+                writeHead + e2::dY (1),
+                static_cast<uint32_t> ((*qual)[iQuery + i]),
+                TB_DIM
+            );
+          }
           ++writeHead.x;
         }
 
@@ -542,7 +557,10 @@ static e2::Delta draw_sequence (
       break;
     }
   }
-  writeHead.y++;  // one row written
+  writeHead.y++;  // one row always written
+  if (qual) {
+    writeHead.y++;
+  }
 
   return diff (writeStart, writeHead);
 }
@@ -565,16 +583,16 @@ static VoidOrErr draw_query_data (
 
   auto nRow = height (seqPane);
 
-  int iRead = 0;
-  int iRow = 0;
   auto seqWriteHead = vertexA (seqPane);
-  auto seqWriteLim = vertexC (seqPane);
+  auto seqWriteLim =
+      vertexC (seqPane) + e2::dXY (1, 1);  // exclusive limit
   const int64_t seqPaneLeftEdgeGPos =
       pmd.pos - (width (seqPane) / 2);
-  for (; iRow < nRow; iRead++) {
-    // NOTE: crash?
+  for (int iRead = 0, iRow = 0;
+       iRow < nRow && seqWriteHead.y < seqWriteLim.y; ++iRead) {
     auto nrRet = next_read (stmt, db);
     if (!nrRet) {
+      // poor error handling policy
       return std::unexpected{nrRet.error()};
     }
     if (!(*nrRet)) {
@@ -583,14 +601,21 @@ static VoidOrErr draw_query_data (
     if (iRead < bWgt.rowStart) {
       continue;  // scrolling
     }
-    seqWriteHead.y +=
-        draw_sequence (
-            seqWriteHead, seqPaneLeftEdgeGPos, seqWriteLim, stmt,
-            pmd.start, pmd.refSlice
-        )
-            .dy;  // move head by rows written
+    // NOTE: in-progress with implementation of multiple
+    // tracks of data in view.
+    // NOTE/BUG: tracks do not play nicely with scrolling.
+    // Could cache the output and scroll that, otherwise
+    // must make this function/scrolling aware of each
+    // other.
+    const auto dHead = draw_aligned_data (
+        seqWriteHead, seqPaneLeftEdgeGPos, seqWriteLim, stmt,
+        pmd.start, pmd.refSlice, true, false, false
+    );
+    // TODO: update draw_data_table_row
+    // to accomodate for changes to draw_sequence.
     draw_data_table_row (dataPane, iRow, stmt, displayCols);
-    ++iRow;
+    seqWriteHead.y += dHead.dy;
+    ++iRow;  // increment independent of iRead
   }
 
   auto pileupXPos =
