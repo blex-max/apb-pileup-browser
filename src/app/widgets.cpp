@@ -6,8 +6,10 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <type_traits>
 
 #include "app/data_table_cols.hpp"
+#include "backend/PileupDB.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
@@ -116,8 +118,8 @@ void draw_overlay (const OverlayWgt& oWgt)
 
   set (vertexA (frame), boxch::topLeftRoundCorner);
   set (vertexB (frame), boxch::topRightRoundCorner);
-  set (vertexC (frame), boxch::bottomLeftRoundCorner);
-  set (vertexD (frame), boxch::bottomRightRoundCorner);
+  set (vertexD (frame), boxch::bottomLeftRoundCorner);
+  set (vertexC (frame), boxch::bottomRightRoundCorner);
 
   auto xEnd = last (box.xspan);
 
@@ -172,8 +174,8 @@ void size_browser_panes (BrowserWgt& bWgt, double seqPaneFrac)
   bWgt.headerSep = {
       bXSpan, first (bYSpan) + 2
   };  // overlapping, to set connectors
-  bWgt.queryBox = {seqX, contentY};
-  bWgt.dataBox = {dataX, contentY};
+  bWgt.seqPane = {seqX, contentY};
+  bWgt.dataPane = {dataX, contentY};
   bWgt.querySep = {bXSpan, last (bYSpan) - 2};
   bWgt.infoLine = {body (bXSpan), last (bYSpan) - 1};
 }
@@ -288,8 +290,8 @@ static void draw_cmd_chrome (CmdWgt& cWgt)
   auto& cFrame = cWgt.frame;
   set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
   set (vertexB (cFrame), boxch::topRightRoundCorner, TB_DIM);
-  set (vertexC (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
-  set (vertexD (cFrame), boxch::bottomRightRoundCorner, TB_DIM);
+  set (vertexD (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
+  set (vertexC (cFrame), boxch::bottomRightRoundCorner, TB_DIM);
 
   set (body (edgeAB (cFrame)), boxch::horzHeavy, TB_DIM);
   set (body (edgeDA (cFrame)), boxch::vertLine, TB_DIM);
@@ -376,9 +378,12 @@ static void draw_data_table_row (
 }
 
 // draw sequence to seq pane
-static void draw_sequence (
-    const e2::Box& queryBox, int boxRow, sqlite3_stmt* br_dbRow,
-    const LocusData& locus
+static e2::Delta draw_sequence (
+    const e2::GlobalCell& writeStart, int64_t writeXStartGPos,
+    const e2::GlobalCell& writeLimits, sqlite3_stmt* br_dbRow,
+    int64_t pileupSpanGStart,
+    const std::remove_cvref<
+        decltype (PileupMetadata::refSlice)>::type& ref
 )
 {
   // TODO: mode arg, for display insertions and quality
@@ -387,23 +392,19 @@ static void draw_sequence (
   // makes it easier to extend and maintain
   // drawing logic. Resist urge to modularise.
 
-  const auto& ref = locus.refSlice;
+  auto writeHead = writeStart;
   const auto readStart = get_rstart (br_dbRow);
 
   // NOTE: since view is centered on pileup,
   // all reads should always be at least partially in view
   // (unless pane is folded)
-  const int64_t boxLeftEdgeGPos =
-      locus.pos - (width (queryBox) / 2);
   const int startToLEdge =
-      static_cast<int> (readStart - boxLeftEdgeGPos);
+      static_cast<int> (readStart - writeXStartGPos);
 
   const auto* br_cig = get_cigar_blob (br_dbRow);
   const auto nCig = get_ncig (br_dbRow);
   const auto rawSeq = get_seq (br_dbRow);
 
-  auto writeHead =
-      e2::GlobalCell{vertexA (queryBox) + e2::dY (boxRow)};
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
   }
@@ -411,7 +412,8 @@ static void draw_sequence (
   size_t iQuery = 0;
   // locus start always <= readStart
   size_t iRef =
-      ref ? static_cast<size_t> (readStart - locus.start) : 0;
+      ref ? static_cast<size_t> (readStart - pileupSpanGStart)
+          : 0;
   for (size_t iOp = 0; iOp < nCig; iOp++) {
     const auto op = br_cig[iOp];
     const auto opSz = bam_cigar_oplen (op);
@@ -421,14 +423,14 @@ static void draw_sequence (
     if (opConsumeType == 0b11) {
       // consumes query and ref
 
-      if ((iGc + opSz) >= boxLeftEdgeGPos) {
+      if ((iGc + opSz) >= writeXStartGPos) {
         // op at least partially on screen
         size_t skipOpBases = 0;
         auto opLenRemain = opSz;
-        if (iGc < boxLeftEdgeGPos) {
+        if (iGc < writeXStartGPos) {
           // op partially on screen only
           skipOpBases = static_cast<size_t> (
-              boxLeftEdgeGPos - iGc
+              writeXStartGPos - iGc
           );  // +ve
           iQuery += skipOpBases;
           iRef += skipOpBases;
@@ -437,8 +439,8 @@ static void draw_sequence (
 
         // set bases
         // masking bases that match the reference as '='.
-        for (size_t i = 0; i < opLenRemain &&
-                           writeHead.x < last (queryBox.xspan);
+        for (size_t i = 0;
+             i < opLenRemain && writeHead.x < writeLimits.x;
              ++i) {
           uintattr_t dispAttr = 0;
           auto dispChar = rawSeq[iQuery + i];
@@ -470,15 +472,14 @@ static void draw_sequence (
       //     - the latter only relevant to RNA (TODO: disambiguate?)
       // don't advance query tracker
 
-      if ((iGc + opSz) >= boxLeftEdgeGPos) {
+      if ((iGc + opSz) >= writeXStartGPos) {
         // op at least partially on screen
         size_t skipOpBases =
-            (iGc < boxLeftEdgeGPos)
-                ? static_cast<size_t> (boxLeftEdgeGPos - iGc)
+            (iGc < writeXStartGPos)
+                ? static_cast<size_t> (writeXStartGPos - iGc)
                 : 0;
         for (size_t i = skipOpBases;
-             i < opSz && writeHead.x < last (queryBox.xspan);
-             ++i) {
+             i < opSz && writeHead.x < writeLimits.x; ++i) {
           set (writeHead, '-');
           ++writeHead.x;
         }
@@ -489,7 +490,7 @@ static void draw_sequence (
     else if (opConsumeType == 0b01) {
       // consumes query only
 
-      if (opType == BAM_CINS && iGc > boxLeftEdgeGPos) {
+      if (opType == BAM_CINS && iGc > writeXStartGPos) {
         // insertion
         // where at least one base PRIOR
         // to the insertion is visible
@@ -516,7 +517,7 @@ static void draw_sequence (
         }
         const auto drawnSz = static_cast<int> (clipLabel.size());
         e2::write_ascii_string (
-            writeHead - e2::dX (drawnSz), last (queryBox.xspan),
+            writeHead - e2::dX (drawnSz), writeLimits.x,
             clipLabel, TB_DIM
         );
       }
@@ -526,7 +527,7 @@ static void draw_sequence (
             "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
         e2::write_ascii_string (
-            writeHead, last (queryBox.xspan), clipLabel, TB_DIM
+            writeHead, writeLimits.x, clipLabel, TB_DIM
         );
       }
 
@@ -536,17 +537,19 @@ static void draw_sequence (
       // hard clip/padding not handled
       continue;
     }
-
-    if (writeHead.x >= last (queryBox.xspan)) {
+    if (writeHead.x >= writeLimits.x) {
       // early exit if row exhausted
       break;
     }
   }
+  writeHead.y++;  // one row written
+
+  return diff (writeStart, writeHead);
 }
 
 static VoidOrErr draw_query_data (
     BrowserWgt& bWgt, DynamicSelectReadsStmt& stmt,
-    const PileupDB& db, const LocusData& locus,
+    const PileupDB& db, const PileupMetadata& pmd,
     const DataColList& displayCols
 )
 {
@@ -554,16 +557,20 @@ static VoidOrErr draw_query_data (
 
   sqlite3_reset (stmt);
 
-  auto& qBox = bWgt.queryBox;
-  auto& dBox = bWgt.dataBox;
+  auto& seqPane = bWgt.seqPane;
+  auto& dataPane = bWgt.dataPane;
   auto& hdrLine = bWgt.tableHeaderLine;
 
   draw_data_table_header (hdrLine, displayCols);
 
-  auto nRow = height (qBox);
+  auto nRow = height (seqPane);
 
   int iRead = 0;
   int iRow = 0;
+  auto seqWriteHead = vertexA (seqPane);
+  auto seqWriteLim = vertexC (seqPane);
+  const int64_t seqPaneLeftEdgeGPos =
+      pmd.pos - (width (seqPane) / 2);
   for (; iRow < nRow; iRead++) {
     // NOTE: crash?
     auto nrRet = next_read (stmt, db);
@@ -576,15 +583,21 @@ static VoidOrErr draw_query_data (
     if (iRead < bWgt.rowStart) {
       continue;  // scrolling
     }
-    draw_sequence (qBox, iRow, stmt, locus);
-    draw_data_table_row (dBox, iRow, stmt, displayCols);
+    seqWriteHead.y +=
+        draw_sequence (
+            seqWriteHead, seqPaneLeftEdgeGPos, seqWriteLim, stmt,
+            pmd.start, pmd.refSlice
+        )
+            .dy;  // move head by rows written
+    draw_data_table_row (dataPane, iRow, stmt, displayCols);
     ++iRow;
   }
 
-  auto pileupXPos = first (qBox.xspan) + (width (qBox) / 2);
-  add_attr (e2::VLine{pileupXPos, qBox.yspan}, TB_REVERSE);
+  auto pileupXPos =
+      first (seqPane.xspan) + (width (seqPane) / 2);
+  add_attr (e2::VLine{pileupXPos, seqPane.yspan}, TB_REVERSE);
   set (
-      e2::GlobalCell{pileupXPos, first (qBox.yspan) - 1}, '|',
+      e2::GlobalCell{pileupXPos, first (seqPane.yspan) - 1}, '|',
       TB_DIM
   );
 
@@ -592,7 +605,7 @@ static VoidOrErr draw_query_data (
 }
 
 static void draw_pileup_ambient (
-    BrowserWgt& pWgt, const LocusData& locusData
+    BrowserWgt& pWgt, const PileupMetadata& locusData
 )
 {
   // TODO: get rid of projection function (?)
@@ -640,7 +653,7 @@ static void draw_pileup_ambient (
 
 static VoidOrErr draw_piluep (
     BrowserWgt& pWgt, DynamicSelectReadsStmt& stmt,
-    const PileupDB& db, const LocusData& locus,
+    const PileupDB& db, const PileupMetadata& locus,
     const DataColList& displayCols
 )
 {

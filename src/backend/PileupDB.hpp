@@ -41,16 +41,16 @@ VoidOrErr init_db (PileupDB& db);
 );
 
 // locus metadata as extracted from db.
-struct LocusData {
+struct PileupMetadata {
   std::string contig;
   int64_t pos;  // 0-based pileup position, per loci.pos
   int64_t start;
   int64_t end;
   std::optional<std::string> refSlice;
 };
-using LocusOrErr = std::expected<LocusData, Err>;
+using LocusOrErr = std::expected<PileupMetadata, Err>;
 
-LocusData make_locus_data (
+PileupMetadata make_locus_data (
     std::string contigName, hts_pos_t pos,
     const GenomicSpan& span, std::optional<std::string> refSlice
 );

@@ -327,7 +327,7 @@ err_sql: {
 
 LocusOrErr get_locus_data (const PileupDB& db)
 {
-  LocusData out;
+  PileupMetadata out;
 
   sqlite3_stmt* o_stmt = NULL;
   int sqlRc = sqlite3_prepare_v2 (
@@ -377,12 +377,12 @@ LocusOrErr get_locus_data (const PileupDB& db)
   return out;
 }
 
-LocusData make_locus_data (
+PileupMetadata make_locus_data (
     std::string contigName, hts_pos_t pos,
     const GenomicSpan& span, std::optional<std::string> refSlice
 )
 {
-  return LocusData{
+  return PileupMetadata{
       .contig = std::move (contigName),
       .pos = pos,
       .start = span.start,

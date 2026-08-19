@@ -15,9 +15,9 @@ struct BrowserWgt {
   e2::HLine refLine;
   e2::HLine tableHeaderLine;
   e2::HLine headerSep;
-  e2::Box queryBox;
+  e2::Box seqPane;
   e2::VLine vSep;
-  e2::Box dataBox;
+  e2::Box dataPane;
   e2::HLine querySep;
   e2::HLine infoLine;
   int rowStart = 0; // TODO move?
