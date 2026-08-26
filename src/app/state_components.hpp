@@ -8,7 +8,7 @@
 constexpr double sh_defaultSeqPaneFrac = 0.5;
 struct AppConfig {
   bool run = true;
-  DataColList colsRequested{
+  DataColList displayCols{
       find_cols (
           {DataColID::basequal, DataColID::rstart,
            DataColID::rend, DataColID::flag, DataColID::mapq,
@@ -17,6 +17,10 @@ struct AppConfig {
   };  // list preseves insertion order, and allows removal by val
   double seqPaneFrac = sh_defaultSeqPaneFrac;
   bool showOverlay = false;
+  // alignment drawing switches
+  bool drawQualTrack = true;
+  bool drawInsTrack = false;
+  bool drawInsQualTrack = false;
 };
 
 struct AppMetadata {

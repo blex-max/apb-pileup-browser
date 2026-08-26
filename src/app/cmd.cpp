@@ -70,7 +70,7 @@ static CmdResult pileup_show (
     std::string_view names, AppState& state
 )
 {
-  auto& existingRequests = state.conf.colsRequested;
+  auto& existingRequests = state.conf.displayCols;
 
   // split args
   const auto newRequests = split_whitespace (names);
@@ -114,7 +114,7 @@ static CmdResult pileup_hide (
     std::string_view names, AppState& state
 )
 {
-  auto& existingRequests = state.conf.colsRequested;
+  auto& existingRequests = state.conf.displayCols;
 
   // split args
   const auto reqsToRemove = split_whitespace (names);

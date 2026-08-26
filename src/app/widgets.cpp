@@ -6,9 +6,9 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
-#include <type_traits>
 
 #include "app/data_table_cols.hpp"
+#include "app/state_components.hpp"
 #include "backend/PileupDB.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
@@ -314,79 +314,127 @@ static void draw_layout_chrome (BrowserWgt& bWgt, CmdWgt& cWgt)
 
 // --- draw browser pane --- //
 
-static int draw_table_cell (
-    int x, int y, int xAvail, const std::string_view text,
-    size_t width, bool center = false
-)
-{
-  std::string cell{text};
-  if (cell.size() > width) {
-    cell.resize (width);
-  }
-  else if (center) {
-    const size_t pad = width - cell.size();
-    const size_t padLeft = pad / 2;
-    cell = std::string (padLeft, ' ') + cell +
-           std::string (pad - padLeft, ' ');
-  }
-  else {
-    cell.resize (width, ' ');
-  }
-  e2::write_ascii_string ({x, y}, xAvail, cell);
-  x += static_cast<int> (width);
-  if (x > xAvail) {
-    return x;
-  }
-  set (e2::GlobalCell{x, y}, boxch::vertLine);
-  return x + 1;
-}
+namespace data_table {
 
-static void draw_data_table_header (
+static void draw_header (
     const e2::HLine& headerLine,
     const std::list<const DataTableCol*>& displayFields
 )
 {
+  assert (valid (headerLine));
+
   PLOGD << "Drawing table header";
-  const int xAvail = last (headerLine.xspan);
-  int x = first (headerLine.xspan);
+  const int xLim = last (headerLine.xspan);
+  e2::GlobalCell writeHead{
+      {.x = first (headerLine.xspan), .y = headerLine.y}
+  };
+  std::string lpb_assembled;  // lpb_ loop buffer
   for (const auto* f : displayFields) {
-    x = draw_table_cell (
-        x, headerLine.y, xAvail, f->name, f->width, true
-    );
-    if (x > xAvail) {
+    // assemble field into "centered" title string
+    // write and advance
+    int padL = 0;
+    int padR = 0;
+    const auto fieldWidth = static_cast<int> (f->width);
+    const auto fieldName = f->name;
+    const auto fieldNameLen =
+        static_cast<int> (fieldName.size());
+    if (fieldNameLen < fieldWidth) {
+      padL = (fieldWidth - fieldNameLen) / 2;
+      padR = (fieldWidth - fieldNameLen) - padL;
+    }
+    lpb_assembled = std::string (padL, ' ') +
+                    std::string (fieldName) +
+                    std::string (padR, ' ');
+    // will clip if too long
+    e2::write_ascii_string (writeHead, xLim, lpb_assembled);
+    writeHead.x += fieldWidth;
+    if (writeHead.x > xLim) {
       break;
     }
+    set (writeHead, boxch::vertLine);
+    writeHead.x++;
   }
 }
 
-static void draw_data_table_row (
-    const e2::Box& dataBox, int boxRow, sqlite3_stmt* br_dbRow,
+static void draw_row_separators (
+    e2::Box dataPane,
     const std::list<const DataTableCol*>& displayFields
 )
 {
-  const int xAvail = last (dataBox.xspan);
-  const int y = first (dataBox.yspan) + boxRow;
-  int x = first (dataBox.xspan);
+  auto writeHead = vertexA (dataPane);
+  // exclusive limits
+  const auto writeLimits =
+      vertexC (dataPane) + e2::Delta{.dx = 1, .dy = 1};
   for (const auto* f : displayFields) {
-    x = draw_table_cell (
-        x, y, xAvail, f->retrieve_from_db (br_dbRow), f->width
+    writeHead.x += f->width;
+    if (writeHead.x > writeLimits.x) {
+      break;
+    }
+    set (
+        e2::VLine{
+            .x = writeHead.x,
+            .yspan = {writeHead.y, writeLimits.y}
+        },
+        boxch::vertLine
     );
-    if (x > xAvail) {
+    writeHead.x++;
+  }
+}
+
+static void draw_row (
+    e2::GlobalCell writeHead, int xLim, sqlite3_stmt* br_dbRow,
+    const std::list<const DataTableCol*>& displayFields
+)
+{
+  assert (writeHead.x < xLim);
+
+  std::string cellText{};
+  for (const auto* f : displayFields) {
+    cellText = f->retrieve_from_db (br_dbRow);
+    const auto fieldWidth = f->width;
+    if (cellText.size() > fieldWidth) {
+      // shrink to fit
+      cellText.resize (fieldWidth);
+    }
+    else {
+      // pad
+      cellText.resize (fieldWidth, ' ');
+    }
+    e2::write_ascii_string (writeHead, xLim, cellText);
+    writeHead.x += static_cast<int> (fieldWidth);
+    // jump the field separator
+    writeHead.x++;
+    if (writeHead.x > xLim) {
       break;
     }
   }
 }
 
-// draw sequence to seq pane
-static e2::Delta draw_aligned_data (
+}  // namespace data_table
+
+namespace draw_aligned_data {
+
+struct Switches {
+  bool drawQualTrack;
+  bool drawInsTrack;
+  bool drawInsQualTrack;
+};
+
+// draw aligned data to seq pane
+static e2::Delta fn (
     const e2::GlobalCell& writeStart, int64_t writeXStartGPos,
     const e2::GlobalCell& writeLimits, sqlite3_stmt* br_dbRow,
     int64_t pileupSpanGStart,
-    const std::remove_cvref<
-        decltype (PileupMetadata::refSlice)>::type& ref,
-    bool drawQualTrack, bool drawInsTrack, bool drawInsQualTrack
+    const std::optional<std::string>& ref,
+    const Switches& switches
 )
 {
+  assert (valid (writeStart));
+  assert (writeXStartGPos > 0);
+  assert (valid (writeLimits));
+  assert (pileupSpanGStart > 0);
+  assert (pileupSpanGStart >= writeXStartGPos);
+
   // NOTE: inlining to a single function
   // makes it easier to extend and maintain
   // drawing logic. Resist urge to modularise.
@@ -409,7 +457,8 @@ static e2::Delta draw_aligned_data (
   const auto nCig = get_ncig (br_dbRow);
   const auto seq = get_seq (br_dbRow);
   std::optional<decltype (get_qual (br_dbRow))> qual;
-  if (drawQualTrack && (writeStart.y + 1) < writeLimits.y) {
+  if (switches.drawQualTrack &&
+      (writeStart.y + 1) < writeLimits.y) {
     qual = get_qual (br_dbRow);
   }
 
@@ -565,10 +614,12 @@ static e2::Delta draw_aligned_data (
   return diff (writeStart, writeHead);
 }
 
+}  // namespace draw_aligned_data
+
 static VoidOrErr draw_query_data (
     BrowserWgt& bWgt, DynamicSelectReadsStmt& stmt,
     const PileupDB& db, const PileupMetadata& pmd,
-    const DataColList& displayCols
+    const AppConfig& conf
 )
 {
   // draw reads and data table
@@ -579,17 +630,15 @@ static VoidOrErr draw_query_data (
   auto& dataPane = bWgt.dataPane;
   auto& hdrLine = bWgt.tableHeaderLine;
 
-  draw_data_table_header (hdrLine, displayCols);
-
-  auto nRow = height (seqPane);
+  data_table::draw_header (hdrLine, conf.displayCols);
+  data_table::draw_row_separators (dataPane, conf.displayCols);
 
   auto seqWriteHead = vertexA (seqPane);
   auto seqWriteLim =
       vertexC (seqPane) + e2::dXY (1, 1);  // exclusive limit
   const int64_t seqPaneLeftEdgeGPos =
       pmd.pos - (width (seqPane) / 2);
-  for (int iRead = 0, iRow = 0;
-       iRow < nRow && seqWriteHead.y < seqWriteLim.y; ++iRead) {
+  for (int iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
     auto nrRet = next_read (stmt, db);
     if (!nrRet) {
       // poor error handling policy
@@ -599,23 +648,26 @@ static VoidOrErr draw_query_data (
       break;  // reads exhausted
     }
     if (iRead < bWgt.rowStart) {
-      continue;  // scrolling
+      // reads hidden by scrolling
+      continue;
     }
     // NOTE: in-progress with implementation of multiple
     // tracks of data in view.
-    // NOTE/BUG: tracks do not play nicely with scrolling.
-    // Could cache the output and scroll that, otherwise
-    // must make this function/scrolling aware of each
-    // other.
-    const auto dHead = draw_aligned_data (
+    const auto dHead = draw_aligned_data::fn (
         seqWriteHead, seqPaneLeftEdgeGPos, seqWriteLim, stmt,
-        pmd.start, pmd.refSlice, true, false, false
+        pmd.start, pmd.refSlice,
+        draw_aligned_data::Switches{
+            conf.drawQualTrack, conf.drawInsTrack,
+            conf.drawInsQualTrack
+        }
     );
-    // TODO: update draw_data_table_row
-    // to accomodate for changes to draw_sequence.
-    draw_data_table_row (dataPane, iRow, stmt, displayCols);
+    data_table::draw_row (
+        e2::GlobalCell{
+            {.x = first (dataPane.xspan), .y = seqWriteHead.y}
+        },
+        last (dataPane.xspan), stmt, conf.displayCols
+    );
     seqWriteHead.y += dHead.dy;
-    ++iRow;  // increment independent of iRead
   }
 
   auto pileupXPos =
@@ -679,11 +731,10 @@ static void draw_pileup_ambient (
 static VoidOrErr draw_piluep (
     BrowserWgt& pWgt, DynamicSelectReadsStmt& stmt,
     const PileupDB& db, const PileupMetadata& locus,
-    const DataColList& displayCols
+    const AppConfig& conf
 )
 {
-  auto dqRet =
-      draw_query_data (pWgt, stmt, db, locus, displayCols);
+  auto dqRet = draw_query_data (pWgt, stmt, db, locus, conf);
   if (!dqRet) {
     return std::unexpected (dqRet.error());
   }
@@ -738,8 +789,11 @@ static void draw_cmd (
   );
 }
 
+// could make a config
+// subobject for pileup switches,
+// which is all these functions use.
 VoidOrErr draw_main_ui (
-    UIBundle& ui, DBBundle& db, const DataColList& colsRequested
+    UIBundle& ui, DBBundle& db, const AppConfig& conf
 )
 {
   // NOTE: set order does matter,
@@ -750,9 +804,8 @@ VoidOrErr draw_main_ui (
 
   draw_layout_chrome (ui.browsr, ui.cmd);
 
-  auto dpRet = draw_piluep (
-      ui.browsr, db.stmt, db.db, db.locus, colsRequested
-  );
+  auto dpRet =
+      draw_piluep (ui.browsr, db.stmt, db.db, db.locus, conf);
   if (!dpRet) {
     // TODO: not really well thought out error handling.
     return std::unexpected (dpRet.error());

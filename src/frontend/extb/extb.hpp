@@ -158,6 +158,7 @@ bool check_attr_all_back (S&& gcs, const Style& style);
 // (S&& gcs, const Style& style);
 
 // write ascii string to display.
+// returns number of chars written.
 // NOTE: may expand to cover
 // UTF-8, etc., in future.
 int write_ascii_string (

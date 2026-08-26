@@ -1,6 +1,5 @@
 #pragma once
 
-#include "app/data_table_cols.hpp"
 #include "app/state_components.hpp"
 #include "app/text_blocks.hpp"
 #include "frontend/extb/box/box.hpp"
@@ -63,5 +62,5 @@ void size_browser_panes (BrowserWgt& bWgt, double seqPaneFrac);
 VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac);
 
 VoidOrErr draw_main_ui (
-    UIBundle& ui, DBBundle& db, const DataColList& colsRequested
+    UIBundle& ui, DBBundle& db, const AppConfig& conf
 );

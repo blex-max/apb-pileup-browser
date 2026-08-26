@@ -361,16 +361,12 @@ LocusOrErr get_locus_data (const PileupDB& db)
   out.end = sqlite3_column_int64 (o_stmt, 3);
 
   if (sqlite3_column_type (o_stmt, 4) != SQLITE_NULL) {
-    out.refSlice.emplace (
-        std::string{
-            reinterpret_cast<const char*> (
-                sqlite3_column_text (o_stmt, 4)
-            ),
-            static_cast<size_t> (
-                sqlite3_column_bytes (o_stmt, 4)
-            )
-        }
-    );
+    out.refSlice = std::string{
+        reinterpret_cast<const char*> (
+            sqlite3_column_text (o_stmt, 4)
+        ),
+        static_cast<size_t> (sqlite3_column_bytes (o_stmt, 4))
+    };
   }
 
   sqlite3_finalize (o_stmt);
