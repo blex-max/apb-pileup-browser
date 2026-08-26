@@ -18,8 +18,9 @@ struct AppConfig {
   double seqPaneFrac = sh_defaultSeqPaneFrac;
   bool showOverlay = false;
   // alignment drawing switches
-  bool drawQualTrack = true;
-  bool drawInsTrack = false;
+  // TODO: wire to repl
+  bool drawQualTrack = false;
+  bool drawInsTrack = true;
   bool drawInsQualTrack = false;
 };
 

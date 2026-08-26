@@ -591,6 +591,12 @@ static constexpr Command sh_cmdReadme{
     &dump_readme
 };
 
+// TODO:
+// static CmdResult toggle_track (std::string_view args, AppState& state)
+// {
+
+// }
+
 static const Command* find_cmd (std::string_view name);
 static CmdResult show_help (
     std::string_view args, AppState& state

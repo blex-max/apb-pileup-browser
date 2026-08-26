@@ -430,19 +430,38 @@ static e2::Delta fn (
 )
 {
   assert (valid (writeStart));
-  assert (writeXStartGPos > 0);
   assert (valid (writeLimits));
   assert (pileupSpanGStart > 0);
-  assert (pileupSpanGStart >= writeXStartGPos);
-
-  // NOTE: inlining to a single function
-  // makes it easier to extend and maintain
-  // drawing logic. Resist urge to modularise.
+  assert (writeXStartGPos > 0);
+  assert (writeXStartGPos >= pileupSpanGStart);
 
   if (writeStart.x >= writeLimits.x ||
       writeStart.y >= writeLimits.y) {
     return {0, 0};  // no-op
   }
+
+  // ordered offsets for optional tracks
+  constexpr int trackYOffsetBase = 1;
+  const int trackYOffsetIns = trackYOffsetBase;  // first
+  const int trackYOffsetQual =
+      trackYOffsetIns +
+      static_cast<int> (
+          switches.drawInsTrack
+      );  // if higher track to be drawn, offset
+  const int trackYOffsetInsQual =
+      trackYOffsetQual +
+      static_cast<int> (switches.drawQualTrack);
+
+  bool enableQualTrack =
+      switches.drawQualTrack &&
+      (writeStart.y + trackYOffsetQual) < writeLimits.y;
+  bool enableInsTrack =
+      switches.drawInsTrack &&
+      (writeStart.y + trackYOffsetIns) < writeLimits.y;
+  // only valid when displaying insertions
+  bool enableInsQualTrack =
+      switches.drawInsQualTrack && switches.drawInsTrack &&
+      (writeStart.y + trackYOffsetInsQual) < writeLimits.y;
 
   auto writeHead = writeStart;
   const auto readStart = get_rstart (br_dbRow);
@@ -456,11 +475,7 @@ static e2::Delta fn (
   const auto* br_cig = get_cigar_blob (br_dbRow);
   const auto nCig = get_ncig (br_dbRow);
   const auto seq = get_seq (br_dbRow);
-  std::optional<decltype (get_qual (br_dbRow))> qual;
-  if (switches.drawQualTrack &&
-      (writeStart.y + 1) < writeLimits.y) {
-    qual = get_qual (br_dbRow);
-  }
+  const auto qual = get_qual (br_dbRow);
 
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
@@ -497,7 +512,7 @@ static e2::Delta fn (
         // draw tracks
         for (size_t i = 0;
              i < opLenRemain && writeHead.x < writeLimits.x;
-             ++i) {
+             ++i, ++writeHead.x) {
           uintattr_t dispAttr = 0;
           auto dispChar = seq[iQuery + i];
           // mask bases that match the reference with '='.
@@ -509,14 +524,12 @@ static e2::Delta fn (
               writeHead, static_cast<uint32_t> (dispChar),
               dispAttr
           );
-          if (qual) {
+          if (enableQualTrack) {
             set (
-                writeHead + e2::dY (1),
-                static_cast<uint32_t> ((*qual)[iQuery + i]),
-                TB_DIM
+                writeHead + e2::dY (trackYOffsetQual),
+                static_cast<uint32_t> (qual[iQuery + i]), TB_DIM
             );
           }
-          ++writeHead.x;
         }
 
         iQuery += opLenRemain;
@@ -543,9 +556,9 @@ static e2::Delta fn (
                 ? static_cast<size_t> (writeXStartGPos - iGc)
                 : 0;
         for (size_t i = skipOpBases;
-             i < opSz && writeHead.x < writeLimits.x; ++i) {
+             i < opSz && writeHead.x < writeLimits.x;
+             ++i, ++writeHead.x) {
           set (writeHead, '-');
-          ++writeHead.x;
         }
       }
       iRef += opSz;
@@ -561,9 +574,37 @@ static e2::Delta fn (
 
         // modify anchor base
         const auto anchorCell = writeHead - e2::dX (1);
-        // removes other styling
-        e2::set_attr (anchorCell, TB_UNDERLINE);
+        e2::clear_attrs (anchorCell);
         e2::extend (anchorCell, markch::ringAbove);
+
+        if (enableInsTrack) {
+          // NOTE:
+          // could track this write head at a higher scope
+          // than this conditional,
+          // to known if you're overwriting another insertion
+          // and modify write if so.
+          // Would also allow not jumping the track
+          // at all if no insertions visible in read,
+          // to show more on screen
+          auto opInsWriteHead =
+              anchorCell + e2::dY (trackYOffsetIns);
+          if (opInsWriteHead.x < writeLimits.x) {
+            e2::set (opInsWriteHead, '^', TB_DIM);
+            opInsWriteHead.x += 1;
+          }
+          for (size_t i = 0;
+               i < opSz && opInsWriteHead.x < writeLimits.x;
+               ++i, ++opInsWriteHead.x) {
+            set (
+                opInsWriteHead,
+                static_cast<uint32_t> (seq[iQuery + i])
+            );
+          }
+        }
+        else {
+          // extra highlight if bases not unfolded
+          e2::set_attr (anchorCell, TB_UNDERLINE);
+        }
       }
 
       if (opType == BAM_CSOFT_CLIP && iOp == 0 &&
@@ -585,6 +626,7 @@ static e2::Delta fn (
             clipLabel, TB_DIM
         );
       }
+
       if (opType == BAM_CSOFT_CLIP && iOp == (nCig - 1)) {
         // soft clipping at end of read
         std::string clipLabel =
@@ -606,8 +648,14 @@ static e2::Delta fn (
       break;
     }
   }
-  writeHead.y++;  // one row always written
-  if (qual) {
+  writeHead.y++;  // one row always written by this point
+  if (enableQualTrack) {
+    writeHead.y++;
+  }
+  if (enableInsTrack) {
+    writeHead.y++;
+  }
+  if (enableInsQualTrack) {
     writeHead.y++;
   }
 
@@ -638,6 +686,9 @@ static VoidOrErr draw_query_data (
       vertexC (seqPane) + e2::dXY (1, 1);  // exclusive limit
   const int64_t seqPaneLeftEdgeGPos =
       pmd.pos - (width (seqPane) / 2);
+  // BUG: only drawing subset of total reads,
+  // presumably because of mistake with pane size,
+  // or scrolling?
   for (int iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
     auto nrRet = next_read (stmt, db);
     if (!nrRet) {
@@ -670,9 +721,15 @@ static VoidOrErr draw_query_data (
     seqWriteHead.y += dHead.dy;
   }
 
+  // set crosshair
   auto pileupXPos =
       first (seqPane.xspan) + (width (seqPane) / 2);
-  add_attr (e2::VLine{pileupXPos, seqPane.yspan}, TB_REVERSE);
+  // clear dim to avoid misbehaviour from
+  // overlayed attrs.
+  e2::VLine pileupCrosshair{pileupXPos, seqPane.yspan};
+  rm_attr (pileupCrosshair, TB_DIM);
+  add_attr (pileupCrosshair, TB_REVERSE);
+  // connect to ref base
   set (
       e2::GlobalCell{pileupXPos, first (seqPane.yspan) - 1}, '|',
       TB_DIM

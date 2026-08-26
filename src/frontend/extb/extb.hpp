@@ -312,7 +312,9 @@ int set_attr (S&& gcs, const Style& style)
     }
     const uintattr_t fg_attr = style.fg ? style.fg : br_tbc->fg;
     const uintattr_t bg_attr = style.bg ? style.bg : br_tbc->bg;
-    rc = tb_set_cell (gc.x, gc.y, br_tbc->ch, fg_attr, bg_attr);
+    rc = internal::mod_attr_egc (
+        gc.x, gc.y, br_tbc, fg_attr, bg_attr
+    );
     if (rc != TB_OK) {
       return rc;
     }
