@@ -41,9 +41,7 @@ static VoidOrErr draw_screen (AppState& state)
   tb_clear();
 
   /* draw frame */
-  auto dwRet = draw_main_ui (
-      state.ui, state.db, state.conf.colsRequested
-  );
+  auto dwRet = draw_main_ui (state.ui, state.db, state.conf);
   if (!dwRet) {
     return std::unexpected{dwRet.error()};
   }
