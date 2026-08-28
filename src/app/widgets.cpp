@@ -127,13 +127,13 @@ void draw_overlay (const OverlayWgt& oWgt)
 
   auto writeHead = vertexA (frame);
   writeHead.x += 1;
-  writeHead.x += e2::write_ascii_string (
+  writeHead.x += e2::write_string (
       writeHead, xEnd, " q: close overlay ", TB_DIM
   );
   writeHead.x += 3;
   const auto lnN = height (box);
   if (lnN < std::ssize (content)) {
-    e2::write_ascii_string (
+    e2::write_string (
         writeHead, xEnd, "Up / Down: scroll", TB_DIM
     );
   }
@@ -141,7 +141,7 @@ void draw_overlay (const OverlayWgt& oWgt)
   const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
   auto lnY = extb::vertexA (box);
   for (int i = 0; i < lnN && i < std::ssize (content); ++i) {
-    e2::write_ascii_string (
+    e2::write_string (
         lnY, xEnd, content[static_cast<size_t> (i) + lnOff]
     );
     ++lnY.y;
@@ -351,7 +351,7 @@ static void draw_header (
                     std::string (fieldName) +
                     std::string (padR, ' ');
     // will clip if too long
-    e2::write_ascii_string (writeHead, xLim, lpb_assembled);
+    e2::write_string (writeHead, xLim, lpb_assembled);
     writeHead.x += fieldWidth;
     if (writeHead.x > xLim) {
       break;
@@ -405,7 +405,7 @@ static void draw_row (
       // pad
       cellText.resize (fieldWidth, ' ');
     }
-    e2::write_ascii_string (writeHead, xLim, cellText);
+    e2::write_string (writeHead, xLim, cellText);
     writeHead.x += static_cast<int> (fieldWidth);
     // jump the field separator
     writeHead.x++;
@@ -540,8 +540,8 @@ static e2::Delta seq1 (
                           readFields.rStart - sh.pileupSpanGStart
                       )
                     : 0;
-  bool readInsDrawn =
-      false;  // tracker for any insertion displayed on screen
+  // track any insertion displayed on screen
+  bool readInsDrawn = false;
   // buffer for subsequently writing quality string
   std::string qualDisplayBuf (
       static_cast<size_t> (sh.writeLimits.x - sh.writeStartX),
@@ -580,7 +580,7 @@ static e2::Delta seq1 (
       }
     }
 
-    // on screen, to be processed
+    // At least partially on screen, to be processed
     const auto skipOffscreenBases =
         (iGc < sh.writeStartXGPos)
             ? static_cast<size_t> (sh.writeStartXGPos - iGc)
@@ -600,14 +600,6 @@ static e2::Delta seq1 (
         e2::extend (anchorCell, markch::ringAbove);
 
         if (enableInsTrack) {
-          // NOTE:
-          // could track this write head at a higher scope
-          // than this conditional,
-          // to know if you're overwriting another insertion
-          // and modify write if so.
-          // Would also allow not jumping the track
-          // at all if no insertions visible in read,
-          // to show more on screen
           auto opInsWriteHead =
               anchorCell + e2::dY (trackYOffsetIns);
           if (opInsWriteHead.x < sh.writeLimits.x) {
@@ -667,7 +659,7 @@ static e2::Delta seq1 (
           );
         }
         const auto drawnSz = static_cast<int> (clipLabel.size());
-        e2::write_ascii_string (
+        e2::write_string (
             writeHead - e2::dX (drawnSz), sh.writeLimits.x,
             clipLabel, TB_DIM
         );
@@ -679,7 +671,7 @@ static e2::Delta seq1 (
         std::string clipLabel =
             "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
-        e2::write_ascii_string (
+        e2::write_string (
             writeHead, sh.writeLimits.x, clipLabel, TB_DIM
         );
       }
@@ -745,8 +737,11 @@ static e2::Delta seq1 (
     // tracks used buffers. The buffers could
     // be hoisted even. The buffer type would
     // need to be either {char, style} or
-    // use RLE.
-    e2::write_ascii_string (
+    // use RLE. writing operations could operate
+    // on a struct of vectors like chars, styles.
+    // Probably less performant but potenially useful
+    // for correctness and readability in some cases.
+    e2::write_string (
         e2::GlobalCell{{.x = sh.writeStartX, .y = writeHead.y}},
         sh.writeLimits.x, qualDisplayBuf, TB_DIM
     );
@@ -812,7 +807,7 @@ static VoidOrErr draw_query_data (
     // conditional insertion display. Solution may
     // be to (within seq1) write quality string to separate
     // buffer and write as a final op. No styling needed
-    // so single call to write_ascii_string.
+    // so single call to write_string.
     const auto dHead = draw_alignment::seq1 (
         seqWriteHead.y, stmt, pmd.refSlice, drawAlignmentShared,
         draw_alignment::Seq1Switches{
@@ -856,7 +851,7 @@ static void draw_pileup_ambient (
         locusData.pos, size (pWgt.refLine), locusData.start
     );
 
-    e2::write_ascii_string (
+    e2::write_string (
         {first (pWgt.refLine.xspan) + proj.xOffset,
          pWgt.refLine.y},
         last (pWgt.refLine.xspan),
@@ -869,22 +864,20 @@ static void draw_pileup_ambient (
     auto writeHead = first (pWgt.infoLine);
     const auto lineEnd = last (pWgt.infoLine.xspan);
     writeHead.x++;  // initial space
-    writeHead.x += e2::write_ascii_string (
-        writeHead, lineEnd, "LOCUS:", TB_DIM
-    );
+    writeHead.x +=
+        e2::write_string (writeHead, lineEnd, "LOCUS:", TB_DIM);
     writeHead.x++;  // space
-    writeHead.x += e2::write_ascii_string (
+    writeHead.x += e2::write_string (
         writeHead, lineEnd,
         fmt::format ("{}:{}", locusData.contig, locusData.pos)
     );
     writeHead.x++;  // space
     set (writeHead, boxch::vertLine, TB_DIM);
     writeHead.x += 2;  // past bar, then space
-    writeHead.x += e2::write_ascii_string (
-        writeHead, lineEnd, "SPAN:", TB_DIM
-    );
+    writeHead.x +=
+        e2::write_string (writeHead, lineEnd, "SPAN:", TB_DIM);
     writeHead.x++;  // space
-    writeHead.x += e2::write_ascii_string (
+    writeHead.x += e2::write_string (
         writeHead, lineEnd,
         fmt::format ("{}-{}", locusData.start, locusData.end)
     );
@@ -916,7 +909,7 @@ static void draw_cmd (
     CmdWgt& cWgt, const DynamicFragments& userQuery
 )
 {
-  e2::write_ascii_string (
+  e2::write_string (
       first (cWgt.inputLine), last (cWgt.inputLine).x,
       cWgt.inputBuf.text
   );
@@ -926,7 +919,7 @@ static void draw_cmd (
   if (cursorCell.x < last (cWgt.inputLine).x) {
     e2::add_attr (cursorCell, TB_REVERSE);
   }
-  e2::write_ascii_string (
+  e2::write_string (
       first (cWgt.msgLine), last (cWgt.msgLine).x, cWgt.msgBuf,
       TB_DIM
   );
@@ -948,7 +941,7 @@ static void draw_cmd (
     userClauseString.append (userQuery.orderBy);
   }
 
-  e2::write_ascii_string (
+  e2::write_string (
       first (cWgt.queryStatusLine),
       last (cWgt.queryStatusLine).x, userClauseString, TB_DIM
   );
