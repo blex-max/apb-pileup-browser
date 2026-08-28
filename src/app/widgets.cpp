@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <optional>
+#include <utility>
 
 #include "app/data_table_cols.hpp"
 #include "app/state_components.hpp"
@@ -332,15 +334,18 @@ static void draw_header (
   for (const auto* f : displayFields) {
     // assemble field into "centered" title string
     // write and advance
-    int padL = 0;
-    int padR = 0;
+    uint16_t padL = 0;
+    uint16_t padR = 0;
     const auto fieldWidth = static_cast<int> (f->width);
     const auto fieldName = f->name;
     const auto fieldNameLen =
         static_cast<int> (fieldName.size());
     if (fieldNameLen < fieldWidth) {
-      padL = (fieldWidth - fieldNameLen) / 2;
-      padR = (fieldWidth - fieldNameLen) - padL;
+      padL = static_cast<uint16_t> (
+          (fieldWidth - fieldNameLen) / 2
+      );
+      padR = static_cast<uint16_t> (fieldWidth - fieldNameLen) -
+             padL;
     }
     lpb_assembled = std::string (padL, ' ') +
                     std::string (fieldName) +
@@ -366,7 +371,7 @@ static void draw_row_separators (
   const auto writeLimits =
       vertexC (dataPane) + e2::Delta{.dx = 1, .dy = 1};
   for (const auto* f : displayFields) {
-    writeHead.x += f->width;
+    writeHead.x += static_cast<int> (f->width);
     if (writeHead.x > writeLimits.x) {
       break;
     }
@@ -412,33 +417,87 @@ static void draw_row (
 
 }  // namespace data_table
 
-namespace draw_aligned_data {
+namespace draw_alignment {
 
-struct Switches {
+namespace {
+
+struct SharedArgs {
+  const int16_t writeXStart;
+  const int64_t writeXStartGPos;
+  const int64_t pileupSpanGStart;
+  const e2::GlobalCell writeLimits;
+};
+
+}  // namespace
+
+static SharedArgs prepare_shared (
+    int16_t writeXStart, int64_t writeXStartGPos,
+    int64_t pileupSpanGStart, const e2::GlobalCell& writeLimits
+)
+{
+  assert (pileupSpanGStart > 0);
+  assert (writeXStartGPos > 0);
+  assert (writeXStartGPos >= pileupSpanGStart);
+  assert (valid (writeLimits));
+
+  return SharedArgs{
+      .writeXStart = writeXStart,
+      .writeXStartGPos = writeXStartGPos,
+      .pileupSpanGStart = pileupSpanGStart,
+      .writeLimits = writeLimits
+  };
+}
+
+
+namespace {
+// seq1 internals
+
+// shared constant = _shc
+constexpr uint8_t consumesNeitherQueryOrRef_shc = 0b00;
+constexpr uint8_t consumesQueryOnly_shc = 0b01;
+constexpr uint8_t consumesRefOnly_shc = 0b10;
+constexpr uint8_t consumesQueryAndRef_shc = 0b11;
+
+struct ReadFields {
+  decltype (get_rstart (std::declval<sqlite3_stmt*>())) rStart;
+  decltype (get_seq (std::declval<sqlite3_stmt*>())) seq;
+  decltype (get_qual (std::declval<sqlite3_stmt*>())) qual;
+  decltype (get_cigar_blob (
+      std::declval<sqlite3_stmt*>()
+  )) br_cigBlob;
+  decltype (get_ncig (std::declval<sqlite3_stmt*>())) nCig;
+};
+ReadFields get_seq1_read_fields (sqlite3_stmt* br_dbRow)
+{
+  return {
+      .rStart = get_rstart (br_dbRow),
+      .seq = get_seq (br_dbRow),
+      .qual = get_qual (br_dbRow),
+      .br_cigBlob = get_cigar_blob (br_dbRow),
+      .nCig = get_ncig (br_dbRow)
+  };
+};
+
+}  // namespace
+
+struct Seq1Switches {
   bool drawQualTrack;
   bool drawInsTrack;
   bool drawInsQualTrack;
 };
-
 // draw aligned data to seq pane
-static e2::Delta fn (
-    const e2::GlobalCell& writeStart, int64_t writeXStartGPos,
-    const e2::GlobalCell& writeLimits, sqlite3_stmt* br_dbRow,
-    int64_t pileupSpanGStart,
-    const std::optional<std::string>& ref,
-    const Switches& switches
+static e2::Delta seq1 (
+    int16_t y, sqlite3_stmt* br_dbRow,
+    const std::optional<std::string>& ref, const SharedArgs& sh,
+    const Seq1Switches& switches
 )
 {
-  assert (valid (writeStart));
-  assert (valid (writeLimits));
-  assert (pileupSpanGStart > 0);
-  assert (writeXStartGPos > 0);
-  assert (writeXStartGPos >= pileupSpanGStart);
-
-  if (writeStart.x >= writeLimits.x ||
-      writeStart.y >= writeLimits.y) {
+  if (sh.writeXStart >= sh.writeLimits.x ||
+      y >= sh.writeLimits.y) {
     return {0, 0};  // no-op
   }
+
+  e2::GlobalCell writeHead{{.x = sh.writeXStart, .y = y}};
 
   // ordered offsets for optional tracks
   constexpr int trackYOffsetBase = 1;
@@ -454,120 +513,80 @@ static e2::Delta fn (
 
   bool enableQualTrack =
       switches.drawQualTrack &&
-      (writeStart.y + trackYOffsetQual) < writeLimits.y;
+      (writeHead.y + trackYOffsetQual) < sh.writeLimits.y;
   bool enableInsTrack =
       switches.drawInsTrack &&
-      (writeStart.y + trackYOffsetIns) < writeLimits.y;
+      (writeHead.y + trackYOffsetIns) < sh.writeLimits.y;
   // only valid when displaying insertions
   bool enableInsQualTrack =
       switches.drawInsQualTrack && switches.drawInsTrack &&
-      (writeStart.y + trackYOffsetInsQual) < writeLimits.y;
+      (writeHead.y + trackYOffsetInsQual) < sh.writeLimits.y;
 
-  auto writeHead = writeStart;
-  const auto readStart = get_rstart (br_dbRow);
+
+  const auto readFields = get_seq1_read_fields (br_dbRow);
 
   // NOTE: since view is centered on pileup,
   // all reads should always be at least partially in view
   // (unless pane is folded)
   const int startToLEdge =
-      static_cast<int> (readStart - writeXStartGPos);
-
-  const auto* br_cig = get_cigar_blob (br_dbRow);
-  const auto nCig = get_ncig (br_dbRow);
-  const auto seq = get_seq (br_dbRow);
-  const auto qual = get_qual (br_dbRow);
-
+      static_cast<int> (readFields.rStart - sh.writeXStartGPos);
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
   }
-  auto iGc = readStart;  // current genomic coordinate
+
+  auto iGc = readFields.rStart;  // current genomic coordinate
   size_t iQuery = 0;
-  // locus start always <= readStart
-  size_t iRef =
-      ref ? static_cast<size_t> (readStart - pileupSpanGStart)
-          : 0;
-  for (size_t iOp = 0; iOp < nCig; iOp++) {
-    const auto op = br_cig[iOp];
-    const auto opSz = bam_cigar_oplen (op);
-    const auto opType = bam_cigar_op (op);
+  // locus start always <= readFields.rStart
+  size_t iRef = ref ? static_cast<size_t> (
+                          readFields.rStart - sh.pileupSpanGStart
+                      )
+                    : 0;
+  bool readInsDrawn =
+      false;  // tracker for any insertion displayed on screen
+  // std::string qualDisplayStr{writeLim};
+  // FOR EACH OP
+  for (size_t iOp = 0; iOp < readFields.nCig; iOp++) {
+    const auto op = readFields.br_cigBlob[iOp];
     const auto opConsumeType = bam_cigar_type (op);
 
-    if (opConsumeType == 0b11) {
-      // consumes query and ref
+    if (opConsumeType == consumesNeitherQueryOrRef_shc) {
+      // padding and hard clipping ignored
+      continue;
+    }
 
-      if ((iGc + opSz) >= writeXStartGPos) {
-        // op at least partially on screen
-        size_t skipOpBases = 0;
-        auto opLenRemain = opSz;
-        if (iGc < writeXStartGPos) {
-          // op partially on screen only
-          skipOpBases = static_cast<size_t> (
-              writeXStartGPos - iGc
-          );  // +ve
-          iQuery += skipOpBases;
-          iRef += skipOpBases;
-          opLenRemain -= skipOpBases;
-        }
+    const auto opSz = bam_cigar_oplen (op);
+    const auto opOnScreen = (iGc + opSz) >= sh.writeXStart;
 
-        // draw tracks
-        for (size_t i = 0;
-             i < opLenRemain && writeHead.x < writeLimits.x;
-             ++i, ++writeHead.x) {
-          uintattr_t dispAttr = 0;
-          auto dispChar = seq[iQuery + i];
-          // mask bases that match the reference with '='.
-          if (ref && (dispChar == (*ref)[iRef + i])) {
-            dispChar = '=';
-            dispAttr = TB_DIM;
-          }
-          set (
-              writeHead, static_cast<uint32_t> (dispChar),
-              dispAttr
-          );
-          if (enableQualTrack) {
-            set (
-                writeHead + e2::dY (trackYOffsetQual),
-                static_cast<uint32_t> (qual[iQuery + i]), TB_DIM
-            );
-          }
-        }
-
-        iQuery += opLenRemain;
-        iRef += opLenRemain;
-        iGc += opSz;
-      }
-      else {
-        // op entirely offscreen
-        iQuery += opSz;
-        iRef += opSz;
-        iGc += opSz;
+    if (!opOnScreen) {
+      // skip op, incrementing indexes
+      switch (opConsumeType) {
+        case (consumesQueryOnly_shc):
+          iQuery += opSz;
+          continue;
+        case (consumesRefOnly_shc):
+          iRef += opSz;
+          iGc += opSz;
+          continue;
+        case (consumesQueryAndRef_shc):
+          iQuery += opSz;
+          iRef += opSz;
+          iGc += opSz;
+          continue;
+        default:
+          break;
       }
     }
-    else if (opConsumeType == 0b10) {
-      // consumes ref only
-      // Deletions, or "skipped region"
-      //     - the latter only relevant to RNA (TODO: disambiguate?)
-      // don't advance query tracker
 
-      if ((iGc + opSz) >= writeXStartGPos) {
-        // op at least partially on screen
-        size_t skipOpBases =
-            (iGc < writeXStartGPos)
-                ? static_cast<size_t> (writeXStartGPos - iGc)
-                : 0;
-        for (size_t i = skipOpBases;
-             i < opSz && writeHead.x < writeLimits.x;
-             ++i, ++writeHead.x) {
-          set (writeHead, '-');
-        }
-      }
-      iRef += opSz;
-      iGc += opSz;
-    }
-    else if (opConsumeType == 0b01) {
-      // consumes query only
+    // on screen, to be processed
+    const auto skipOffscreenBases =
+        (iGc < sh.writeXStartGPos)
+            ? static_cast<size_t> (sh.writeXStartGPos - iGc)
+            : 0;
 
-      if (opType == BAM_CINS && iGc > writeXStartGPos) {
+    if (opConsumeType == consumesQueryOnly_shc) {
+      const auto opType = bam_cigar_op (op);
+
+      if (opType == BAM_CINS && iGc > sh.writeXStartGPos) {
         // insertion
         // where at least one base PRIOR
         // to the insertion is visible
@@ -581,29 +600,53 @@ static e2::Delta fn (
           // NOTE:
           // could track this write head at a higher scope
           // than this conditional,
-          // to known if you're overwriting another insertion
+          // to know if you're overwriting another insertion
           // and modify write if so.
           // Would also allow not jumping the track
           // at all if no insertions visible in read,
           // to show more on screen
           auto opInsWriteHead =
               anchorCell + e2::dY (trackYOffsetIns);
-          if (opInsWriteHead.x < writeLimits.x) {
+          if (opInsWriteHead.x < sh.writeLimits.x) {
             e2::set (opInsWriteHead, '^', TB_DIM);
-            opInsWriteHead.x += 1;
+            opInsWriteHead.x++;
           }
           for (size_t i = 0;
-               i < opSz && opInsWriteHead.x < writeLimits.x;
+               i < opSz && opInsWriteHead.x < sh.writeLimits.x;
                ++i, ++opInsWriteHead.x) {
             set (
-                opInsWriteHead,
-                static_cast<uint32_t> (seq[iQuery + i])
+                opInsWriteHead, static_cast<uint32_t> (
+                                    readFields.seq[iQuery + i]
+                                )
             );
           }
+          readInsDrawn = true;
         }
         else {
           // extra highlight if bases not unfolded
           e2::set_attr (anchorCell, TB_UNDERLINE);
+        }
+
+        if (enableInsQualTrack) {
+          assert (enableInsTrack);
+
+          auto opInsQualWriteHead =
+              anchorCell + e2::dY (trackYOffsetInsQual);
+          if (opInsQualWriteHead.x < sh.writeLimits.x) {
+            e2::set (opInsQualWriteHead, '^', TB_DIM);
+            opInsQualWriteHead.x++;
+          }
+          for (size_t i = 0; i < opSz && opInsQualWriteHead.x <
+                                             sh.writeLimits.x;
+               ++i, ++opInsQualWriteHead.x) {
+            set (
+                opInsQualWriteHead,
+                static_cast<uint32_t> (
+                    readFields.qual[iQuery + i]
+                ),
+                TB_DIM
+            );
+          }
         }
       }
 
@@ -622,28 +665,75 @@ static e2::Delta fn (
         }
         const auto drawnSz = static_cast<int> (clipLabel.size());
         e2::write_ascii_string (
-            writeHead - e2::dX (drawnSz), writeLimits.x,
+            writeHead - e2::dX (drawnSz), sh.writeLimits.x,
             clipLabel, TB_DIM
         );
       }
 
-      if (opType == BAM_CSOFT_CLIP && iOp == (nCig - 1)) {
+      if (opType == BAM_CSOFT_CLIP &&
+          iOp == (readFields.nCig - 1)) {
         // soft clipping at end of read
         std::string clipLabel =
             "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
         e2::write_ascii_string (
-            writeHead, writeLimits.x, clipLabel, TB_DIM
+            writeHead, sh.writeLimits.x, clipLabel, TB_DIM
         );
       }
 
       iQuery += opSz;
     }
-    else {
-      // hard clip/padding not handled
-      continue;
+    else if (opConsumeType == consumesRefOnly_shc) {
+      // Deletions, or "skipped region"
+      //     - the latter only relevant to RNA (TODO: disambiguate?)
+      // don't advance query tracker
+
+      for (size_t i = skipOffscreenBases;
+           i < opSz && writeHead.x < sh.writeLimits.x;
+           ++i, ++writeHead.x) {
+        set (writeHead, '-');
+      }
+      iRef += opSz;
+      iGc += opSz;
     }
-    if (writeHead.x >= writeLimits.x) {
+    else if (opConsumeType == consumesQueryAndRef_shc) {
+      auto opLenRemain = opSz;
+      iQuery += skipOffscreenBases;
+      iRef += skipOffscreenBases;
+      opLenRemain -= skipOffscreenBases;
+
+      // draw tracks
+      for (size_t i = 0;
+           i < opLenRemain && writeHead.x < sh.writeLimits.x;
+           ++i, ++writeHead.x) {
+        uintattr_t dispAttr = 0;
+        auto dispChar = readFields.seq[iQuery + i];
+        // mask bases that match the reference with '='.
+        if (ref && (dispChar == (*ref)[iRef + i])) {
+          dispChar = '=';
+          dispAttr = TB_DIM;
+        }
+        set (
+            writeHead, static_cast<uint32_t> (dispChar), dispAttr
+        );
+        if (enableQualTrack) {
+          set (
+              writeHead + e2::dY (trackYOffsetQual),
+              static_cast<uint32_t> (
+                  readFields.qual[iQuery + i]
+              ),
+              TB_DIM
+          );
+        }
+      }
+
+      iQuery += opLenRemain;
+      iRef += opLenRemain;
+      iGc += opSz;
+    }
+
+
+    if (writeHead.x >= sh.writeLimits.x) {
       // early exit if row exhausted
       break;
     }
@@ -652,17 +742,21 @@ static e2::Delta fn (
   if (enableQualTrack) {
     writeHead.y++;
   }
-  if (enableInsTrack) {
+  // could increment these only if
+  // any insertions written
+  if (enableInsTrack && readInsDrawn) {
     writeHead.y++;
   }
-  if (enableInsQualTrack) {
+  if (enableInsQualTrack && readInsDrawn) {
     writeHead.y++;
   }
 
-  return diff (writeStart, writeHead);
+  return {
+      .dx = writeHead.x - sh.writeXStart, .dy = writeHead.y - y
+  };
 }
 
-}  // namespace draw_aligned_data
+}  // namespace draw_alignment
 
 static VoidOrErr draw_query_data (
     BrowserWgt& bWgt, DynamicSelectReadsStmt& stmt,
@@ -684,11 +778,13 @@ static VoidOrErr draw_query_data (
   auto seqWriteHead = vertexA (seqPane);
   auto seqWriteLim =
       vertexC (seqPane) + e2::dXY (1, 1);  // exclusive limit
-  const int64_t seqPaneLeftEdgeGPos =
-      pmd.pos - (width (seqPane) / 2);
-  // BUG: only drawing subset of total reads,
-  // presumably because of mistake with pane size,
-  // or scrolling?
+
+  const auto drawAlignmentShared =
+      draw_alignment::prepare_shared (
+          seqWriteHead.x, pmd.pos - (width (seqPane) / 2),
+          pmd.start, seqWriteLim
+      );
+
   for (int iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
     auto nrRet = next_read (stmt, db);
     if (!nrRet) {
@@ -702,12 +798,18 @@ static VoidOrErr draw_query_data (
       // reads hidden by scrolling
       continue;
     }
-    // NOTE: in-progress with implementation of multiple
-    // tracks of data in view.
-    const auto dHead = draw_aligned_data::fn (
-        seqWriteHead, seqPaneLeftEdgeGPos, seqWriteLim, stmt,
-        pmd.start, pmd.refSlice,
-        draw_aligned_data::Switches{
+    // NOTE: insertion quality should probably
+    // only be displayed if BOTH insertion and qual
+    // tracks are on.
+    // TODO: add `tracks` command to REPL.
+    // BUG: qual drawing does not play well with
+    // conditional insertion display. Solution may
+    // be to (within seq1) write quality string to separate
+    // buffer and write as a final op. No styling needed
+    // so single call to write_ascii_string.
+    const auto dHead = draw_alignment::seq1 (
+        seqWriteHead.y, stmt, pmd.refSlice, drawAlignmentShared,
+        draw_alignment::Seq1Switches{
             conf.drawQualTrack, conf.drawInsTrack,
             conf.drawInsQualTrack
         }
