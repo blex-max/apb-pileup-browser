@@ -431,18 +431,18 @@ struct SharedArgs {
 }  // namespace
 
 static SharedArgs prepare_shared (
-    int16_t writeXStart, int64_t writeXStartGPos,
+    int16_t writeStartX, int64_t writeStartXGPos,
     int64_t pileupSpanGStart, const e2::GlobalCell& writeLimits
 )
 {
   assert (pileupSpanGStart > 0);
-  assert (writeXStartGPos > 0);
-  assert (writeXStartGPos >= pileupSpanGStart);
+  assert (writeStartXGPos > 0);
+  assert (writeStartXGPos >= pileupSpanGStart);
   assert (valid (writeLimits));
 
   return SharedArgs{
-      .writeStartX = writeXStart,
-      .writeStartXGPos = writeXStartGPos,
+      .writeStartX = writeStartX,
+      .writeStartXGPos = writeStartXGPos,
       .pileupSpanGStart = pileupSpanGStart,
       .writeLimits = writeLimits
   };
