@@ -422,8 +422,8 @@ namespace draw_alignment {
 namespace {
 
 struct SharedArgs {
-  const int16_t writeXStart;
-  const int64_t writeXStartGPos;
+  const int16_t writeStartX;
+  const int64_t writeStartXGPos;
   const int64_t pileupSpanGStart;
   const e2::GlobalCell writeLimits;
 };
@@ -441,8 +441,8 @@ static SharedArgs prepare_shared (
   assert (valid (writeLimits));
 
   return SharedArgs{
-      .writeXStart = writeXStart,
-      .writeXStartGPos = writeXStartGPos,
+      .writeStartX = writeXStart,
+      .writeStartXGPos = writeXStartGPos,
       .pileupSpanGStart = pileupSpanGStart,
       .writeLimits = writeLimits
   };
@@ -487,41 +487,40 @@ struct Seq1Switches {
 };
 // draw aligned data to seq pane
 static e2::Delta seq1 (
-    int16_t y, sqlite3_stmt* br_dbRow,
+    const int16_t yStart, sqlite3_stmt* br_dbRow,
     const std::optional<std::string>& ref, const SharedArgs& sh,
     const Seq1Switches& switches
 )
 {
-  if (sh.writeXStart >= sh.writeLimits.x ||
-      y >= sh.writeLimits.y) {
+  if (sh.writeStartX >= sh.writeLimits.x ||
+      yStart >= sh.writeLimits.y) {
     return {0, 0};  // no-op
   }
 
-  e2::GlobalCell writeHead{{.x = sh.writeXStart, .y = y}};
+  e2::GlobalCell writeHead{{.x = sh.writeStartX, .y = yStart}};
 
   // ordered offsets for optional tracks
   constexpr int trackYOffsetBase = 1;
   const int trackYOffsetIns = trackYOffsetBase;  // first
   const int trackYOffsetQual =
-      trackYOffsetIns +
-      static_cast<int> (
-          switches.drawInsTrack
-      );  // if higher track to be drawn, offset
+      trackYOffsetBase +
+      static_cast<int> (switches.drawInsTrack);
   const int trackYOffsetInsQual =
-      trackYOffsetQual +
+      trackYOffsetBase +
+      static_cast<int> (switches.drawInsTrack) +
       static_cast<int> (switches.drawQualTrack);
 
-  bool enableQualTrack =
-      switches.drawQualTrack &&
-      (writeHead.y + trackYOffsetQual) < sh.writeLimits.y;
   bool enableInsTrack =
       switches.drawInsTrack &&
       (writeHead.y + trackYOffsetIns) < sh.writeLimits.y;
-  // only valid when displaying insertions
+  bool enableQualTrack =
+      switches.drawQualTrack &&
+      (writeHead.y + trackYOffsetQual) < sh.writeLimits.y;
+  // only valid when also displaying insertion and quality tracks
   bool enableInsQualTrack =
-      switches.drawInsQualTrack && switches.drawInsTrack &&
+      enableInsTrack && enableQualTrack &&
+      switches.drawInsQualTrack &&
       (writeHead.y + trackYOffsetInsQual) < sh.writeLimits.y;
-
 
   const auto readFields = get_seq1_read_fields (br_dbRow);
 
@@ -529,7 +528,7 @@ static e2::Delta seq1 (
   // all reads should always be at least partially in view
   // (unless pane is folded)
   const int startToLEdge =
-      static_cast<int> (readFields.rStart - sh.writeXStartGPos);
+      static_cast<int> (readFields.rStart - sh.writeStartXGPos);
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
   }
@@ -543,7 +542,11 @@ static e2::Delta seq1 (
                     : 0;
   bool readInsDrawn =
       false;  // tracker for any insertion displayed on screen
-  // std::string qualDisplayStr{writeLim};
+  // buffer for subsequently writing quality string
+  std::string qualDisplayBuf (
+      static_cast<size_t> (sh.writeLimits.x - sh.writeStartX),
+      ' '
+  );
   // FOR EACH OP
   for (size_t iOp = 0; iOp < readFields.nCig; iOp++) {
     const auto op = readFields.br_cigBlob[iOp];
@@ -555,7 +558,7 @@ static e2::Delta seq1 (
     }
 
     const auto opSz = bam_cigar_oplen (op);
-    const auto opOnScreen = (iGc + opSz) >= sh.writeXStart;
+    const auto opOnScreen = (iGc + opSz) >= sh.writeStartX;
 
     if (!opOnScreen) {
       // skip op, incrementing indexes
@@ -579,14 +582,14 @@ static e2::Delta seq1 (
 
     // on screen, to be processed
     const auto skipOffscreenBases =
-        (iGc < sh.writeXStartGPos)
-            ? static_cast<size_t> (sh.writeXStartGPos - iGc)
+        (iGc < sh.writeStartXGPos)
+            ? static_cast<size_t> (sh.writeStartXGPos - iGc)
             : 0;
 
     if (opConsumeType == consumesQueryOnly_shc) {
       const auto opType = bam_cigar_op (op);
 
-      if (opType == BAM_CINS && iGc > sh.writeXStartGPos) {
+      if (opType == BAM_CINS && iGc > sh.writeStartXGPos) {
         // insertion
         // where at least one base PRIOR
         // to the insertion is visible
@@ -717,13 +720,9 @@ static e2::Delta seq1 (
             writeHead, static_cast<uint32_t> (dispChar), dispAttr
         );
         if (enableQualTrack) {
-          set (
-              writeHead + e2::dY (trackYOffsetQual),
-              static_cast<uint32_t> (
-                  readFields.qual[iQuery + i]
-              ),
-              TB_DIM
-          );
+          qualDisplayBuf[static_cast<uint16_t> (
+              static_cast<int16_t> (writeHead.x) - sh.writeStartX
+          )] = readFields.qual[iQuery + i];
         }
       }
 
@@ -732,19 +731,25 @@ static e2::Delta seq1 (
       iGc += opSz;
     }
 
-
     if (writeHead.x >= sh.writeLimits.x) {
       // early exit if row exhausted
       break;
     }
   }
   writeHead.y++;  // one row always written by this point
-  if (enableQualTrack) {
+  if (enableInsTrack && readInsDrawn) {
     writeHead.y++;
   }
-  // could increment these only if
-  // any insertions written
-  if (enableInsTrack && readInsDrawn) {
+  if (enableQualTrack) {
+    // NOTE: it might be easier if ALL the
+    // tracks used buffers. The buffers could
+    // be hoisted even. The buffer type would
+    // need to be either {char, style} or
+    // use RLE.
+    e2::write_ascii_string (
+        e2::GlobalCell{{.x = sh.writeStartX, .y = writeHead.y}},
+        sh.writeLimits.x, qualDisplayBuf, TB_DIM
+    );
     writeHead.y++;
   }
   if (enableInsQualTrack && readInsDrawn) {
@@ -752,7 +757,8 @@ static e2::Delta seq1 (
   }
 
   return {
-      .dx = writeHead.x - sh.writeXStart, .dy = writeHead.y - y
+      .dx = writeHead.x - sh.writeStartX,
+      .dy = writeHead.y - yStart
   };
 }
 

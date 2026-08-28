@@ -19,7 +19,7 @@ struct AppConfig {
   bool showOverlay = false;
   // alignment drawing switches
   // TODO: wire to repl
-  bool drawQualTrack = false;
+  bool drawQualTrack = true;
   bool drawInsTrack = true;
   bool drawInsQualTrack = true;
 };

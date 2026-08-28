@@ -92,6 +92,8 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       }
       break;
 
+    // BUG: page size is no longer
+    // directly tied to height!
     case TB_KEY_PGUP: {
       auto pageSize = height (state.ui.browsr.seqPane);
       scrollRow = std::max (scrollRow - pageSize, 0);
