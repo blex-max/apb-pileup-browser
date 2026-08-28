@@ -21,7 +21,7 @@ struct AppConfig {
   // TODO: wire to repl
   bool drawQualTrack = false;
   bool drawInsTrack = true;
-  bool drawInsQualTrack = false;
+  bool drawInsQualTrack = true;
 };
 
 struct AppMetadata {
