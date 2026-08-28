@@ -157,12 +157,14 @@ bool check_attr_all_back (S&& gcs, const Style& style);
 // bool check_attr_any_front
 // (S&& gcs, const Style& style);
 
-// write ascii string to display.
+// write string to display.
 // returns number of chars written.
-// NOTE: may expand to cover
-// UTF-8, etc., in future.
-int write_ascii_string (
+int write_string (
     GlobalCell start, int xlim, std::string_view s,
+    const Style& style = {0}
+);
+int write_string (
+    GlobalCell start, int xlim, std::u32string_view s,
     const Style& style = {0}
 );
 
@@ -411,8 +413,7 @@ inline bool valid (const Cell& c) noexcept
   return (c.x >= 0 && c.y >= 0);
 }
 
-// returns nchars written
-inline int write_ascii_string (
+inline int write_string (
     GlobalCell start, int xlim, std::string_view s,
     const Style& style
 )
@@ -429,6 +430,32 @@ inline int write_ascii_string (
   for (size_t x = 0; x < xlimDerived; ++x) {
     const auto rc =
         set (start, static_cast<unsigned char> (s[x]), style);
+    if (rc != TB_OK) {
+      break;
+    }
+    ++start.x;
+    ++nout;
+  }
+  return nout;
+}
+
+inline int write_string (
+    GlobalCell start, int xlim, std::u32string_view s,
+    const Style& style
+)
+{
+  if (!valid (start) || s.empty() || xlim <= start.x) {
+    return 0;
+  }
+
+  const auto xlimDerived = std::min<size_t> (
+      s.size(), static_cast<size_t> (xlim - start.x)
+  );
+
+  int nout = 0;
+  for (size_t x = 0; x < xlimDerived; ++x) {
+    const auto rc =
+        set (start, static_cast<uint32_t> (s[x]), style);
     if (rc != TB_OK) {
       break;
     }
