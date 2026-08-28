@@ -166,6 +166,7 @@ int write_ascii_string (
     const Style& style = {0}
 );
 
+
 // --- END TYPES & DECLARATIONS --- //
 
 // --- INTERNALS --- //
