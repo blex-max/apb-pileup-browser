@@ -25,45 +25,47 @@ static void handle_character_entry (
 
 static bool handle_nav (AppState& state, const tb_event& ev)
 {
-  auto& cmdWgt = state.ui.cmd;
-  auto& scrollRow = state.ui.browsr.rowStart;
+  auto& bWgt = state.ui.browsr;
+  auto& cWgt = state.ui.cmd;
+  const auto& db = state.db;
+  auto& stmtRowScrollOffset = state.db.stmtRowScrollOffset;
 
   switch (ev.key) {
     case TB_KEY_ENTER:
       // execute user command
-      if (!cmdWgt.inputBuf.text.empty()) {
-        history_push (cmdWgt.history, cmdWgt.inputBuf.text);
-        cmdWgt.msgBuf = exec_cmd (cmdWgt.inputBuf.text, state)
-                            .msg;  // return msg
-        clear (cmdWgt.inputBuf);
+      if (!cWgt.inputBuf.text.empty()) {
+        history_push (cWgt.history, cWgt.inputBuf.text);
+        cWgt.msgBuf = exec_cmd (cWgt.inputBuf.text, state)
+                          .msg;  // return msg
+        clear (cWgt.inputBuf);
       }
       break;
 
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
       if ((ev.mod & TB_MOD_ALT) != 0) {
-        clear (cmdWgt.inputBuf);
+        clear (cWgt.inputBuf);
       }
       else {
-        del_back (cmdWgt.inputBuf);
+        del_back (cWgt.inputBuf);
       }
       break;
 
     case TB_KEY_ARROW_LEFT:
-      move_left (cmdWgt.inputBuf);
+      move_left (cWgt.inputBuf);
       break;
 
     case TB_KEY_ARROW_RIGHT:
-      move_right (cmdWgt.inputBuf);
+      move_right (cWgt.inputBuf);
       break;
 
     case TB_KEY_CTRL_A:
-      move_start (cmdWgt.inputBuf);
+      move_start (cWgt.inputBuf);
       break;
 
     case TB_KEY_CTRL_C:
-      if (!cmdWgt.inputBuf.text.empty()) {
-        clear (cmdWgt.inputBuf);
+      if (!cWgt.inputBuf.text.empty()) {
+        clear (cWgt.inputBuf);
       }
       else {
         state.conf.run = false;
@@ -71,38 +73,46 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_CTRL_E:
-      move_end (cmdWgt.inputBuf);
+      move_end (cWgt.inputBuf);
       break;
 
     case TB_KEY_ARROW_DOWN:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_next (cmdWgt.history, cmdWgt.inputBuf);
+        history_next (cWgt.history, cWgt.inputBuf);
       }
       else {
-        scrollRow++;
+        const auto lastRowOnscreen = static_cast<uint32_t> (
+            stmtRowScrollOffset + bWgt.nReadOnscreen
+        );
+        if (lastRowOnscreen < db.nStmtRows) {
+          stmtRowScrollOffset++;
+        }
       }
       break;
 
     case TB_KEY_ARROW_UP:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_prev (cmdWgt.history, cmdWgt.inputBuf);
+        history_prev (cWgt.history, cWgt.inputBuf);
       }
       else {
-        scrollRow = std::max (scrollRow - 1, 0);
+        stmtRowScrollOffset =
+            std::max (stmtRowScrollOffset - 1, 0);
       }
       break;
 
-    // BUG: page size is no longer
-    // directly tied to height!
     case TB_KEY_PGUP: {
-      auto pageSize = height (state.ui.browsr.seqPane);
-      scrollRow = std::max (scrollRow - pageSize, 0);
+      stmtRowScrollOffset =
+          std::max (stmtRowScrollOffset - bWgt.nReadOnscreen, 0);
       break;
     }
 
     case TB_KEY_PGDN: {
-      auto pageSize = height (state.ui.browsr.seqPane);
-      scrollRow += pageSize;
+      const auto lastRowOnscreen = static_cast<uint32_t> (
+          stmtRowScrollOffset + bWgt.nReadOnscreen
+      );
+      if (lastRowOnscreen < db.nStmtRows) {
+        stmtRowScrollOffset += bWgt.nReadOnscreen;
+      }
       break;
     }
 

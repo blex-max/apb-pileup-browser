@@ -19,7 +19,7 @@ struct BrowserWgt {
   e2::Box dataPane;
   e2::HLine querySep;
   e2::HLine infoLine;
-  int rowStart = 0; // TODO move?
+  uint16_t nReadOnscreen = 0;
 };
 struct CmdWgt {
   e2::Box frame;

@@ -760,14 +760,12 @@ static e2::Delta seq1 (
 }  // namespace draw_alignment
 
 static VoidOrErr draw_query_data (
-    BrowserWgt& bWgt, DynamicSelectReadsStmt& stmt,
-    const PileupDB& db, const PileupMetadata& pmd,
-    const AppConfig& conf
+    BrowserWgt& bWgt, DBBundle& db, const AppConfig& conf
 )
 {
   // draw reads and data table
 
-  sqlite3_reset (stmt);
+  sqlite3_reset (db.stmt);
 
   auto& seqPane = bWgt.seqPane;
   auto& dataPane = bWgt.dataPane;
@@ -782,12 +780,14 @@ static VoidOrErr draw_query_data (
 
   const auto drawAlignmentShared =
       draw_alignment::prepare_shared (
-          seqWriteHead.x, pmd.pos - (width (seqPane) / 2),
-          pmd.start, seqWriteLim
+          seqWriteHead.x, db.locus.pos - (width (seqPane) / 2),
+          db.locus.start, seqWriteLim
       );
 
-  for (int iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
-    auto nrRet = next_read (stmt, db);
+  uint16_t nReadDrawn = 0;
+  for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
+       ++iRead) {
+    auto nrRet = next_read (db.stmt, db.db);
     if (!nrRet) {
       // poor error handling policy
       return std::unexpected{nrRet.error()};
@@ -795,7 +795,7 @@ static VoidOrErr draw_query_data (
     if (!(*nrRet)) {
       break;  // reads exhausted
     }
-    if (iRead < bWgt.rowStart) {
+    if (static_cast<int64_t> (iRead) < db.stmtRowScrollOffset) {
       // reads hidden by scrolling
       continue;
     }
@@ -809,7 +809,8 @@ static VoidOrErr draw_query_data (
     // buffer and write as a final op. No styling needed
     // so single call to write_string.
     const auto dHead = draw_alignment::seq1 (
-        seqWriteHead.y, stmt, pmd.refSlice, drawAlignmentShared,
+        seqWriteHead.y, db.stmt, db.locus.refSlice,
+        drawAlignmentShared,
         draw_alignment::Seq1Switches{
             conf.drawQualTrack, conf.drawInsTrack,
             conf.drawInsQualTrack
@@ -819,10 +820,12 @@ static VoidOrErr draw_query_data (
         e2::GlobalCell{
             {.x = first (dataPane.xspan), .y = seqWriteHead.y}
         },
-        last (dataPane.xspan), stmt, conf.displayCols
+        last (dataPane.xspan), db.stmt, conf.displayCols
     );
     seqWriteHead.y += dHead.dy;
+    ++nReadDrawn;
   }
+  bWgt.nReadOnscreen = nReadDrawn;
 
   // set crosshair
   auto pileupXPos =
@@ -887,17 +890,15 @@ static void draw_pileup_ambient (
 }
 
 static VoidOrErr draw_piluep (
-    BrowserWgt& pWgt, DynamicSelectReadsStmt& stmt,
-    const PileupDB& db, const PileupMetadata& locus,
-    const AppConfig& conf
+    BrowserWgt& pWgt, DBBundle& db, const AppConfig& conf
 )
 {
-  auto dqRet = draw_query_data (pWgt, stmt, db, locus, conf);
+  auto dqRet = draw_query_data (pWgt, db, conf);
   if (!dqRet) {
     return std::unexpected (dqRet.error());
   }
 
-  draw_pileup_ambient (pWgt, locus);
+  draw_pileup_ambient (pWgt, db.locus);
 
   return {};
 }
@@ -962,8 +963,7 @@ VoidOrErr draw_main_ui (
 
   draw_layout_chrome (ui.browsr, ui.cmd);
 
-  auto dpRet =
-      draw_piluep (ui.browsr, db.stmt, db.db, db.locus, conf);
+  auto dpRet = draw_piluep (ui.browsr, db, conf);
   if (!dpRet) {
     // TODO: not really well thought out error handling.
     return std::unexpected (dpRet.error());
