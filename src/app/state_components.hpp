@@ -33,6 +33,8 @@ struct DBBundle {
   PileupDB db;
   DynamicSelectReadsStmt stmt;
   DynamicFragments userClause{};
+  uint32_t nStmtRows = 0;  // rows in current stmt
+  int32_t stmtRowScrollOffset = 0;
   PileupMetadata
       locus;  // cached loci-table row; queried once at init(),
 };

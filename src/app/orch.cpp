@@ -80,7 +80,20 @@ AppStateOrErr init (
   if (!prepRet) {
     return std::unexpected{prepRet.error()};
   }
-  state.db.stmt = std::move (*prepRet);
+  auto newStmt = std::move (*prepRet);
+  uint32_t nRow = 0;
+  for (;; ++nRow) {
+    const auto nrRet = next_read (newStmt, state.db.db);
+    if (!nrRet) {
+      // poor error handling policy
+      return std::unexpected (nrRet.error());
+    }
+    if (!(*nrRet)) {
+      break;  // reads exhausted
+    }
+  }
+  state.db.stmt = std::move (newStmt);
+  state.db.nStmtRows = nRow;
 
   init_tb2();
   auto calcRet = size_widgets (state.ui, state.conf.seqPaneFrac);

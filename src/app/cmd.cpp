@@ -160,9 +160,6 @@ static std::string stringify_where (
   return out;
 }
 
-// Recompile `newClause` and, on success, install it as the active query
-// and reset the scroll position. Callers own their own clause mutation
-// and success message; this only owns the repeated recompile/swap tail.
 static CmdResult apply_query_clause (
     AppState& state, DynamicFragments newClause,
     std::string_view successMsg
@@ -172,9 +169,22 @@ static CmdResult apply_query_clause (
   if (!prepRet) {
     return {false, prepRet.error().msg};
   }
+  auto newStmt = std::move (*prepRet);
+  uint32_t nRow = 0;
+  for (;; ++nRow) {
+    const auto nrRet = next_read (newStmt, state.db.db);
+    if (!nrRet) {
+      // poor error handling policy
+      return {false, nrRet.error().msg};
+    }
+    if (!(*nrRet)) {
+      break;  // reads exhausted
+    }
+  }
+  state.db.stmt = std::move (newStmt);
   state.db.userClause = std::move (newClause);
-  state.db.stmt = std::move (*prepRet);
-  state.ui.browsr.rowStart = 0;  // reset row view
+  state.db.stmtRowScrollOffset = 0;  // reset row view
+  state.db.nStmtRows = nRow;
   return {true, std::string (successMsg)};
 }
 
