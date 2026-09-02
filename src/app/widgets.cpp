@@ -320,7 +320,7 @@ namespace data_table {
 
 static void draw_header (
     const e2::HLine& headerLine,
-    const std::list<const DataTableCol*>& displayFields
+    const std::span<const TableCol::ID> colIDs
 )
 {
   assert (valid (headerLine));
@@ -331,13 +331,15 @@ static void draw_header (
       {.x = first (headerLine.xspan), .y = headerLine.y}
   };
   std::string lpb_assembled;  // lpb_ loop buffer
-  for (const auto* f : displayFields) {
+  for (const auto id : colIDs) {
+    const auto* colData_br = get_metadata_by_id (id);
     // assemble field into "centered" title string
     // write and advance
     uint16_t padL = 0;
     uint16_t padR = 0;
-    const auto fieldWidth = static_cast<int> (f->width);
-    const auto fieldName = f->name;
+    const auto fieldWidth =
+        static_cast<int> (colData_br->displayWidth);
+    const auto fieldName = colData_br->fieldName;
     const auto fieldNameLen =
         static_cast<int> (fieldName.size());
     if (fieldNameLen < fieldWidth) {
@@ -362,16 +364,16 @@ static void draw_header (
 }
 
 static void draw_row_separators (
-    e2::Box dataPane,
-    const std::list<const DataTableCol*>& displayFields
+    e2::Box dataPane, const std::span<const TableCol::ID> colIDs
 )
 {
   auto writeHead = vertexA (dataPane);
   // exclusive limits
   const auto writeLimits =
       vertexC (dataPane) + e2::Delta{.dx = 1, .dy = 1};
-  for (const auto* f : displayFields) {
-    writeHead.x += static_cast<int> (f->width);
+  for (const auto id : colIDs) {
+    const auto* colData_br = get_metadata_by_id (id);
+    writeHead.x += static_cast<int> (colData_br->displayWidth);
     if (writeHead.x > writeLimits.x) {
       break;
     }
@@ -388,15 +390,16 @@ static void draw_row_separators (
 
 static void draw_row (
     e2::GlobalCell writeHead, int xLim, sqlite3_stmt* br_dbRow,
-    const std::list<const DataTableCol*>& displayFields
+    const std::span<const TableCol::ID>& colIDs
 )
 {
   assert (writeHead.x < xLim);
 
   std::string cellText{};
-  for (const auto* f : displayFields) {
-    cellText = f->retrieve_from_db (br_dbRow);
-    const auto fieldWidth = f->width;
+  for (const auto id : colIDs) {
+    const auto* colData_br = get_metadata_by_id (id);
+    cellText = colData_br->fn_retrieve_from_db (br_dbRow);
+    const auto fieldWidth = colData_br->displayWidth;
     if (cellText.size() > fieldWidth) {
       // shrink to fit
       cellText.resize (fieldWidth);
@@ -771,8 +774,10 @@ static VoidOrErr draw_query_data (
   auto& dataPane = bWgt.dataPane;
   auto& hdrLine = bWgt.tableHeaderLine;
 
-  data_table::draw_header (hdrLine, conf.displayCols);
-  data_table::draw_row_separators (dataPane, conf.displayCols);
+  data_table::draw_header (hdrLine, conf.displayTableCols);
+  data_table::draw_row_separators (
+      dataPane, conf.displayTableCols
+  );
 
   auto seqWriteHead = vertexA (seqPane);
   auto seqWriteLim =
@@ -820,7 +825,7 @@ static VoidOrErr draw_query_data (
         e2::GlobalCell{
             {.x = first (dataPane.xspan), .y = seqWriteHead.y}
         },
-        last (dataPane.xspan), db.stmt, conf.displayCols
+        last (dataPane.xspan), db.stmt, conf.displayTableCols
     );
     seqWriteHead.y += dHead.dy;
     ++nReadDrawn;

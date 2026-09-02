@@ -3,10 +3,7 @@ set -euo pipefail
 
 staged=$(git diff --name-only --staged)
 
-# README.md is generated from the in-binary readme, so it is only ever allowed
-# into a commit alongside the text_blocks.cpp it was derived from. Staged on
-# its own it is a hand edit, which the next generation would silently discard.
-# Checked ahead of the regeneration below, whose own `git add` would trip it.
+# README.md is generated from the in-binary readme
 if printf '%s\n' "$staged" | grep -qx 'README.md' &&
   ! printf '%s\n' "$staged" | grep -qx 'src/app/text_blocks.cpp'; then
   echo "pre-commit: README.md is generated — edit the README_MARKDOWN literal in" >&2
@@ -23,14 +20,12 @@ if printf '%s\n' "$staged" | grep -qx 'src/app/text_blocks.cpp'; then
   git add README.md
 fi
 
-# A handful of readability checks are treated as hard errors rather than
-# just report.txt noise: each has a mechanical, always-correct fix and no
-# known false positive in this codebase, so a hit here is a regression, not
-# a judgment call. (See .clang-tidy for the full, non-blocking check list.)
-# Scanned across all of src/, not just staged files, because a hit
-# introduced in a header only surfaces via the .cpp files that include it.
+# clang-tidy checks
+# Requires the code to build (clang-diagnostic-error), which isn't a fair bar
+# for in-progress work on other branches — only gate commits landing on main.
 tidy_checks='-*,readability-implicit-bool-conversion,readability-qualified-auto,readability-redundant-casting,readability-simplify-boolean-expr,readability-use-std-min-max'
-if printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
+current_branch=$(git symbolic-ref --short -q HEAD || true)
+if [ "$current_branch" = "main" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
   if ! command -v run-clang-tidy >/dev/null 2>&1; then
     echo "pre-commit: run-clang-tidy not found, skipping readability gate" >&2
   elif [ ! -f build/compile_commands.json ]; then

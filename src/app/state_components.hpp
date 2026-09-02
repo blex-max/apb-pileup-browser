@@ -8,20 +8,21 @@
 constexpr double sh_defaultSeqPaneFrac = 0.5;
 struct AppConfig {
   bool run = true;
-  DataColList displayCols{
-      find_cols (
-          {DataColID::basequal, DataColID::rstart,
-           DataColID::rend, DataColID::flag, DataColID::mapq,
-           DataColID::cigar, DataColID::qname}
-      )
-  };  // list preseves insertion order, and allows removal by val
+
+  std::vector<TableCol::ID> displayTableCols{
+      TableCol::ID::basequal, TableCol::ID::rstart,
+      TableCol::ID::rend,     TableCol::ID::flag,
+      TableCol::ID::mapq,     TableCol::ID::cigar,
+      TableCol::ID::qname
+  };
+
   double seqPaneFrac = sh_defaultSeqPaneFrac;
   bool showOverlay = false;
   // alignment drawing switches
   // TODO: wire to repl
-  bool drawQualTrack = true;
+  bool drawQualTrack = false;
   bool drawInsTrack = true;
-  bool drawInsQualTrack = true;
+  bool drawInsQualTrack = false;
 };
 
 struct AppMetadata {
