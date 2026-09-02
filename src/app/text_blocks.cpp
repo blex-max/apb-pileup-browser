@@ -65,7 +65,6 @@ static_assert (
     SIZE_ASSERT_FAIL
 );
 
-// TODO: add fold cmds
 // NOTE: is it possible to generate this off
 // the cmd structs .usage?
 constexpr auto sh_cmdBlock = std::to_array<std::string_view> (
@@ -101,8 +100,8 @@ constexpr auto sh_cmdBlock = std::to_array<std::string_view> (
      "  `dump <path>`:                               ",
      "    write the in-memory database to an         ",
      "    sqlite3 file                               ",
-     "  `fold [seq|data]`:                           ",
-     "    fold/unfold the sequence or data pane,     ",
+     "  `pane [seq|data]`:                           ",
+     "    show/hide the sequence or data pane,       ",
      "    reset both to default with no args         ",
      "  `help [nav|cmd|<cmd>]` (`?`):                ",
      "    show this reference, navigation help,      ",
@@ -279,7 +278,7 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 | `clear` | | | Clear the active query |
 | `count` | | `[clause]` | Count matching reads without touching the active query (Any clause argument is AND-concatenated to the existing query) |
 | `dump` | | `<path>` | Write the current in-memory database to a sqlite3 file on disk |
-| `fold` | | `[seq\|data]` | Fold/unfold the sequence or data pane; reset both to default with no args |
+| `pane` | | `[seq\|data]` | show/hide the sequence or data pane; reset both to default with no args |
 | `readme` | | `[path]` | Write the readme to `[path]`, or the working directory if omitted |
 | `help` | `?` | `[nav\|cmd\|<cmd>]` | Show this reference, navigation help, or a specific command's usage |
 | `quit` | `q` | | Exit |

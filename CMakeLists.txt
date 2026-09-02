@@ -113,6 +113,7 @@ target_compile_options(apb
   -Wnull-dereference
   -Wformat=2
   -Werror=return-type
+  -Wno-c99-designator
 )
 target_include_directories(apb
   PRIVATE

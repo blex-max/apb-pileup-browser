@@ -101,8 +101,16 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_PGUP: {
+      // since number of tracks is dynamic both by setting
+      // and onscreen content, must derive safe number
+      // of rows to scroll up
+      const auto minReadsPerPage =
+          height (bWgt.seqPane) /
+          (1 + static_cast<int> (state.conf.drawQualTrack) +
+           static_cast<int> (state.conf.drawInsTrack) +
+           static_cast<int> (state.conf.drawInsQualTrack));
       stmtRowScrollOffset =
-          std::max (stmtRowScrollOffset - bWgt.nReadOnscreen, 0);
+          std::max (stmtRowScrollOffset - minReadsPerPage, 0);
       break;
     }
 
