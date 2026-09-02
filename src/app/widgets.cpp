@@ -80,8 +80,13 @@ void set_overlay_widget (UIBundle& ui, TextBlockRef content)
                       ))
   );
 
-  const auto framedContentW =
-      static_cast<int> (content.front().size() + 2);
+  const auto maxLineW = std::ranges::max_element (
+                            content, {}, &std::string_view::size
+  )
+                            ->size();
+  // +2 for the left/right border, +1 for a gap before the
+  // right border
+  const auto framedContentW = static_cast<int> (maxLineW + 3);
   const auto helpW = std::min (
       framedContentW, static_cast<int> (std::ceil (
                           static_cast<double> (screenW) * 0.6
@@ -123,7 +128,8 @@ void draw_overlay (const OverlayWgt& oWgt)
   set (vertexD (frame), boxch::bottomLeftRoundCorner);
   set (vertexC (frame), boxch::bottomRightRoundCorner);
 
-  auto xEnd = last (box.xspan);
+  auto xEnd =
+      last (box.xspan) - 1;  // leave a gap before the border
 
   auto writeHead = vertexA (frame);
   writeHead.x += 1;

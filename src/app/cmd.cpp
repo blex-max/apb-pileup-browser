@@ -152,7 +152,8 @@ struct ShowReadFieldsCmd {
   inline static const std::string usage =
       fmt::format ("{} <field-name>...", call);
   constexpr static std::string_view desc{
-      "Toggle display of read data fields to the tabular display"
+      "Toggle display of read data fields to the tabular "
+      "display."
   };
 
   static CmdResult operator() (
@@ -422,7 +423,7 @@ struct BackCmd {
   constexpr static std::string_view desc{
       "Drop the most recently added condition from the query "
       "WHERE clause, or clear if only a single condition is "
-      "present"
+      "present."
   };
 
   static CmdResult operator() (
@@ -460,7 +461,7 @@ struct ClearWhereCmd {
   };
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{
-      "clear WHERE clause, retaining ORDER BY"
+      "clear WHERE clause, retaining ORDER BY."
   };
 
   static CmdResult operator() (
@@ -625,7 +626,7 @@ struct ShowPaneCmd {
   constexpr static std::string_view desc{
       "show/hide either of the alignment or table panes, or "
       "reset "
-      "to default with no args"
+      "to default with no args."
   };
 
   static CmdResult operator() (
@@ -724,7 +725,7 @@ struct ShowTrackCmd {
   );
   constexpr static std::string_view desc{
       "toggle display of additional tracks in browser alignment "
-      "pane, or reset to default with no args"
+      "pane, or reset to default with no args."
   };
 
 
@@ -937,6 +938,67 @@ struct DumpReadmeCmd {
   };
 };
 
+static std::span<const CmdView* const> get_cmd_registry();
+
+static std::vector<std::string> word_wrap (
+    std::string_view text, size_t width
+)
+{
+  std::vector<std::string> lines;
+  std::string cur;
+  for (const auto& word : split_whitespace (text)) {
+    if (cur.empty()) {
+      cur.assign (word);
+    }
+    else if (cur.size() + 1 + word.size() <= width) {
+      cur += ' ';
+      cur += word;
+    }
+    else {
+      lines.push_back (std::move (cur));
+      cur.assign (word);
+    }
+  }
+  lines.push_back (std::move (cur));
+  return lines;
+}
+
+static void append_wrapped (
+    std::vector<std::string>& out, std::string_view text,
+    std::string_view indent, size_t width
+)
+{
+  for (auto& line : word_wrap (text, width - indent.size())) {
+    out.push_back (fmt::format ("{}{}", indent, line));
+  }
+}
+
+static std::vector<std::string> build_cmd_ref_table()
+{
+  constexpr size_t width = 52;
+  constexpr std::string_view headerIndent = "  ";
+  constexpr std::string_view bodyIndent = "    ";
+
+  std::vector<std::string> lines{" COMMAND REFERENCE"};
+  for (const auto* cmd : get_cmd_registry()) {
+    append_wrapped (
+        lines, fmt::format ("`{}`:", cmd->usage), headerIndent,
+        width
+    );
+    append_wrapped (lines, cmd->desc, bodyIndent, width);
+    if (!cmd->alias.empty()) {
+      append_wrapped (
+          lines,
+          fmt::format (
+              "alias: {}", fmt::join (cmd->alias, ", ")
+          ),
+          bodyIndent, width
+      );
+    }
+  }
+  return lines;
+}
+
 struct HelpCmd {
   constexpr static std::string_view call{"help"};
   constexpr static std::array<std::string_view, 2> alias{
@@ -951,7 +1013,7 @@ struct HelpCmd {
       "{} [({})]", call, fmt::join (topicNames, "|")
   );
   constexpr static std::string_view desc{
-      "Show help for given topic, or general help with no args"
+      "Show help for given topic, or general help with no args."
   };
 
   static CmdResult operator() (
@@ -975,9 +1037,6 @@ struct HelpCmd {
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
       if (topic == topicNames[Topic::nav]) {
-        // TODO: make nav keys into little
-        // metadata objects similar to cmd and construct
-        // help from metadata
         state.conf.showOverlay = true;
         set_overlay_widget (
             state.ui, get_text_block (TxtBlockId::navHelp)
@@ -985,12 +1044,13 @@ struct HelpCmd {
         out.success = true;
       }
       else if (topic == topicNames[Topic::cmd]) {
-        // TODO: construct cmd reference table
-        // from CmdView objects directly
+        static std::vector<std::string> cmdTable;
+        static std::vector<std::string_view> tableView;
+        cmdTable = build_cmd_ref_table();
+        tableView.assign (cmdTable.begin(), cmdTable.end());
+
         state.conf.showOverlay = true;
-        set_overlay_widget (
-            state.ui, get_text_block (TxtBlockId::cmdRef)
-        );
+        set_overlay_widget (state.ui, tableView);
         out.success = true;
       }
     }
@@ -1029,6 +1089,11 @@ static constexpr const CmdView* cmdRegistry_SH[]{
     &CountCmd::view,
     &DumpReadmeCmd::view,
 };
+
+static std::span<const CmdView* const> get_cmd_registry()
+{
+  return cmdRegistry_SH;
+}
 
 static const CmdView* find_cmd (std::string_view name)
 {

@@ -65,62 +65,6 @@ static_assert (
     SIZE_ASSERT_FAIL
 );
 
-// NOTE: is it possible to generate this off
-// the cmd structs .usage?
-constexpr auto sh_cmdBlock = std::to_array<std::string_view> (
-    {" COMMAND REFERENCE                             ",
-     "  `readme [path]`:                             ",
-     "    dump complete readme to [path], or cwd if  ",
-     "    path is omitted.                           ",
-     "  `where <clause>`:                            ",
-     "    start a new query                          ",
-     "  `and <clause>`:                              ",
-     "    and-append a clause onto an existing       ",
-     "    query.                                     ",
-     "  `or <clause>`:                               ",
-     "    or-append a clause onto an existing        ",
-     "    query.                                     ",
-     "  `back`:                                      ",
-     "    undo the last where/and/or                 ",
-     "  `order <clause>`:                            ",
-     "    set the active query's sort order          ",
-     "  `clear-where`:                               ",
-     "    clear the where clause, keeping the        ",
-     "    order clause                               ",
-     "  `clear`:                                     ",
-     "    clear the whole active query               ",
-     "  `count [clause]`:                            ",
-     "    count matches without touching the         ",
-     "    active query. [clause] is and-appended     ",
-     "    to the existing query, if given.           ",
-     "  `show <field>...`:                           ",
-     "    add field(s) to the display                ",
-     "  `hide <field>...`:                           ",
-     "    remove field(s) from the display           ",
-     "  `dump <path>`:                               ",
-     "    write the in-memory database to an         ",
-     "    sqlite3 file                               ",
-     "  `pane [seq|data]`:                           ",
-     "    show/hide the sequence or data pane,       ",
-     "    reset both to default with no args         ",
-     "  `help [nav|cmd|<cmd>]` (`?`):                ",
-     "    show this reference, navigation help,      ",
-     "    or a specific command usage                ",
-     "  `quit`:                                      ",
-     "    exit apb                                   "}
-);
-static_assert (
-    !sh_cmdBlock.empty() &&
-        std::ranges::all_of (
-            sh_cmdBlock,
-            [] (std::string_view r) {
-              return r.size() == sh_cmdBlock.front().size();
-            }
-        ),
-    SIZE_ASSERT_FAIL
-);
-
-
 TextBlockRef get_text_block (TxtBlockId id)
 {
   switch (id) {
@@ -128,8 +72,6 @@ TextBlockRef get_text_block (TxtBlockId id)
       return sh_helpBlock;
     case TxtBlockId::navHelp:
       return sh_navBlock;
-    case TxtBlockId::cmdRef:
-      return sh_cmdBlock;
     default:
       return {};
   }
@@ -265,7 +207,7 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 
 ### Command Reference
 
-| Command | Aliases | Args | Effect |
+| Command | Aliases | Usage | Description |
 |---|---|---|---|
 | `show` | | `<field>...` | Add columns to the display |
 | `hide` | | `<field>...` | Remove columns from the display |

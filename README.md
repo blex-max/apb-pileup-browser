@@ -131,7 +131,7 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 
 ### Command Reference
 
-| Command | Aliases | Args | Effect |
+| Command | Aliases | Usage | Description |
 |---|---|---|---|
 | `show` | | `<field>...` | Add columns to the display |
 | `hide` | | `<field>...` | Remove columns from the display |

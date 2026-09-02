@@ -140,23 +140,6 @@ int rm_attr (S&& gcs, const Style& style);
 template <GlobalCellSource S>
 int clear_attrs (S&& gcs);
 
-// check presence of style attributes
-// in termbox2 back buffer in all cell/s.
-template <GlobalCellSource S>
-bool check_attr_all_back (S&& gcs, const Style& style);
-
-// TODO:
-// template <GlobalCellSource S>
-// bool check_attr_all_front
-// (S&& gcs, const Style& style);
-
-// template <GlobalCellSource S>
-// bool check_attr_any_back
-// (S&& gcs, const Style& style);
-// template <GlobalCellSource S>
-// bool check_attr_any_front
-// (S&& gcs, const Style& style);
-
 // write string to display.
 // returns number of chars written.
 int write_string (
@@ -167,6 +150,8 @@ int write_string (
     GlobalCell start, int xlim, std::u32string_view s,
     const Style& style = {0}
 );
+// in future, maybe:
+// set/write_string overload for span of codepoints and span of styles
 
 
 // --- END TYPES & DECLARATIONS --- //
