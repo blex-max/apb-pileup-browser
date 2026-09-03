@@ -48,13 +48,14 @@ The built-in command line is capable of highly complex queries, but is tuned to 
 ╰                                                                                                                             ╯
 ```
 
-A text screencap of the TUI — explanatory notes are in CAPITALS; the real thing looks better. `=` matches the reference, `-` is a deletion, and a ring over a base with `^` marks an insertion.
+A basic text screencap of the TUI - explanatory notes are in CAPITALS. The real TUI has richer, more readable styling.
+`=` matches the reference, `-` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
 
 Advantages:
 - Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
 - Easily installed, including on compute cluster nodes.
 - Fast; no network IO, responsive UI.
-- UI optimised for one job — inspecting pileup loci — rather than general-purpose genome browsing.
+- UI optimised for one job - inspecting pileup loci - rather than general-purpose genome browsing.
 - Powerful SQL-backed query syntax for fast exploration.
 
 This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
