@@ -6,9 +6,11 @@
 #include "app/widgets.hpp"
 #include "plog/Log.h"
 
-static VoidOrErr handle_resize (UIBundle& ui, double seqPaneFrac)
+static VoidOrErr handle_resize (
+    UIBundle& ui, SizeBrowserPaneSwitches switches
+)
 {
-  auto calcRet = size_widgets (ui, seqPaneFrac);
+  auto calcRet = size_widgets (ui, switches);
   if (!calcRet) {
     return std::unexpected (calcRet.error());
   }
@@ -104,11 +106,11 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       // since number of tracks is dynamic both by setting
       // and onscreen content, must derive safe number
       // of rows to scroll up
+      const auto& trackSwitches = state.conf.drawTrackSwitches;
       const auto minReadsPerPage =
-          height (bWgt.seqPane) /
-          (1 + static_cast<int> (state.conf.drawQualTrack) +
-           static_cast<int> (state.conf.drawInsTrack) +
-           static_cast<int> (state.conf.drawInsQualTrack));
+          height (bWgt.alnPaneDataBox) /
+          (1 + static_cast<int> (trackSwitches.qual) +
+           static_cast<int> (trackSwitches.ins));
       stmtRowScrollOffset =
           std::max (stmtRowScrollOffset - minReadsPerPage, 0);
       break;
@@ -206,8 +208,11 @@ VoidOrErr handle_event (AppState& state, const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    auto rszRet =
-        handle_resize (state.ui, state.conf.seqPaneFrac);
+    const auto& switches = state.conf.drawPaneSwitches;
+    auto rszRet = handle_resize (
+        state.ui,
+        {.showAln = switches.aln, .showTable = switches.table}
+    );
     if (!rszRet) {
       return std::unexpected (rszRet.error());
     }

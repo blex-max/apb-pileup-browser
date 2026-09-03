@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cstddef>
+#include <algorithm>
+#include <array>
 #include <span>
 #include <string_view>
 
@@ -9,8 +10,62 @@
 
 using TextBlockRef = std::span<const std::string_view>;
 
-enum class TxtBlockId : uint8_t { generalHelp, navHelp };
-TextBlockRef get_text_block (TxtBlockId id);
+inline constexpr auto sh_helpBlock =
+    std::to_array<std::string_view> (
+        {" apb - a pileup browser                             ",
+         "  apb is an terminal-based genome browser designed  ",
+         "  for viewing and querying pileup loci. It features ",
+         "  a REPL-like command line and simple SQL-based     ",
+         "  query syntax.                                     ",
+         "                                                    ",
+         "  The browser is navigated with the keyboard.       ",
+         "  Commands are typed and submitted with Enter.      ",
+         "                                                    ",
+         "  Read the manual for a complete guide to usage,    ",
+         "  including query examples. Find it as MANUAL.md    ",
+         "  in the repo, or run `apb --dump-manual <path>`    ",
+         "                                                    ",
+         "  For navigation quick reference:                   ",
+         "    `? nav`                                         ",
+         "  For list of available commands:                   ",
+         "    `? cmd`                                         "}
+    );
+static_assert (
+    !sh_helpBlock.empty() &&
+        std::ranges::all_of (
+            sh_helpBlock,
+            [] (std::string_view r) {
+              return r.size() == sh_helpBlock.front().size();
+            }
+        ),
+    "rows must be of the same width"
+);
 
-
-std::string_view get_readme();
+inline constexpr auto sh_navBlock =
+    std::to_array<std::string_view> (
+        {" BROWSER PANE                                  ",
+         "  Up / Down         scroll one row             ",
+         "  PgUp / PgDn       scroll one page            ",
+         "                                               ",
+         " COMMAND LINE                                  ",
+         "  Enter             run command                ",
+         "  S-Up / S-Down     step command history       ",
+         "  Left / Right      move cursor                ",
+         "  M-Left / M-Right  back / forward one word    ",
+         "  M-b / M-f         back / forward one word    ",
+         "  C-a / C-e         start / end of line        ",
+         "  Bksp / M-Bksp     delete char / whole line   ",
+         "  C-c               clear input, else quit apb ",
+         "                                               ",
+         " M-: Alt | C-: Ctrl | S-: Shift                "}
+    );
+static_assert (
+    !sh_navBlock.empty() &&
+        std::ranges::all_of (
+            sh_navBlock,
+            [] (std::string_view r) {
+              return r.size() == sh_navBlock.front().size();
+            }
+        ),
+    "rows must be of the same width"
+);

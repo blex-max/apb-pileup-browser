@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "app/text_blocks.hpp"
+#include "app/manual.hpp"
 #include "argparse/argparse.hpp"
 
 // Defined in CMakeLists.txt
@@ -40,14 +40,13 @@ options:
   -h, --help          show this help message and exit
   -v, --version       print version information and exit
   --dump PATH         convert pileup to sqlite3 database, dump to disk, and exit
-  --dump-readme PATH  write README.md to PATH and exit
+  --dump-manual PATH  write the apb manual to PATH and exit
   --log PATH          log debug output to file
 
- See README.md for further info, or use the in-app help
- (type ? and press enter in the TUI). If you don't have
- the readme, it can be written to disk from the CLI
- using `apb --dump-readme PATH` or from within the TUI
- using `readme PATH`.
+ See README.md for project background, or MANUAL.md for
+ usage (or use the in-app help: type ? and press enter in
+ the TUI). If you don't have the manual, write it to disk
+ with `apb --dump-manual PATH`.
 
  In the TUI, type q and press enter or press Ctrl-C
  twice to quit.)txt";
@@ -116,7 +115,7 @@ ArgsOrErr parse_args (int argc, char** argv)
   );
   std::string logPath;
 
-  // NOTE: help, version, dump-readme
+  // NOTE: help, version, dump-manual
   // all exit program
   cli.add_argument ("-h", "--help")
       .action ([] (const auto&) {
@@ -134,8 +133,8 @@ ArgsOrErr parse_args (int argc, char** argv)
       .default_value (false)
       .implicit_value (true)
       .nargs (0);
-  cli.add_argument ("--dump-readme")
-      .help ("write README.md to PATH and exit")
+  cli.add_argument ("--dump-manual")
+      .help ("write the apb manual to PATH and exit")
       .metavar ("PATH")
       .action ([] (const std::string& path) {
         std::ofstream ofs (path);
@@ -144,7 +143,7 @@ ArgsOrErr parse_args (int argc, char** argv)
                     << " for writing\n";
           std::exit (EXIT_FAILURE);
         }
-        ofs << get_readme();
+        ofs << get_manual();
         std::exit (EXIT_SUCCESS);
       });
 

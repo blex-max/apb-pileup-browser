@@ -96,7 +96,11 @@ AppStateOrErr init (
   state.db.nStmtRows = nRow;
 
   init_tb2();
-  auto calcRet = size_widgets (state.ui, state.conf.seqPaneFrac);
+  const auto& sizeSwitches = state.conf.drawPaneSwitches;
+  auto calcRet = size_widgets (
+      state.ui, {.showAln = sizeSwitches.aln,
+                 .showTable = sizeSwitches.table}
+  );
   if (!calcRet) {
     return std::unexpected{calcRet.error()};
   }

@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <expected>
-#include <fstream>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
@@ -109,20 +108,12 @@ static std::expected<void, CmdResult> cmd_validate_ntok (
 // --- COMMANDS --- //
 
 // TODO: commentary on implementation
-
-// view type to hold in registry
-struct CmdView {
-  std::string_view call;
-  std::span<const std::string_view> alias;  // empty if none
-  CmdResult (*exec) (std::string_view, AppState&);
-  std::string_view usage;
-  std::string_view desc;
-};
+// NOTE: usage text roughly follows docopt
 
 struct QuitCmd {
   constexpr static std::string_view call{"quit"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "q"
+  constexpr static std::array<std::string_view, 2> callAlias{
+      "q", "exit"
   };
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{"Exit the browser."};
@@ -614,9 +605,10 @@ struct ShowPaneCmd {
   enum Pane : uint8_t { aln, table, COUNT };
   constexpr static std::array<std::string_view, Pane::COUNT>
       paneNames{{[Pane::aln] = "aln", [Pane::table] = "table"}};
-  constexpr static std::array<double, Pane::COUNT> kFoldedFracs{
-      {[Pane::aln] = 0.01, [Pane::table] = 0.99}
-  };
+  constexpr static std::array<std::string_view, Pane::COUNT>
+      paneFullNames{
+          {[Pane::aln] = "alignment", [Pane::table] = "table"}
+      };
   constexpr static double kDefaultFrac = 0.5;
 
   constexpr static std::string_view call{"pane"};
@@ -633,25 +625,8 @@ struct ShowPaneCmd {
       std::string_view args, AppState& state
   )
   {
-    // janky, but
-    // not worth fretting over until vcf pane implementation is in
-    // TODO: it would be much better if this simply set
-    // config flags that were handled elsewhere
-    auto& qbf = state.conf.seqPaneFrac;
+    auto& switches = state.conf.drawPaneSwitches;
     const auto tokens = split_whitespace (args);
-
-    if (tokens.empty()) {
-      if (qbf == kDefaultFrac) {
-        return {
-            false,
-            "View already at default, specify arg (seq, data) "
-            "to change"
-        };
-      }
-      qbf = kDefaultFrac;
-      size_browser_panes (state.ui.browsr, qbf);
-      return {true, "Reset view to default"};
-    }
 
     if (tokens.size() > 1) {
       return {
@@ -660,12 +635,31 @@ struct ShowPaneCmd {
       };
     }
 
-    Pane chosen;
-    if (tokens[0] == paneNames[Pane::aln]) {
-      chosen = Pane::aln;
+    std::string msg;
+    if (tokens.empty()) {
+      switches.aln = true;
+      switches.table = true;
+      msg = "Reset view to default";
+    }
+    else if (tokens[0] == paneNames[Pane::aln]) {
+      switches.aln = !switches.aln;
+      if (!switches.aln && !switches.table) {
+        switches.table = true;
+      }
+      msg = fmt::format (
+          "{} {} pane", (switches.aln) ? "Unfolded" : "Folded",
+          paneFullNames[Pane::aln]
+      );
     }
     else if (tokens[0] == paneNames[Pane::table]) {
-      chosen = Pane::table;
+      switches.table = !switches.table;
+      if (!switches.table && !switches.aln) {
+        switches.aln = true;
+      }
+      msg = fmt::format (
+          "{} {} pane", (switches.table) ? "Unfolded" : "Folded",
+          paneFullNames[Pane::table]
+      );
     }
     else {
       return {
@@ -676,21 +670,10 @@ struct ShowPaneCmd {
       };
     }
 
-    const std::string_view paneWord =
-        (chosen == Pane::aln) ? "alignment" : "table";
-    const double foldedFrac = kFoldedFracs[chosen];
-
-    std::string msg;
-    if (qbf == foldedFrac) {
-      qbf = kDefaultFrac;
-      msg = fmt::format ("Unfolded {} pane", paneWord);
-    }
-    else {
-      qbf = foldedFrac;
-      msg = fmt::format ("Folded {} pane", paneWord);
-    }
-
-    size_browser_panes (state.ui.browsr, qbf);
+    size_browser_panes (
+        state.ui.browsr,
+        {.showAln = switches.aln, .showTable = switches.table}
+    );
     return {true, msg};
   }
 
@@ -700,19 +683,13 @@ struct ShowPaneCmd {
 };
 
 struct ShowTrackCmd {
-  enum Track : uint8_t { qual, ins, insQual, COUNT };
+  enum Track : uint8_t { qual, ins, COUNT };
   // TODO: shorthands?
   constexpr static std::array<std::string_view, Track::COUNT>
-      trackNames{
-          {[Track::qual] = "qual",
-           [Track::ins] = "ins",
-           [Track::insQual] = "ins-qual"}
-      };
+      trackNames{{[Track::qual] = "qual", [Track::ins] = "ins"}};
   constexpr static std::array<std::string_view, Track::COUNT>
       trackFullNames{
-          {[Track::qual] = "quality",
-           [Track::ins] = "insertion",
-           [Track::insQual] = "insertion quality"}
+          {[Track::qual] = "quality", [Track::ins] = "insertion"}
       };
 
   constexpr static std::string_view call{"track"};
@@ -733,13 +710,12 @@ struct ShowTrackCmd {
       std::string_view args, AppState& state
   )
   {
-    auto& conf = state.conf;
+    auto& switches = state.conf.drawTrackSwitches;
 
     if (args.empty()) {
       // reset
-      conf.drawQualTrack = false;
-      conf.drawInsTrack = true;
-      conf.drawInsQualTrack = false;
+      switches.qual = false;
+      switches.ins = true;
       return {
           true, fmt::format (
                     "{} Reset track display to default",
@@ -792,18 +768,13 @@ struct ShowTrackCmd {
     for (const auto& id : tracksToToggle) {
       switch (id) {
         case Track::qual:
-          conf.drawQualTrack = !conf.drawQualTrack;
-          (conf.drawQualTrack ? nowShown : nowHidden)
+          switches.qual = !switches.qual;
+          (switches.qual ? nowShown : nowHidden)
               .push_back (trackFullNames[id]);
           break;
         case Track::ins:
-          conf.drawInsTrack = !conf.drawInsTrack;
-          (conf.drawInsTrack ? nowShown : nowHidden)
-              .push_back (trackFullNames[id]);
-          break;
-        case Track::insQual:
-          conf.drawInsQualTrack = !conf.drawInsQualTrack;
-          (conf.drawInsQualTrack ? nowShown : nowHidden)
+          switches.ins = !switches.ins;
+          (switches.ins ? nowShown : nowHidden)
               .push_back (trackFullNames[id]);
           break;
         case Track::COUNT:
@@ -820,7 +791,7 @@ struct ShowTrackCmd {
     }
     if (!nowHidden.empty()) {
       if (!outMsg.empty()) {
-        outMsg += "|";
+        outMsg += " | ";
       }
       outMsg += fmt::format (
           "Hiding: {}", fmt::join (nowHidden, ", ")
@@ -870,75 +841,6 @@ struct DumpCmd {
       call, callAlias, &operator(), usage, desc
   };
 };
-
-struct DumpReadmeCmd {
-  constexpr static std::string_view call{"readme"};
-  constexpr static std::array<std::string_view, 0> callAlias{};
-  inline static const std::string usage =
-      fmt::format ("{} [directory-path]", call);
-  constexpr static std::string_view desc{
-      "Dumps readme shipped with repo to a provided directory, "
-      "or "
-      "the working directory if no path is given.",
-  };
-
-  static CmdResult operator() (std::string_view args, AppState&)
-  {
-    static constexpr std::string sh_readmeFilename =
-        "APB-README.md";
-    const auto tokens = split_whitespace (args);
-    if (const auto expectedNTok =
-            cmd_validate_ntok (tokens, 0, 1, usage);
-        !expectedNTok) {
-      return expectedNTok.error();
-    }
-
-    std::string outPath;
-    if (tokens.empty()) {
-      outPath = "./";
-      outPath += sh_readmeFilename;
-    }
-    else {
-      outPath = tokens[0];
-      outPath += "/";
-      outPath += sh_readmeFilename;
-    }
-
-    std::ofstream outStream{outPath, std::ios::binary};
-    if (!outStream) {
-      return {
-          false,
-          cmd_format_fail (
-              fmt::format (
-                  "could not open {}; failed to dump readme",
-                  outPath
-              )
-          )
-      };
-    }
-    auto readme = get_readme();
-    outStream.write (
-        readme.data(), static_cast<int> (readme.size())
-    );
-    if (!outStream) {
-      return {
-          false,
-          cmd_format_fail (
-              fmt::format (
-                  "failed during write readme at {}", outPath
-              )
-          )
-      };
-    }
-    return {true, fmt::format ("readme written to {}", outPath)};
-  }
-
-  inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
-  };
-};
-
-static std::span<const CmdView* const> get_cmd_registry();
 
 static std::vector<std::string> word_wrap (
     std::string_view text, size_t width
@@ -1029,18 +931,14 @@ struct HelpCmd {
     CmdResult out;
     if (tokens.empty()) {
       state.conf.showOverlay = true;
-      set_overlay_widget (
-          state.ui, get_text_block (TxtBlockId::generalHelp)
-      );
+      set_overlay_widget (state.ui, sh_helpBlock);
       out.success = true;
     }
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
       if (topic == topicNames[Topic::nav]) {
         state.conf.showOverlay = true;
-        set_overlay_widget (
-            state.ui, get_text_block (TxtBlockId::navHelp)
-        );
+        set_overlay_widget (state.ui, sh_navBlock);
         out.success = true;
       }
       else if (topic == topicNames[Topic::cmd]) {
@@ -1087,10 +985,9 @@ static constexpr const CmdView* cmdRegistry_SH[]{
     &ShowTrackCmd::view,
     &ShowReadFieldsCmd::view,
     &CountCmd::view,
-    &DumpReadmeCmd::view,
 };
 
-static std::span<const CmdView* const> get_cmd_registry()
+std::span<const CmdView* const> get_cmd_registry()
 {
   return cmdRegistry_SH;
 }

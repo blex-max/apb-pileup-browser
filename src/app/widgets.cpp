@@ -155,37 +155,68 @@ void draw_overlay (const OverlayWgt& oWgt)
 }
 
 
-// precondition: ui.main.frame is set
-void size_browser_panes (BrowserWgt& bWgt, double seqPaneFrac)
+void size_browser_panes (
+    BrowserWgt& bWgt, SizeBrowserPaneSwitches switches
+)
 {
   PLOGD << "Sizing browser child panes";
 
-  const auto& [bXSpan, bYSpan] = spans (bWgt.frame);
+  assert (valid (bWgt.frame));
 
-  const auto vSplitX = static_cast<int> (ceil (
-      static_cast<double> (size (bXSpan) - 2) * seqPaneFrac
-  ));
+  const auto& [frameX, frameY] = spans (bWgt.frame);
+  const auto& contentX = body (frameX);
+  const auto& contentY = body (frameY);
+  // skip header, separator. leave 2 rows at end
+  const auto dataY =
+      e2::Span{first (contentY) + 2, last (contentY) - 1};
 
-  const auto seqX = construct_relative (bXSpan, 1, vSplitX);
-  const auto dataX = construct_relative (
-      bXSpan, vSplitX + 1, size (bXSpan) - 1
-  );
-  const auto contentY =
-      construct_relative (bYSpan, 3, size (bYSpan) - 2);
 
-  bWgt.vSep = {
-      first (bXSpan) + vSplitX,
-      construct_relative (bYSpan, 0, size (bYSpan) - 1)
-  };
-  bWgt.refLine = {seqX, first (bYSpan) + 1};
-  bWgt.tableHeaderLine = {dataX, first (bYSpan) + 1};
+  if (switches.showTable) {
+    int splitRelativeX;
+    e2::Span alnPaneX;
+    e2::Span tablePaneX;
+    if (switches.showAln) {
+      splitRelativeX = static_cast<int> (
+          ceil (static_cast<double> (size (contentX)) * 0.5)
+      );
+      alnPaneX = construct_relative (frameX, 1, splitRelativeX);
+      tablePaneX = construct_relative (
+          frameX, splitRelativeX + 1, size (contentX) + 1
+      );
+      bWgt.vSep = {
+          first (frameX) + splitRelativeX,
+          construct_relative (frameY, 0, size (frameY) - 1)
+      };
+    }
+    else {
+      alnPaneX = {first (contentX), first (contentX) + 1};
+      bWgt.vSep = {
+          last (alnPaneX),
+          construct_relative (frameY, 0, size (frameY) - 1)
+      };
+      tablePaneX = {bWgt.vSep.x + 1, size (frameX) - 1};
+    }
+
+    bWgt.alnPaneRefLine = {alnPaneX, first (contentY)};
+    bWgt.tablePaneHeaderLine = {tablePaneX, first (contentY)};
+    bWgt.alnPaneDataBox = {alnPaneX, dataY};
+    bWgt.tablePaneDataBox = {tablePaneX, dataY};
+  }
+  else {
+    bWgt.tablePaneHeaderLine = {};  // invalid
+    bWgt.tablePaneDataBox = {};
+    bWgt.vSep = {};
+
+    bWgt.alnPaneRefLine = {contentX, first (contentY)};
+    bWgt.alnPaneDataBox = {contentX, dataY};
+  }
+
   bWgt.headerSep = {
-      bXSpan, first (bYSpan) + 2
-  };  // overlapping, to set connectors
-  bWgt.seqPane = {seqX, contentY};
-  bWgt.dataPane = {dataX, contentY};
-  bWgt.querySep = {bXSpan, last (bYSpan) - 2};
-  bWgt.infoLine = {body (bXSpan), last (bYSpan) - 1};
+      frameX, first (contentY) + 1
+  };  // overlapping frame in X, to set connectors
+
+  bWgt.ambientSep = {frameX, last (dataY)};
+  bWgt.ambientLine = {contentX, last (contentY)};
 }
 
 // precondition: widget frame is set
@@ -215,7 +246,9 @@ static void size_cmd_widget (CmdWgt& cWgt)
   cWgt.msgLine = e2::HLine{body (cmdX), y};
 }
 
-VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac)
+VoidOrErr size_widgets (
+    UIBundle& ui, SizeBrowserPaneSwitches switches
+)
 {
   PLOGD << "Calculating widget size";
 
@@ -244,7 +277,7 @@ VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac)
   auto& bWgt = ui.browsr;
   bWgt.frame = e2::Box{screenX, mainY};
 
-  size_browser_panes (bWgt, seqPaneFrac);
+  size_browser_panes (bWgt, switches);
 
   auto& cWgt = ui.cmd;
   cWgt.frame = e2::Box{screenX, cmdY};
@@ -282,9 +315,9 @@ static void draw_browser_chrome (BrowserWgt& bWgt)
   set (body (bWgt.headerSep), boxch::horzLine, TB_DIM);
   set (first (bWgt.headerSep), boxch::rightTConnect, TB_DIM);
 
-  set (body (bWgt.querySep), boxch::horzLine, TB_DIM);
-  set (first (bWgt.querySep), boxch::rightTConnect, TB_DIM);
-  set (last (bWgt.querySep), boxch::leftTConnect, TB_DIM);
+  set (body (bWgt.ambientSep), boxch::horzLine, TB_DIM);
+  set (first (bWgt.ambientSep), boxch::rightTConnect, TB_DIM);
+  set (last (bWgt.ambientSep), boxch::leftTConnect, TB_DIM);
 
   set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
   set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
@@ -329,9 +362,10 @@ static void draw_header (
     const std::span<const TableCol::ID> colIDs
 )
 {
+  PLOGD << "Drawing table header";
+
   assert (valid (headerLine));
 
-  PLOGD << "Drawing table header";
   const int xLim = last (headerLine.xspan);
   e2::GlobalCell writeHead{
       {.x = first (headerLine.xspan), .y = headerLine.y}
@@ -492,7 +526,6 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* br_dbRow)
 struct Seq1Switches {
   bool drawQualTrack;
   bool drawInsTrack;
-  bool drawInsQualTrack;
 };
 // draw aligned data to seq pane
 static e2::Delta seq1 (
@@ -525,11 +558,6 @@ static e2::Delta seq1 (
   bool enableQualTrack =
       switches.drawQualTrack &&
       (writeHead.y + trackYOffsetQual) < sh.writeLimits.y;
-  // only valid when also displaying insertion and quality tracks
-  bool enableInsQualTrack =
-      enableInsTrack && enableQualTrack &&
-      switches.drawInsQualTrack &&
-      (writeHead.y + trackYOffsetInsQual) < sh.writeLimits.y;
 
   const auto readFields = get_seq1_read_fields (br_dbRow);
 
@@ -631,9 +659,7 @@ static e2::Delta seq1 (
           e2::set_attr (anchorCell, TB_UNDERLINE);
         }
 
-        if (enableInsQualTrack) {
-          assert (enableInsTrack);
-
+        if (enableQualTrack) {
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
           if (opInsQualWriteHead.x < sh.writeLimits.x) {
@@ -756,7 +782,7 @@ static e2::Delta seq1 (
     );
     writeHead.y++;
   }
-  if (enableInsQualTrack && readInsDrawn) {
+  if (enableQualTrack && readInsDrawn) {
     writeHead.y++;
   }
 
@@ -776,14 +802,16 @@ static VoidOrErr draw_query_data (
 
   sqlite3_reset (db.stmt);
 
-  auto& seqPane = bWgt.seqPane;
-  auto& dataPane = bWgt.dataPane;
-  auto& hdrLine = bWgt.tableHeaderLine;
+  auto& seqPane = bWgt.alnPaneDataBox;
+  auto& dataPane = bWgt.tablePaneDataBox;
+  auto& hdrLine = bWgt.tablePaneHeaderLine;
 
-  data_table::draw_header (hdrLine, conf.displayTableCols);
-  data_table::draw_row_separators (
-      dataPane, conf.displayTableCols
-  );
+  if (conf.drawPaneSwitches.table) {
+    data_table::draw_header (hdrLine, conf.displayTableCols);
+    data_table::draw_row_separators (
+        dataPane, conf.displayTableCols
+    );
+  }
 
   auto seqWriteHead = vertexA (seqPane);
   auto seqWriteLim =
@@ -823,29 +851,34 @@ static VoidOrErr draw_query_data (
         seqWriteHead.y, db.stmt, db.locus.refSlice,
         drawAlignmentShared,
         draw_alignment::Seq1Switches{
-            conf.drawQualTrack, conf.drawInsTrack,
-            conf.drawInsQualTrack
+            conf.drawTrackSwitches.qual,
+            conf.drawTrackSwitches.ins
         }
     );
-    data_table::draw_row (
-        e2::GlobalCell{
-            {.x = first (dataPane.xspan), .y = seqWriteHead.y}
-        },
-        last (dataPane.xspan), db.stmt, conf.displayTableCols
-    );
+    if (conf.drawPaneSwitches.table) {
+      data_table::draw_row (
+          e2::GlobalCell{
+              {.x = first (dataPane.xspan), .y = seqWriteHead.y}
+          },
+          last (dataPane.xspan), db.stmt, conf.displayTableCols
+      );
+    }
     seqWriteHead.y += dHead.dy;
     ++nReadDrawn;
   }
   bWgt.nReadOnscreen = nReadDrawn;
 
-  // set crosshair
   auto pileupXPos =
       first (seqPane.xspan) + (width (seqPane) / 2);
-  // clear dim to avoid misbehaviour from
-  // overlayed attrs.
-  e2::VLine pileupCrosshair{pileupXPos, seqPane.yspan};
-  rm_attr (pileupCrosshair, TB_DIM);
-  add_attr (pileupCrosshair, TB_REVERSE);
+
+  if (conf.drawPaneSwitches.aln) {
+    // set crosshair if alignment pane unfolded
+    e2::VLine pileupCrosshair{pileupXPos, seqPane.yspan};
+    // clear dim to avoid misbehaviour from
+    // overlayed attrs.
+    rm_attr (pileupCrosshair, TB_DIM);
+    add_attr (pileupCrosshair, TB_REVERSE);
+  }
   // connect to ref base
   set (
       e2::GlobalCell{pileupXPos, first (seqPane.yspan) - 1}, '|',
@@ -862,21 +895,22 @@ static void draw_pileup_ambient (
   // TODO: get rid of projection function (?)
   if (locusData.refSlice) {
     auto proj = align_seq_to_box (
-        locusData.pos, size (pWgt.refLine), locusData.start
+        locusData.pos, size (pWgt.alnPaneRefLine),
+        locusData.start
     );
 
     e2::write_string (
-        {first (pWgt.refLine.xspan) + proj.xOffset,
-         pWgt.refLine.y},
-        last (pWgt.refLine.xspan),
+        {first (pWgt.alnPaneRefLine.xspan) + proj.xOffset,
+         pWgt.alnPaneRefLine.y},
+        last (pWgt.alnPaneRefLine.xspan),
         locusData.refSlice->substr (proj.skipChars)
     );
   }
 
   // locus info
   {
-    auto writeHead = first (pWgt.infoLine);
-    const auto lineEnd = last (pWgt.infoLine.xspan);
+    auto writeHead = first (pWgt.ambientLine);
+    const auto lineEnd = last (pWgt.ambientLine.xspan);
     writeHead.x++;  // initial space
     writeHead.x +=
         e2::write_string (writeHead, lineEnd, "LOCUS:", TB_DIM);

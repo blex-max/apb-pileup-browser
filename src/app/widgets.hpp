@@ -11,14 +11,14 @@ namespace e2 = extb;
 
 struct BrowserWgt {
   e2::Box frame;
-  e2::HLine refLine;
-  e2::HLine tableHeaderLine;
+  e2::HLine alnPaneRefLine;
+  e2::HLine tablePaneHeaderLine;
   e2::HLine headerSep;
-  e2::Box seqPane;
+  e2::Box alnPaneDataBox;
   e2::VLine vSep;
-  e2::Box dataPane;
-  e2::HLine querySep;
-  e2::HLine infoLine;
+  e2::Box tablePaneDataBox;
+  e2::HLine ambientSep;
+  e2::HLine ambientLine;
   uint16_t nReadOnscreen = 0;
 };
 struct CmdWgt {
@@ -39,8 +39,7 @@ static constexpr auto sh_cmdH = 7;  // inc. borders
 struct OverlayWgt {
   e2::Box frame;
   e2::Box contentBox;
-  std::span<const std::string_view> content =
-      get_text_block (TxtBlockId::generalHelp);
+  std::span<const std::string_view> content = sh_helpBlock;
   int contentLnOffset = 0;
 };
 
@@ -58,8 +57,16 @@ struct UIBundle {
 void set_overlay_widget (UIBundle& ui, TextBlockRef content);
 void draw_overlay (const OverlayWgt& oWgt);
 
-void size_browser_panes (BrowserWgt& bWgt, double seqPaneFrac);
-VoidOrErr size_widgets (UIBundle& ui, double seqPaneFrac);
+struct SizeBrowserPaneSwitches {
+  bool showAln = true;
+  bool showTable = true;
+};
+void size_browser_panes (
+    BrowserWgt& bWgt, SizeBrowserPaneSwitches switches
+);
+VoidOrErr size_widgets (
+    UIBundle& ui, SizeBrowserPaneSwitches switches
+);
 
 VoidOrErr draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf

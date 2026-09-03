@@ -55,37 +55,26 @@ VoidOrErr insert_demo_data (
   refSeq[static_cast<size_t> (pileupPos)] =
       'A';  // known ref base at the variant site
 
-  constexpr double mismatchRate = 0.01;
   constexpr size_t maxDelLen = 4;
-  constexpr size_t maxInsLen = 4;
-  constexpr size_t maxClipLen = 20;
-  constexpr char pileupAlt = 'T';
-  constexpr double pileupVaf = 0.30;
-
-  // Headroom of maxDelLen reserved unconditionally so start+qLen+delLen
+  // Headroom of maxDelLen reserved so start+qLen+delLen
   // can never exceed regWidth, whether or not a given read ends up with
-  // a deletion. Clips only ever shrink a read's ref-consumed length, so
-  // they need no extra headroom here. Insertions likewise need none: an
-  // insertion adds query bases, not reference-consumed ones, so it never
-  // grows the ref span a read spans.
+  // a deletion.
   //
-  // Lower bound is 1, not 0: pileupPos is numerically equal to qLen (both
-  // derived from (regWidth/2)-1), so a read starting at exactly 0 would
-  // get qPos == qLen -- one past the end of its own qLen-length
-  // seqBases/qualAscii. Reserving start >= 1 keeps qPos in [0, qLen-1]
-  // for every read.
+  // Reserving start >= 1 keeps qPos in [0, qLen-1] for every read.
   std::uniform_int_distribution<size_t> gstartGen (
       1, qLen - maxDelLen
   );
+  constexpr double mismatchRate = 0.01;
   std::bernoulli_distribution mismatchDist (mismatchRate);
+  constexpr double pileupVaf = 0.30;
   std::bernoulli_distribution snvAlleleDist (pileupVaf);
   std::uniform_int_distribution<size_t> delLenGen (1, maxDelLen);
+  constexpr size_t maxInsLen = 4;
   std::uniform_int_distribution<size_t> insLenGen (1, maxInsLen);
+  std::uniform_int_distribution<uint8_t> mapQGen (0, 60);
 
   // At most one of {deletion, insertion, leading clip, trailing clip}
-  // per read -- keeps CIGAR/index math to a handful of cases instead of
-  // a combinatorial explosion. Weights are just "occasional variety",
-  // tunable.
+  // per read - eaiser to implement
   enum class ReadVariant : uint8_t {
     None,
     Deletion,
@@ -107,10 +96,11 @@ VoidOrErr insert_demo_data (
 
   for (size_t i = 0; i < nQuery; ++i) {
     PileupFields ru_pf;
-    ru_pf.flag = 0;
+    ru_pf.flag = BAM_FPAIRED | BAM_FPROPER_PAIR | BAM_FREAD1 |
+                 BAM_FMREVERSE;
     ru_pf.isDel = false;
     ru_pf.isRefSkip = false;
-    ru_pf.mapQ = 30;
+    ru_pf.mapQ = mapQGen (rng);
     ru_pf.mStart = -1;
     ru_pf.qName = "read" + std::to_string (i);
 
@@ -151,6 +141,7 @@ VoidOrErr insert_demo_data (
       }
       case ReadVariant::LeadClip:
       case ReadVariant::TailClip: {
+        constexpr size_t maxClipLen = 20;
         const size_t maxClip = std::min (
             maxClipLen, qLen - 1 - static_cast<size_t> (qPos)
         );
@@ -187,6 +178,8 @@ VoidOrErr insert_demo_data (
       qual[j] = 'F';
 
       if (j == static_cast<size_t> (finalQPos)) {
+        constexpr char pileupAlt = 'T';
+
         // Designed SNV at the pileup locus: a fixed alt base at a fixed
         // VAF, distinct from (and not diluted by) the generic background
         // mismatch roll below.
