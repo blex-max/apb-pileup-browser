@@ -79,8 +79,8 @@ static constexpr std::string_view sh_manualPre = R"md(
 
 ## Overview
 
-Given an alignment file and a genomic locus `apb` builds the pileup at that single position and loads the reads into a fast, queryable
-database structure - one row per read. The TUI then renders the reads as aligned to a reference genome (if provided), displays user-selected
+Given an alignment file and a genomic locus `apb` builds the pileup at that position and loads the reads into a fast, queryable
+database structure. The TUI then renders the reads as aligned at the pileup position, displays user-selected
 data for each read (e.g. mapping quality, leftmost alignment position, etc.) and provides a command line at which you can enter commands to
 query the reads or change the display. The display is navigated using simple arrow-key navigation.
 
@@ -98,7 +98,8 @@ The CLI is in a demo state - the subcommand approach might not be long term.
 
 `sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. When specifying a locus, it is in the form
 `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. **The
-locus coordinate is 1-based**, as `samtools` CLI commands.
+locus coordinate is 1-based**, as `samtools` CLI commands. If a reference is provided, the reference will be shown with the aligned reads
+and the read view will be enriched indicating differences from reference.
 
 `db` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
 
@@ -144,13 +145,13 @@ Every line typed at the command line is dispatched like `<command> [args]`.
 The `apb` query commands provide a simple wrapper around (SQLite-flavoured) SQL. Whereas a more generic SQL REPL might be structured around
 dispatching known, predetermined queries, `apb` aims to support stepwise pattern discovery. The active query (a WHERE clause plus an ORDER
 BY) persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `order`). By example, a session might
-look like: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's not informative and back
-up, filter by mapping quality instead, and so on. See [Table Reference](#Table-Reference) for the full list of queryable columns.
+look like: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's not informative and undo
+, filter by mapping quality instead, and so on. See [Table Reference](#Table-Reference) for the full list of queryable columns.
 
 #### Query Walkthrough
 
 Imagine a putative variant locus under manual inspection. Starting broad, we can filter the view to show only reads with a non-reference
-base at the pileup position:
+base at the pileup position. Assume `G` is the reference base:
 ```
 where base != 'G'
 ```
@@ -170,13 +171,13 @@ ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you 
 that you can order by multiple keys, e.g. `order basequal DESC, rstart ASC` would sort by basequal in descending order, and where basequal
 is equal, alignment start position will be used as a secondary key.
 
-In total, three REPL commands, each a plain SQL fragment — an inequality, a bitwise flag check, a column to sort by. The parser wraps
-these commands into a complete SQL statement. Note that you could also write the full command as a single statment:
+The parser incrementally wraps these commands into a complete SQL statement.
+Note that you could also write the full command as a single statment:
 ```
 where base != 'G' AND (flag & 3584) = 0 ORDER BY basequal ASC
 ```
-The two styles are equally supported; in both cases, you can continue to add on further clauses with `and` and `or` as you like. Or remove
-them with `back`!
+The two styles are equally supported; in both cases, you can continue to add on further clauses with `and` and `or` as you like.
+You can remove clauses added in a piecewise manner with the `back` command.
 
 If you want a **count** rather than a filtered view, `count [clause]` answers without disturbing the active query. For example, `count mapq
 < 20` tells you how many low-mapping-quality reads are without chainging the view.
@@ -261,10 +262,9 @@ content of a column is not clearly displayed by the alignment view, the column c
 the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size
 (bases gained). I need to confirm the behaviour of the field when the pileup base itself is deleted.
 
-The first twelve (`qname` through `tags`) can also be displayed in the info pane with `show`/`hide` commands.
+The first twelve (`qname` through `tags`) can also be displayed in the info pane; see [Command Reference](#Command Reference) for details.
 
-For advanced users: most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs, if you want to cross-reference
-against htslib's own documentation.
+For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs.
 
 ### A Word on `dump` Functionality
 

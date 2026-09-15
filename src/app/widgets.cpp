@@ -838,15 +838,6 @@ static VoidOrErr draw_query_data (
       // reads hidden by scrolling
       continue;
     }
-    // NOTE: insertion quality should probably
-    // only be displayed if BOTH insertion and qual
-    // tracks are on.
-    // TODO: add `tracks` command to REPL.
-    // BUG: qual drawing does not play well with
-    // conditional insertion display. Solution may
-    // be to (within seq1) write quality string to separate
-    // buffer and write as a final op. No styling needed
-    // so single call to write_string.
     const auto dHead = draw_alignment::seq1 (
         seqWriteHead.y, db.stmt, db.locus.refSlice,
         drawAlignmentShared,

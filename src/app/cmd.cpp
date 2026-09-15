@@ -684,7 +684,6 @@ struct ShowPaneCmd {
 
 struct ShowTrackCmd {
   enum Track : uint8_t { qual, ins, COUNT };
-  // TODO: shorthands?
   constexpr static std::array<std::string_view, Track::COUNT>
       trackNames{{[Track::qual] = "qual", [Track::ins] = "ins"}};
   constexpr static std::array<std::string_view, Track::COUNT>
@@ -965,8 +964,6 @@ struct HelpCmd {
       call, alias, &operator(), usage, desc
   };
 };
-
-// TODO: add query saving cmd/functionality (?)
 
 // TODO: add compile time assertion that no
 // aliases overlap

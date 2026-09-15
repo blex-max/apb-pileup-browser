@@ -5,10 +5,12 @@
 #include "frontend/extb/extb.hpp"
 
 
-constexpr double sh_defaultSeqPaneFrac = 0.5;
 struct AppConfig {
   bool run = true;
 
+  // TODO: fixed array of all columns + on/off bool
+  // N.B> this probably reduces the scope/need for
+  // the data_table_cols.*pp machinery!
   std::vector<TableCol::ID> displayTableCols{
       TableCol::ID::basequal, TableCol::ID::rstart,
       TableCol::ID::rend,     TableCol::ID::flag,
@@ -16,7 +18,6 @@ struct AppConfig {
       TableCol::ID::qname
   };
 
-  double seqPaneFrac = sh_defaultSeqPaneFrac;
   bool showOverlay = false;
   struct {
     bool qual = false;
