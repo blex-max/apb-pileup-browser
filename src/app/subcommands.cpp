@@ -35,8 +35,8 @@ VoidOrErr run_mode (const DemoModeArgs& args)
   auto stateRet = init (
       db,
       "Welcome to apb! Type '?' and press Enter for help. Demo "
-      "mode may not have parity with "
-      "normal usage"
+      "mode may not have parity with normal usage. All data is "
+      "0-indexed."
   );
   if (!stateRet) {
     shutdown();  // would be nice if shutdown was run on state going out of scope...
@@ -79,7 +79,9 @@ VoidOrErr run_mode (const DbModeArgs& args)
 
   // load frontend
   auto stateRet = init (
-      db, "Welcome to apb! Type '?' and press Enter for help."
+      db,
+      "Welcome to apb! Type '?' and press Enter for help. All "
+      "data is 0-indexed."
   );
   if (!stateRet) {
     shutdown();  // would be nice if shutdown was run on state going out of scope...
@@ -169,7 +171,9 @@ VoidOrErr run_mode (const AlnModeArgs& args)
 
   // load frontend
   auto stateRet = init (
-      db, "Welcome to apb! Type '?' and press Enter for help."
+      db,
+      "Welcome to apb! Type '?' and press Enter for help. All "
+      "data is 0-indexed."
   );
   if (!stateRet) {
     shutdown();  // would be nice if shutdown was run on state going out of scope...

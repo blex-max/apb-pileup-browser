@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 
+#include "app/cli.hpp"
 #include "app/cmd.hpp"
 
 static constexpr size_t max_line_len (std::string_view text)
@@ -77,7 +78,7 @@ static std::string build_cmd_ref_markdown_table()
 static constexpr std::string_view sh_manualPre = R"md(
 # `apb` Manual
 
-**This manual is generated directly from the `apb` source. Please use `apb --dump-manual` to ensure you are
+**This manual is generated directly from the `apb` binary. Please use `apb --dump-manual` to ensure you are
 reading the information appropriate to your version of the tool.**
 
 ## Overview
@@ -87,34 +88,29 @@ database structure. The TUI then renders the reads as aligned at the pileup posi
 data for each read (e.g. mapping quality, leftmost alignment position, etc.) and provides a command line at which you can enter commands to
 query the reads or change the display. The display is navigated using simple arrow-key navigation.
 
-**`apb` displays all information in the TUI as 0-based half-open coordinates, matching the internal representation of htslib.
-The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,
-and the representation of loci in VCF.**
+**`apb` displays all information in 0-based half-open coordinates, matching the internal representation of htslib.
+The sole exception is the locus argument when starting `apb` in locus mode from the command line, which is 1-based to match
+samtools view, and the representation of loci in VCF.**
 
 ## CLI Usage
 
-There are three modal subcommands available when starting `apb`.
+)md";
+static_assert (
+    max_line_len (sh_manualPre) <= 140, "manual line too long"
+);
 
-The CLI is in a demo state - the subcommand approach might not be long term.
-
-`apb sam <alignment-file> <locus> [--ref reference.fasta] [--dump out.db]`  
-
-`apb db <dumped.db>`  
-
-`apb demo [--dump out.db]`  
-
-`sam` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. When specifying a locus, it is in the form
-`contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. **The
-locus coordinate is 1-based**, as `samtools` CLI commands. If a reference is provided, the reference will be shown with the aligned reads
-and the read view will be enriched indicating differences from reference.
+static constexpr std::string_view sh_manualMid = R"md(
+`locus` opens a live alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`) and launches the TUI. A locus is specified in the
+form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands.
+**The locus coordinate is 1-based**, as `samtools` CLI commands. If a reference is provided, the reference will be shown with the aligned
+reads and the alignment view will be enriched indicating differences from reference.
 
 `db` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
 
 `demo` runs against synthetic data, no alignment file required. Good for a first look at the tool, but note that since the data is
 artifically generated not everything works quite as it should - some fields are not properly set in the database.
 
-`apb --log <path.txt>` (`--log` comes before the subcommand) enables debug logging. Valuable to turn on during this early development stage
-in case any crashes are encountered!
+`apb --log <path.txt>` enables debug logging. Valuable to turn on during this early development stage in case any crashes are encountered!
 
 ## TUI Usage
 
@@ -141,11 +137,11 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 
 )md";
 static_assert (
-    max_line_len (sh_manualPre) <= 140, "manual line too long"
+    max_line_len (sh_manualMid) <= 140, "manual line too long"
 );
 
 static constexpr std::string_view sh_manualPost = R"md(
-Every line typed at the command line is dispatched like `<command> [args]`.
+Every command submitted at the command line is interpreted like `<command> [args]`.
 
 ### Querying the Pileup
 
@@ -179,7 +175,7 @@ that you can order by multiple keys, e.g. `order basequal DESC, rstart ASC` woul
 is equal, alignment start position will be used as a secondary key.
 
 The parser incrementally wraps these commands into a complete SQL statement.
-Note that you could also write the full command as a single statment:
+Note that you could also write the full command as a single statment via the `where` command:
 ```
 where base != 'G' AND (flag & 3584) = 0 ORDER BY basequal ASC
 ```
@@ -187,7 +183,7 @@ The two styles are equally supported; in both cases, you can continue to add on 
 You can remove clauses added in a piecewise manner with the `back` command.
 
 If you want a **count** rather than a filtered view, `count [clause]` answers without disturbing the active query. For example, `count mapq
-< 20` tells you how many low-mapping-quality reads are without chainging the view.
+< 20` tells you how many low-mapping-quality reads there are in the current query without changing the view.
 
 #### Further Examples
 
@@ -206,7 +202,7 @@ where cigar like '%I%'
 
 ##### Aux tags
 
-`tags` is a JSON blob of the read's aux tags — extract tags with `->>`:
+`tags` is a JSON blob of the read's aux tags. Tags may be extracted with `->>`:
 ```
 where tags ->> '$.NM' > 2
 ```
@@ -214,7 +210,7 @@ or checking a read group:
 ```
 where tags ->> '$.RG' = 'sample1'
 ```
-A read with no aux tags, or missing that specific tag, comes back as SQL `NULL` rather than an error, so `where tags ->> '$.RG' is null`
+A read with no aux tags, or missing that specific tag, returns SQL `NULL`, so `where tags ->> '$.RG' is null`
 finds reads missing that tag.
 
 ##### Motifs at the query position
@@ -249,13 +245,13 @@ content of a column is not clearly displayed by the alignment view, the column c
 | `rstart` | 0-based leftmost mapping position |
 | `rend` | 0-based rightmost mapping position |
 | `mapq` | mapping quality |
-| `base` | the read's base at the pileup position |
 | `basequal` | Phred base quality at the pileup position |
 | `qpos` | 0-based offset into `seq`/`qual` for the pileup locus position |
 | `cigar` | CIGAR string |
 | `mtid` | reference name of the mate/next read |
 | `mstart` | mate/next read's leftmost mapping position |
 | `tags` | aux tags as JSON; able to be individually queried |
+| `base` | the read's base at the pileup position |
 | `indel` | indel length to the next mapped base in the read (0 none, >0 insertion, <0 deletion) |
 | `is_del` | 1 if this position is a deletion |
 | `is_head` | 1 if this is the read's first aligned base |
@@ -267,9 +263,10 @@ content of a column is not clearly displayed by the alignment view, the column c
 
 `indel` might require some explanation. Essentially, if the base at the pileup position is followed by an indel, then `indel` will contain
 the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size
-(bases gained). I need to confirm the behaviour of the field when the pileup base itself is deleted.
+(bases gained).
 
-The first twelve (`qname` through `tags`) can also be displayed in the info pane; see [Command Reference](#Command Reference) for details.
+The first eleven (`qname` through `tags`) can also be displayed in tabular format; see [Command Reference](#Command Reference) for details
+on showing and hiding particular columns.
 
 For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs.
 
@@ -278,27 +275,28 @@ For advanced users, note that most of these map directly onto fields in htslib's
 A dump is a small, self-contained sqlite3 file with just the reads at this one locus. Picking a session back up later with `apb db` is one
 reason to use it; a few others:
 
-- Full SQL — `sqlite3 my.db` gets you everything the in-TUI REPL deliberately doesn't: `GROUP BY`, aggregates, etc. Allows for more
-complex analysis if needed.
-- Downstream use — it's a normal sqlite3 file, so anything with a sqlite driver can read it.
-- Sharing — send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM,
+- Full SQL - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates, etc.).
+- Downstream use - A dump is a normal sqlite3 file, so anything with a sqlite driver can read it.
+- Sharing - send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM,
 reference genome, or even `apb` if they're happy just to use `sqlite3`.
-- Debugging (for developers) — a stable snapshot of exactly what got loaded, inspectable without the original alignment file or the TUI.
-Mostly relevant if you're developing `apb` itself, rather than just using it.
+- Debugging (for developers) - a dump is a stable snapshot of exactly what got loaded, inspectable without the original alignment file or
+TUI. Mostly relevant if you're developing `apb` itself, rather than just using it.
 
 ### A Word on Indexing Systems
 
 `htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, mix 3 (3!!) coordinate systems. This can be tricky to navigate.
 
-**`apb` uses 0-based half-open coordinates throughout, except for the locus argument when starting `apb` from the command line, which is
-1-based**. A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification, and to `samtools`
-commands e.g. `samtools view ...`. However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less
-bug-prone) to display the alignment information as 0-based. This is an inevitable UX compromise - feedback is appreciated.
+**`apb` uses 0-based half-open coordinates throughout, except for the locus argument when starting `apb` from the command line in locus
+mode, which is 1-based**.
+A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification, and to `samtools` commands
+e.g. `samtools view ...`.
+However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less bug-prone) to display the alignment
+information as 0-based. This is an inevitable UX compromise.
 
 ---
 
-See the [README](https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap, and other
-background.
+See the README or the project [GitHub](https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap,
+and other background.
 )md";
 static_assert (
     max_line_len (sh_manualPost) <= 140, "manual line too long"
@@ -307,8 +305,8 @@ static_assert (
 std::string_view get_manual()
 {
   static const std::string sh_manual = fmt::format (
-      "{}{}{}", sh_manualPre, build_cmd_ref_markdown_table(),
-      sh_manualPost
+      "{}```\n{}\n```\n{}{}{}", sh_manualPre, get_cli_help(),
+      sh_manualMid, build_cmd_ref_markdown_table(), sh_manualPost
   );
   return sh_manual;
 }

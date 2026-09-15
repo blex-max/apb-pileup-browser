@@ -16,6 +16,16 @@
 #define APB_VERSION "undef"
 #endif
 
+// NOTE: helptext is not constructed from
+// CLI definition. Must regularly check they
+// have not drifted.
+
+// NOTE: text for when VCF mode is live.
+// vcf    FILE VCF [REF]     view variant loci from a VCF
+//                           FILE   alignment file (sam/bam/cram)
+//                           VCF    VCF file to load loci from
+//                           REF    reference fasta (optional)
+
 static constexpr std::string_view sh_cliHelp =
     R"txt(usage: apb [options] MODE [FILE] [LOCI] [REF]
 
@@ -28,10 +38,6 @@ modes:
                             FILE   alignment file (sam/bam/cram)
                             LOCUS  genomic locus, e.g. chr1:12345
                             REF    reference fasta (optional)
-  vcf    FILE VCF [REF]     view variant loci from a VCF
-                            FILE   alignment file (sam/bam/cram)
-                            VCF    VCF file to load loci from
-                            REF    reference fasta (optional)
   db     DB                 load from a dumped db
                             DB     path to db dump
   demo                      view demo data
@@ -40,8 +46,17 @@ options:
   -h, --help          show this help message and exit
   -v, --version       print version information and exit
   --dump PATH         convert pileup to sqlite3 database, dump to disk, and exit
+                      (invalid in db mode)
   --dump-manual PATH  write the apb manual to PATH and exit
   --log PATH          log debug output to file
+
+ IMPORTANT:
+  apb displays all information in 0-based half-open
+  coordinates, matching the internal representation of htslib.
+  The sole exception is the locus argument to locus mode,
+  which is 1-based to match samtools, and the
+  representation of loci in VCF.
+
 
  See README.md for project background, or MANUAL.md for
  usage (or use the in-app help: type ? and press enter in
@@ -49,7 +64,10 @@ options:
  with `apb --dump-manual PATH`.
 
  In the TUI, type q and press enter or press Ctrl-C
- twice to quit.)txt";
+ twice to quit.
+)txt";
+
+std::string_view get_cli_help() { return sh_cliHelp; }
 
 // MODE + variadic positional args.
 static std::expected<ModalArgs, Err> assemble_mode_args (

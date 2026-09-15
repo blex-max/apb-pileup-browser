@@ -145,20 +145,10 @@ I am almost certainly not using these reliably, but I do find them helpful.
 | fmt | v12.2.0 | Vendored |
 | Catch2 [optional] | v3.8.1 | CMake FetchContent |
 
-### Tests
-
-Test files live in `tests/`. Build and run them with:
-```sh
-cmake -S . -B build -DMAKE_TEST=ON
-cmake --build build -j
-ctest --test-dir build
-```
-Coverage is concentrated on the backend. TUI rendering and event handling aren't unit tested at this time.
-
 ### AI Usage
 
 This repo has been developed by hand, with some use of AI tools for extraneous work like implementing githooks etc.
-Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer.
+The design and implementation of all core types and logic are made by the maintainer.
 The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain
 and easy to contribute to.
 Contributions are more than welcome, but would ideally follow this standard.
