@@ -50,8 +50,9 @@ The built-in command line is capable of highly complex queries, but is tuned to 
 ╰                                                                                                                             ╯
 ```
 
-A basic text screencap of the TUI - explanatory notes are in CAPITALS. The real TUI has richer, more readable styling.
+A basic text screencap of the TUI - explanatory notes are in CAPITALS. 
 `=` matches the reference, `-` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
+The real TUI has richer, more readable styling which copy-pasting does not preserve.
 
 Advantages:
 - Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
