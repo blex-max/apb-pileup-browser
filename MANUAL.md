@@ -72,7 +72,7 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 | `clear` | `cl` |  | Clear current query. |
 | `dump` |  | `<path>` | Write the in-memory database to a file. Takes a single path. The current query is not preserved. |
 | `pane` |  | `[aln\|table]` | show/hide either of the alignment or table panes, or reset to default with no args. |
-| `track` | `tr` | `[(qual\|ins)...] - nargs: 0 - 2` | toggle display of additional tracks in browser alignment pane, or reset to default with no args. |
+| `track` |  | `[(qual\|ins)...] - nargs: 0 - 2` | toggle display of additional tracks in browser alignment pane, or reset to default with no args. |
 | `col` |  | `<field-name>...` | Toggle display of read data fields to the tabular display. |
 | `count` | `ct` | `[clause]` | Count reads matching current query. If provided, the optional clause will be AND-concatenated onto the existing WHERE clause for the count query. If no WHERE clause is present, the optional clause will be used as the count WHERE clause alone. |
 
@@ -160,4 +160,4 @@ two possible trinucleotide motifs at the query position:
 ```
 where substr(seq, qpos + 1, 3) glob 'A[CG]T'
 ```
-You can also search for motifs within a window of the `seq` string. This command searches fo
+You can also search for motifs within a window of the `seq` string. This command searches for `G

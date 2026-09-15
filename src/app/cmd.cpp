@@ -135,11 +135,8 @@ struct QuitCmd {
   };
 };
 
-struct ShowReadFieldsCmd {
-  constexpr static std::string_view call{"field"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "f"
-  };
+struct ShowTableColCmd {
+  constexpr static std::string_view call{"col"};
   inline static const std::string usage =
       fmt::format ("{} <field-name>...", call);
   constexpr static std::string_view desc{
@@ -178,31 +175,30 @@ struct ShowReadFieldsCmd {
       };
     }
 
-    auto& existingRequests = state.conf.displayTableCols;
+    auto& tableCols = state.conf.displayTableCols;
     std::vector<std::string> nowVisible;
     std::vector<std::string> nowHidden;
     for (const auto& tok : tokens) {
-      const auto getRet = TableCol::get_id_by_name (tok);
-      if (!getRet) {
+      bool tokMatch = false;
+      for (auto& col : tableCols) {
+        if (tok == col.second->fieldName) {
+          tokMatch = true;
+          if (col.first) {
+            nowHidden.emplace_back (tok);
+          }
+          else {
+            nowVisible.emplace_back (tok);
+          }
+          col.first = !col.first;
+          continue;
+        }
+      }
+      if (!tokMatch) {
         return {
             false, cmd_format_fail (
                        fmt::format ("unknown field {}", tok)
                    )
         };
-      }
-      const auto id = *getRet;
-      if (std::find (
-              begin (existingRequests), end (existingRequests),
-              id
-          ) != end (existingRequests)) {
-        // remove
-        std::erase (existingRequests, id);
-        nowHidden.emplace_back (tok);
-      }
-      else {
-        // add
-        existingRequests.push_back (id);
-        nowVisible.emplace_back (tok);
       }
     }
 
@@ -225,7 +221,7 @@ struct ShowReadFieldsCmd {
   };
 
   inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
+      call, {}, &operator(), usage, desc
   };
 };
 
@@ -313,7 +309,6 @@ struct WhereCmd {
 
 struct AndCmd {
   constexpr static std::string_view call{"and"};
-  constexpr static std::array<std::string_view, 0> callAlias{};
   inline static const std::string usage =
       fmt::format ("{} <clause>", call);
   constexpr static std::string_view desc{
@@ -356,13 +351,12 @@ struct AndCmd {
   }
 
   inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
+      call, {}, &operator(), usage, desc
   };
 };
 
 struct OrCmd {
   constexpr static std::string_view call{"or"};
-  constexpr static std::array<std::string_view, 0> callAlias{};
   inline static const std::string usage =
       fmt::format ("{} <clause>", call);
   constexpr static std::string_view desc{
@@ -401,7 +395,7 @@ struct OrCmd {
   }
 
   inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
+      call, {}, &operator(), usage, desc
   };
 };
 
@@ -515,7 +509,9 @@ struct OrderCmd {
 
 struct CountCmd {
   constexpr static std::string_view call{"count"};
-  constexpr static std::array<std::string_view, 1> alias{"ct"};
+  constexpr static std::array<std::string_view, 1> callAlias{
+      "ct"
+  };
   inline static const std::string usage =
       fmt::format ("{} [clause]", call);
   constexpr static std::string_view desc{
@@ -566,7 +562,7 @@ struct CountCmd {
   }
 
   inline static const CmdView view{
-      call, alias, &operator(), usage, desc
+      call, callAlias, &operator(), usage, desc
   };
 };
 
@@ -612,7 +608,6 @@ struct ShowPaneCmd {
   constexpr static double kDefaultFrac = 0.5;
 
   constexpr static std::string_view call{"pane"};
-  constexpr static std::array<std::string_view, 0> callAlias{};
   inline static const std::string usage =
       fmt::format ("{} [{}]", call, fmt::join (paneNames, "|"));
   constexpr static std::string_view desc{
@@ -678,7 +673,7 @@ struct ShowPaneCmd {
   }
 
   inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
+      call, {}, &operator(), usage, desc
   };
 };
 
@@ -692,9 +687,6 @@ struct ShowTrackCmd {
       };
 
   constexpr static std::string_view call{"track"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "tr"
-  };
   inline static const std::string usage = fmt::format (
       "{} [({})...] - nargs: 0 - {}", call,
       fmt::join (trackNames, "|"), trackNames.size()
@@ -705,6 +697,8 @@ struct ShowTrackCmd {
   };
 
 
+  // TODO: ShowCols... has a simpler approach.
+  // In any case might be more readable to unify.
   static CmdResult operator() (
       std::string_view args, AppState& state
   )
@@ -801,14 +795,13 @@ struct ShowTrackCmd {
   }
 
   inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
+      call, {}, &operator(), usage, desc
   };
 };
 
 
 struct DumpCmd {
   constexpr static std::string_view call{"dump"};
-  constexpr static std::array<std::string_view, 0> callAlias{};
   inline static const std::string usage =
       fmt::format ("{} <path>", call);
   constexpr static std::string_view desc{
@@ -837,7 +830,7 @@ struct DumpCmd {
   }
 
   inline static const CmdView view{
-      call, callAlias, &operator(), usage, desc
+      call, {}, &operator(), usage, desc
   };
 };
 
@@ -968,20 +961,13 @@ struct HelpCmd {
 // TODO: add compile time assertion that no
 // aliases overlap
 static constexpr const CmdView* cmdRegistry_SH[]{
-    &HelpCmd::view,
-    &QuitCmd::view,
-    &WhereCmd::view,
-    &AndCmd::view,
-    &OrCmd::view,
-    &BackCmd::view,
-    &ClearWhereCmd::view,
-    &OrderCmd::view,
-    &ClearCmd::view,
-    &DumpCmd::view,
-    &ShowPaneCmd::view,
-    &ShowTrackCmd::view,
-    &ShowReadFieldsCmd::view,
-    &CountCmd::view,
+    &HelpCmd::view,         &QuitCmd::view,
+    &WhereCmd::view,        &AndCmd::view,
+    &OrCmd::view,           &BackCmd::view,
+    &ClearWhereCmd::view,   &OrderCmd::view,
+    &ClearCmd::view,        &DumpCmd::view,
+    &ShowPaneCmd::view,     &ShowTrackCmd::view,
+    &ShowTableColCmd::view, &CountCmd::view,
 };
 
 std::span<const CmdView* const> get_cmd_registry()

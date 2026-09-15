@@ -8,15 +8,20 @@
 struct AppConfig {
   bool run = true;
 
-  // TODO: fixed array of all columns + on/off bool
-  // N.B> this probably reduces the scope/need for
-  // the data_table_cols.*pp machinery!
-  std::vector<TableCol::ID> displayTableCols{
-      TableCol::ID::basequal, TableCol::ID::rstart,
-      TableCol::ID::rend,     TableCol::ID::flag,
-      TableCol::ID::mapq,     TableCol::ID::cigar,
-      TableCol::ID::qname
-  };
+  std::array<std::pair<bool, TableCol::ColMetadata*>, 11>
+      displayTableCols{
+          {{false, &TableCol::sh_colQPos},
+           {true, &TableCol::sh_colBaseQual},
+           {true, &TableCol::sh_colFlag},
+           {true, &TableCol::sh_colMapq},
+           {false, &TableCol::sh_colRstart},
+           {false, &TableCol::sh_colRend},
+           {true, &TableCol::sh_colCigar},
+           {false, &TableCol::sh_colQname},
+           {false, &TableCol::sh_colMTid},
+           {false, &TableCol::sh_colMStart},
+           {false, &TableCol::sh_colTags}}
+      };
 
   bool showOverlay = false;
   struct {
