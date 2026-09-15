@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt/pileup-browser
 COPY CMakeLists.txt CMakeLists.txt
+COPY vendor vendor
 COPY src src
 COPY tests tests
 
