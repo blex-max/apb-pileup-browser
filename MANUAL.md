@@ -1,8 +1,8 @@
-<!-- GENERATED FILE — DO NOT EDIT.
-     Produced by `apb --dump-manual`; edit the manual content
-     in src/app/manual.cpp instead. -->
 
 # `apb` Manual
+
+**This manual is generated directly from the `apb` source. Please use `apb --dump-manual` to ensure you are
+reading the information appropriate to your version of the tool.**
 
 ## Overview
 
@@ -160,4 +160,4 @@ two possible trinucleotide motifs at the query position:
 ```
 where substr(seq, qpos + 1, 3) glob 'A[CG]T'
 ```
-You can also search for motifs within a window of the `seq` string. This command searches for `G
+You can also search for motifs within a window of the `seq`

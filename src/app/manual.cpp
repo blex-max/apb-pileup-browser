@@ -77,6 +77,9 @@ static std::string build_cmd_ref_markdown_table()
 static constexpr std::string_view sh_manualPre = R"md(
 # `apb` Manual
 
+**This manual is generated directly from the `apb` source. Please use `apb --dump-manual` to ensure you are
+reading the information appropriate to your version of the tool.**
+
 ## Overview
 
 Given an alignment file and a genomic locus `apb` builds the pileup at that position and loads the reads into a fast, queryable
@@ -300,12 +303,8 @@ static_assert (
 std::string_view get_manual()
 {
   static const std::string sh_manual = fmt::format (
-      "<!-- GENERATED FILE — DO NOT EDIT.\n"
-      "     Produced by `apb --dump-manual`; edit the manual "
-      "content\n"
-      "     in src/app/manual.cpp instead. -->\n"
-      "{}{}{}",
-      sh_manualPre, build_cmd_ref_markdown_table(), sh_manualPost
+      "{}{}{}", sh_manualPre, build_cmd_ref_markdown_table(),
+      sh_manualPost
   );
   return sh_manual;
 }
