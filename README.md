@@ -126,10 +126,10 @@ find them desirable.
 
 ### Use of Hungarian Prefixing
 
-**o_** - owned pointer, this scope must handle lifetime.
-**br_** - borrowed pointer, this scope must not affect lifetime.
-**sh_** - shared statically-allocated (probably) object, not defined in this scope.
-**ru_** - buffer reused across loop iterations.
+**o_** - owned pointer, this scope must handle lifetime.  
+**br_** - borrowed pointer, this scope must not affect lifetime.  
+**sh_** - shared statically-allocated (probably) object, not defined in this scope.  
+**ru_** - buffer reused across loop iterations.  
 
 I am almost certainly not using these reliably, but I do find them helpful.
 
