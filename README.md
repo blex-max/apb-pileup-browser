@@ -62,6 +62,10 @@ This software is in a demo state and feedback is very much appreciated as I work
 
 For CLI/TUI usage, command syntax, and query examples, see [MANUAL.md](MANUAL.md), or generate it yourself with `apb --dump-manual <path>`.
 
+**`apb` displays all information in the TUI as 0-based half-open coordinates, matching the internal representation of htslib.
+The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,
+and the representation of loci in VCF.**
+
 ## Install
 
 You will need a terminal emulator with basic unicode support. I expect the TUI should render successfully on almost any modern-ish emulator.

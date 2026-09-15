@@ -283,7 +283,7 @@ Mostly relevant if you're developing `apb` itself, rather than just using it.
 
 `htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, mix 3 (3!!) coordinate systems. This can be tricky to navigate.
 
-`apb` uses 0-based half-open coordinates throughout, **except for the locus argument when starting `apb` from the command line, which is
+**`apb` uses 0-based half-open coordinates throughout, except for the locus argument when starting `apb` from the command line, which is
 1-based**. A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification, and to `samtools`
 commands e.g. `samtools view ...`. However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less
 bug-prone) to display the alignment information as 0-based. This is an inevitable UX compromise - feedback is appreciated.
