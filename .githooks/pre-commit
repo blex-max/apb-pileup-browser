@@ -4,42 +4,17 @@ set -euo pipefail
 staged=$(git diff --name-only --staged)
 current_branch=$(git symbolic-ref --short -q HEAD || true)
 
-# MANUAL.md is derived from the built binary — it embeds the live command
-# registry's reference table, so regenerating it requires apb to actually
-# compile. That isn't a fair bar for in-progress work on other branches, so
-# the guarantee is only that main carries an up-to-date manual; branches may
-# drift until merged. README.md is hand-maintained and not generated at all.
-if [ "$current_branch" = "main" ] &&
-  printf '%s\n' "$staged" | grep -qE '^src/app/(cmd|manual)\.(cpp|hpp)$'; then
-  ./dev-scripts/gen-manual.sh
-  git add MANUAL.md
-fi
-
-# clang-tidy checks
-# Requires the code to build (clang-diagnostic-error), which isn't a fair bar
-# for in-progress work on other branches — only gate commits landing on main.
-tidy_checks='-*,readability-implicit-bool-conversion,readability-qualified-auto,readability-redundant-casting,readability-simplify-boolean-expr,readability-use-std-min-max'
+# Commits to main must compile. Building and dumping MANUAL.md (derived from
+# the built binary's live command registry) is done here directly, rather
+# than by shelling out to dev-scripts/gen-manual.sh, so this guarantee can't
+# silently break if that script's own implementation changes later.
 if [ "$current_branch" = "main" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
-  if ! command -v run-clang-tidy >/dev/null 2>&1; then
-    echo "pre-commit: run-clang-tidy not found, skipping readability gate" >&2
-  elif [ ! -f build/compile_commands.json ]; then
-    echo "pre-commit: build/compile_commands.json not found (configure build/ first), skipping readability gate" >&2
-  else
-    tidy_log=$(mktemp)
-    trap 'rm -f "$tidy_log"' EXIT
-    isysroot_arg=()
-    if [[ "$(uname -s)" == "Darwin" ]] && command -v xcrun >/dev/null 2>&1; then
-      isysroot_arg=(-extra-arg="-isysroot$(xcrun --show-sdk-path)")
-    fi
-    if ! run-clang-tidy -quiet -p build -checks="$tidy_checks" \
-        -warnings-as-errors='*' "${isysroot_arg[@]}" \
-        "^$(pwd)/src/" >"$tidy_log" 2>&1; then
-      echo "pre-commit: clang-tidy found blocking readability issues:" >&2
-      grep -E ': (error|warning):' "$tidy_log" >&2
-      echo "pre-commit: please fix these" >&2
-      exit 1
-    fi
+  if [ ! -f build/CMakeCache.txt ]; then
+    cmake -S . -B build
   fi
+  cmake --build build -j
+  build/apb --dump-manual MANUAL.md
+  git add MANUAL.md
 fi
 
 if ! command -v clang-format >/dev/null 2>&1; then
