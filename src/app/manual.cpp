@@ -87,6 +87,10 @@ database structure. The TUI then renders the reads as aligned at the pileup posi
 data for each read (e.g. mapping quality, leftmost alignment position, etc.) and provides a command line at which you can enter commands to
 query the reads or change the display. The display is navigated using simple arrow-key navigation.
 
+**`apb` displays all information in the TUI as 0-based half-open coordinates, matching the internal representation of htslib.
+The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,
+and the representation of loci in VCF.**
+
 ## CLI Usage
 
 There are three modal subcommands available when starting `apb`.

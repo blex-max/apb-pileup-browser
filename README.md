@@ -62,7 +62,8 @@ Advantages:
 
 This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
 
-For CLI/TUI usage, command syntax, and query examples, see [MANUAL.md](MANUAL.md), or generate it yourself with `apb --dump-manual <path>`.
+For CLI/TUI usage, command syntax, and query examples, generate the copy of specific to your version with `apb --dump-manual <path>`.
+You may also read [MANUAL.md](MANUAL.md) without building, but note that it may not correspond to your version of the tool!
 
 **`apb` displays all information in the TUI as 0-based half-open coordinates, matching the internal representation of htslib.
 The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,

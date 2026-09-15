@@ -11,6 +11,10 @@ database structure. The TUI then renders the reads as aligned at the pileup posi
 data for each read (e.g. mapping quality, leftmost alignment position, etc.) and provides a command line at which you can enter commands to
 query the reads or change the display. The display is navigated using simple arrow-key navigation.
 
+**`apb` displays all information in the TUI as 0-based half-open coordinates, matching the internal representation of htslib.
+The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,
+and the representation of loci in VCF.**
+
 ## CLI Usage
 
 There are three modal subcommands available when starting `apb`.
@@ -160,4 +164,68 @@ two possible trinucleotide motifs at the query position:
 ```
 where substr(seq, qpos + 1, 3) glob 'A[CG]T'
 ```
-You can also search for motifs within a window of the `seq`
+You can also search for motifs within a window of the `seq` string. This command searches for `GATC` within the first 10 bases of the read:
+```
+where instr(substr(seq, 1, 10), 'GATC') > 0
+```
+
+Any and all of these approaches may be combined, and more is possible. See [SQLite's expression/function
+reference](https://sqlite.org/lang_expr.html).
+
+#### Table Reference
+
+For each read, the database stores the following information. All columns are queryable in `where`/`and`/`or`/`order` commands. If the
+content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format.
+
+| Column | Meaning |
+|---|---|
+| `qname` | read/template name |
+| `flag` | SAM bitwise FLAG |
+| `rstart` | 0-based leftmost mapping position |
+| `rend` | 0-based rightmost mapping position |
+| `mapq` | mapping quality |
+| `base` | the read's base at the pileup position |
+| `basequal` | Phred base quality at the pileup position |
+| `qpos` | 0-based offset into `seq`/`qual` for the pileup locus position |
+| `cigar` | CIGAR string |
+| `mtid` | reference name of the mate/next read |
+| `mstart` | mate/next read's leftmost mapping position |
+| `tags` | aux tags as JSON; able to be individually queried |
+| `indel` | indel length to the next mapped base in the read (0 none, >0 insertion, <0 deletion) |
+| `is_del` | 1 if this position is a deletion |
+| `is_head` | 1 if this is the read's first aligned base |
+| `is_tail` | 1 if this is the read's last aligned base |
+| `is_refskip` | 1 if this position is a reference skip |
+| `seq` | the read's sequence string |
+| `qual` | the read's ASCII quality string |
+| `ncig` | number of CIGAR operations in the read |
+
+`indel` might require some explanation. Essentially, if the base at the pileup position is followed by an indel, then `indel` will contain
+the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size
+(bases gained). I need to confirm the behaviour of the field when the pileup base itself is deleted.
+
+The first twelve (`qname` through `tags`) can also be displayed in the info pane; see [Command Reference](#Command Reference) for details.
+
+For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs.
+
+### A Word on `dump` Functionality
+
+A dump is a small, self-contained sqlite3 file with just the reads at this one locus. Picking a session back up later with `apb db` is one
+reason to use it; a few others:
+
+- Full SQL — `sqlite3 my.db` gets you everything the in-TUI REPL deliberately doesn't: `GROUP BY`, aggregates, etc. Allows for more
+complex analysis if needed.
+- Downstream use — it's a normal sqlite3 file, so anything with a sqlite driver can read it.
+- Sharing — send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM,
+reference genome, or even `apb` if they're happy just to use `sqlite3`.
+- Debugging (for developers) — a stable snapshot of exactly what got loaded, inspectable without the original alignment file or the TUI.
+Mostly relevant if you're developing `apb` itself, rather than just using it.
+
+### A Word on Indexing Systems
+
+`htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, mix 3 (3!!) coordinate systems. This can be tricky to navigate.
+
+**`apb` uses 0-based half-open coordinates throughout, except for the locus argument when starting `apb` from the command line, which is
+1-based**. A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification, and to `samtools`
+commands e.g. `samtools view ...`. However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less
+bug-prone) to display the alignm
