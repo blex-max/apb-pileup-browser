@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.22)
 
 project(apb
   LANGUAGES CXX
-  VERSION 0.0.0
+  VERSION 0.0.1
 )
 
 set(CMAKE_CXX_STANDARD 23)
