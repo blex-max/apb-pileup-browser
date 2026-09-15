@@ -7,6 +7,8 @@ and their divergence from a reference genome. It is chiefly designed for verific
 inspect the reads at any loci.
 The built-in command line is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
 
+
+<!-- A text screencap of the TUI. line wrapping may break this screencap! -->
 ```
           READS ALIGNED TO REFERENCE ↓                                PER READ DATA ↓
 ╭──────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────╮
