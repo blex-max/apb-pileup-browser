@@ -97,12 +97,9 @@ Feature suggestions are welcomed.
 ### Planned
 - VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
   - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
-- Column discoverability (e.g. an in-app column reference).
-- Clear indication of no-op navigation via blinking the staus bar or similar
-- Indication of insertion sites by gapping the reference/other reads.
+- Better column discoverability - they are currently found only in the manual (e.g. an in-app column reference).
 - Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).
-- Fold-out display of quality string below each aligned read.
-- Minor UX/UI improvments.
+- General UX/UI improvments, particularly around the in-app command line.
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
 - More stats in the status bar; allele counts, VAF (when in variant driven mode), reference span complexity assessment (useful when
 assessing artefactual variants).
@@ -117,7 +114,6 @@ find them desirable.
   - Currently the view is fixed to a single locus specified at startup.
   - This may also lead to multi-locus dbs, multi-sample browsing/dbs, etc.
 
-
 ## Development
 
 ### Use of Hungarian Prefixing
@@ -127,17 +123,19 @@ find them desirable.
 **sh_** - shared statically-allocated (probably) object, not defined in this scope.
 **ru_** - buffer reused across loop iterations.
 
+I am almost certainly not using these reliably, but I do find them helpful.
+
 ### Dependencies
 
-| Dependency | Version | Found via | Used for |
-|---|---|---|---|
-| sqlite3 | ≥3.38 | system, `pkg-config` | query/storage layer |
-| htslib | ≥1.17 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) | Handling sequence data |
-| termbox2 | 605398fa | CMake FetchContent | terminal rendering and raw input events |
-| plog | v1.1.10 | CMake FetchContent | debug logging |
-| argparse | v3.2 | CMake FetchContent | CLI |
-| fmt | v12.2.0 | CMake FetchContent | string formatting |
-| Catch2 [optional] | v3.8.1 | CMake FetchContent | test framework |
+| Dependency | Version | Found via |
+|---|---|---|
+| sqlite3 | ≥3.38 | system, `pkg-config` |
+| htslib | ≥1.17 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) |
+| termbox2 | 605398fa | Vendored |
+| plog | v1.1.10 | Vendored |
+| argparse | v3.2 | Vendored |
+| fmt | v12.2.0 | Vendored |
+| Catch2 [optional] | v3.8.1 | CMake FetchContent |
 
 ### Tests
 
@@ -149,12 +147,11 @@ ctest --test-dir build
 ```
 Coverage is concentrated on the backend. TUI rendering and event handling aren't unit tested at this time.
 
-### AI Usage Policy
+### AI Usage
 
-I think it's important to be up front about AI usage. This repo has been developed by hand, with use of AI as a second line — for bouncing
-ideas off of, bug hunting, and basic stub implementation. Architecture, the design of all core primitives and functions, and other impactful
-decisions are made by the maintainer. Small, mechanical, additive changes (a keybinding, a warning fix, a rename) might be handed over. A
-new feature or refactor is not; those are designed and implemented manually. The benefit is a codebase that is (hopefully) well-designed,
-effective, and concise - and therefore easy to maintain and easy to contribute to. Contributions are more than welcome, but would ideally
-follow this standard.
+This repo has been developed by hand, with some use of AI tools for extraneous work like implementing githooks etc.
+Architecture, the design of all core primitives and functions, and other impactful decisions are made by the maintainer.
+The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain
+and easy to contribute to.
+Contributions are more than welcome, but would ideally follow this standard.
 
