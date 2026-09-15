@@ -96,12 +96,12 @@ VoidOrErr insert_demo_data (
 
   for (size_t i = 0; i < nQuery; ++i) {
     PileupFields ru_pf;
-    ru_pf.flag = BAM_FPAIRED | BAM_FPROPER_PAIR | BAM_FREAD1 |
-                 BAM_FMREVERSE;
+    ru_pf.flag = 0;
     ru_pf.isDel = false;
     ru_pf.isRefSkip = false;
     ru_pf.mapQ = mapQGen (rng);
     ru_pf.mStart = -1;
+    ru_pf.mtidName = '*';  // not present
     ru_pf.qName = "read" + std::to_string (i);
 
     ru_pf.start = static_cast<hts_pos_t> (gstartGen (rng));
@@ -174,8 +174,12 @@ VoidOrErr insert_demo_data (
     const size_t seqLen = qLen + insLen;
     std::string seq (seqLen, ' ');
     std::string qual (seqLen, ' ');
+    std::array<char, 3> qualChars{'F', 'E', 'D'};
+    std::discrete_distribution<uint8_t> qualCharPicker (
+        {100, 20, 10}
+    );
     for (size_t j = 0; j < seqLen; ++j) {
-      qual[j] = 'F';
+      qual[j] = qualChars[qualCharPicker (rng)];
 
       if (j == static_cast<size_t> (finalQPos)) {
         constexpr char pileupAlt = 'T';
