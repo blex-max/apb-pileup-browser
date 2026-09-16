@@ -33,6 +33,10 @@ static constexpr std::string_view sh_cliHelp =
  and querying pileup loci. It features an easy-to-navigate
  interface and powerful SQL-based query syntax.
 
+ Print the manual with `apb --manual` for extended help.
+
+ Type ? and press enter in the TUI for in-app help.
+
 modes:
   locus  FILE LOCUS [REF]   view a single locus
                             FILE   alignment file (sam/bam/cram)
@@ -51,24 +55,19 @@ options:
   --manual            Print the apb manual to stdout and exit
   --log PATH          log debug output to file
 
- IMPORTANT:
+ **IMPORTANT**:
   apb displays all coordinate data in 0-based half-open
   coordinates, matching the internal representation of htslib.
   The sole exception is the locus argument to locus mode,
   which is 1-based to match samtools, and the
   representation of loci in VCF.
 
-
- Print the manual with `apb --manual` for extended help.
- Type ? and press enter in the TUI for in-app help.
  See README.md for project background and development
  information.
 
  In the TUI, type q and press enter or press Ctrl-C
  twice to quit.
 )txt";
-
-std::string_view get_cli_help() { return sh_cliHelp; }
 
 // MODE + variadic positional args.
 static std::expected<ModalArgs, Err> assemble_mode_args (

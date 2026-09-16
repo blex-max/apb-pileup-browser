@@ -16,23 +16,23 @@ inline constexpr auto sh_helpBlock =
          "  apb is an terminal-based genome browser designed  ",
          "  for viewing and querying pileup loci.             ",
          "                                                    ",
+         "  For navigation quick reference:                   ",
+         "    `? nav`                                         ",
+         "  For list of available commands:                   ",
+         "    `? cmd`                                         ",
+         "                                                    ",
          "  The browser is navigated with the keyboard.       ",
          "  Usage commands are typed into an in-app command.  ",
          "  line and submitted with Enter.                    ",
          "  Queries are made with a simple SQL-based syntax.  ",
          "                                                    ",
          "  Read the manual for a complete guide to usage,    ",
-         "  including query examples. Find it as MANUAL.md    ",
-         "  in the repo, or run `apb --manual > MANUAL.md`    ",
-         "                                                    ",
-         "  For navigation quick reference:                   ",
-         "    `? nav`                                         ",
-         "  For list of available commands:                   ",
-         "    `? cmd`                                         ",
+         "  including query examples. Find it as MANUAL.txt   ",
+         "  in the repo, or run `apb --manual > MANUAL.txt`.  ",
          "                                                    ",
          "  All coordinate data is displayed in 0-indexed     ",
          "  half-open coordinates, matching the internal      ",
-         "  representation used by htslib                     "}
+         "  representation used by htslib.                    "}
     );
 static_assert (
     !sh_helpBlock.empty() &&

@@ -143,8 +143,7 @@ struct ShowTableColCmd {
   inline static const std::string usage =
       fmt::format ("{} <field-name>...", call);
   constexpr static std::string_view desc{
-      "Toggle display of read data fields to the tabular "
-      "display."
+      "Show/hide read data columns in the table pane."
   };
 
   static CmdResult operator() (
@@ -449,7 +448,7 @@ struct ClearWhereCmd {
   };
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{
-      "clear WHERE clause, retaining ORDER BY."
+      "Clear WHERE clause, retaining ORDER BY."
   };
 
   static CmdResult operator() (
@@ -617,9 +616,8 @@ struct ShowPaneCmd {
   inline static const std::string usage =
       fmt::format ("{} [{}]", call, fmt::join (paneNames, "|"));
   constexpr static std::string_view desc{
-      "show/hide either of the alignment or table panes, or "
-      "reset "
-      "to default with no args."
+      "Show/hide either of the alignment or table panes, or "
+      "reset to default with no args."
   };
 
   static CmdResult operator() (
@@ -701,8 +699,8 @@ struct ShowTrackCmd {
       fmt::join (trackNames, "|"), trackNames.size()
   );
   constexpr static std::string_view desc{
-      "toggle display of additional tracks in browser alignment "
-      "pane, or reset to default with no args."
+      "Show/hide insertion and quality score tracks in "
+      "alignment pane, or reset to default with no args."
   };
 
 
@@ -876,7 +874,9 @@ static void append_wrapped (
   }
 }
 
-static std::vector<std::string> build_cmd_ref_table()
+
+static std::span<const CmdView* const> get_cmd_registry();
+std::vector<std::string> build_cmd_ref_table()
 {
   constexpr size_t width = 52;
   constexpr std::string_view headerIndent = "  ";
@@ -1020,7 +1020,7 @@ static_assert (
 );
 
 
-std::span<const CmdView* const> get_cmd_registry()
+static std::span<const CmdView* const> get_cmd_registry()
 {
   return cmdRegistry_SH;
 }

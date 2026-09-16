@@ -3,7 +3,6 @@
 #include <expected>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <variant>
 
 #include "shared/err.hpp"
@@ -37,5 +36,3 @@ struct StartupArgs {
 
 using ArgsOrErr = std::expected<StartupArgs, Err>;
 ArgsOrErr parse_args (int argc, char** argv);
-
-std::string_view get_cli_help();
