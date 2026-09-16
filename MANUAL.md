@@ -11,7 +11,7 @@ database structure. The TUI then renders the reads as aligned at the pileup posi
 data for each read (e.g. mapping quality, leftmost alignment position, etc.) and provides a command line at which you can enter commands to
 query the reads or change the display. The display is navigated using simple arrow-key navigation.
 
-**`apb` displays all information in 0-based half-open coordinates, matching the internal representation of htslib.
+**`apb` displays all coordinate data in the TUI in 0-based half-open coordinates, matching the internal representation of htslib.
 The sole exception is the locus argument when starting `apb` in locus mode from the command line, which is 1-based to match
 samtools view, and the representation of loci in VCF.**
 
@@ -42,7 +42,7 @@ options:
   --log PATH          log debug output to file
 
  IMPORTANT:
-  apb displays all information in 0-based half-open
+  apb displays all coordinate data in 0-based half-open
   coordinates, matching the internal representation of htslib.
   The sole exception is the locus argument to locus mode,
   which is 1-based to match samtools, and the
@@ -246,4 +246,4 @@ A dump is a small, self-contained sqlite3 file with just the reads at this one l
 reason to use it; a few others:
 
 - Full SQL - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates, etc.).
-- Downstream use - A d
+- D

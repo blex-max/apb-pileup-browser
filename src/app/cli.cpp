@@ -19,6 +19,7 @@
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
 // have not drifted.
+// TODO: write a prerelease checklist .txt/.md
 
 // NOTE: text for when VCF mode is live.
 // vcf    FILE VCF [REF]     view variant loci from a VCF
@@ -51,7 +52,7 @@ options:
   --log PATH          log debug output to file
 
  IMPORTANT:
-  apb displays all information in 0-based half-open
+  apb displays all coordinate data in 0-based half-open
   coordinates, matching the internal representation of htslib.
   The sole exception is the locus argument to locus mode,
   which is 1-based to match samtools, and the

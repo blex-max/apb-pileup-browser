@@ -28,7 +28,11 @@ inline constexpr auto sh_helpBlock =
          "  For navigation quick reference:                   ",
          "    `? nav`                                         ",
          "  For list of available commands:                   ",
-         "    `? cmd`                                         "}
+         "    `? cmd`                                         ",
+         "                                                    ",
+         "  All coordinate data is displayed in 0-indexed     ",
+         "  half-open coordinates, matching the internal      ",
+         "  representation used by htslib                     "}
     );
 static_assert (
     !sh_helpBlock.empty() &&
