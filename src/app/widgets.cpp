@@ -718,7 +718,7 @@ static e2::Delta seq1 (
       for (size_t i = skipOffscreenBases;
            i < opSz && writeHead.x < sh.writeLimits.x;
            ++i, ++writeHead.x) {
-        set (writeHead, '-');
+        set (writeHead, '-', TB_UNDERLINE);
       }
       iRef += opSz;
       iGc += opSz;
@@ -873,9 +873,11 @@ static VoidOrErr draw_query_data (
   if (conf.drawPaneSwitches.aln) {
     // set crosshair if alignment pane unfolded
     e2::VLine pileupCrosshair{pileupXPos, seqPane.yspan};
-    // clear dim to avoid misbehaviour from
-    // overlayed attrs.
-    rm_attr (pileupCrosshair, TB_DIM);
+    // At some point I thought it was necessary to
+    // rm the DIM attribute under the crosshair because
+    // something looked bad. I can't reproduce that
+    // now so leaving the attr.
+    // rm_attr (pileupCrosshair, TB_DIM);
     add_attr (pileupCrosshair, TB_REVERSE);
   }
   // connect to ref base
