@@ -106,9 +106,9 @@ Normal typing goes directly to the command line. `Enter` dispatches the contents
 | `order-by` | `order`, `ob` | `<clause>` | Sort reads by ORDER BY expression. |
 | `clear` | `cl` |  | Clear current query. |
 | `dump` |  | `<path>` | Write the in-memory database to a file. Takes a single path. The current query is not preserved. |
-| `pane` |  | `[aln\|table]` | show/hide either of the alignment or table panes, or reset to default with no args. |
-| `track` |  | `[(qual\|ins)...] - nargs: 0 - 2` | toggle display of additional tracks in browser alignment pane, or reset to default with no args. |
-| `col` |  | `<field-name>...` | Toggle display of read data fields to the tabular display. |
+| `pane` | `p` | `[aln\|table]` | show/hide either of the alignment or table panes, or reset to default with no args. |
+| `track` | `t` | `[(qual\|ins)...] - nargs: 0 - 2` | toggle display of additional tracks in browser alignment pane, or reset to default with no args. |
+| `col` | `c` | `<field-name>...` | Toggle display of read data fields to the tabular display. |
 | `count` | `ct` | `[clause]` | Count reads matching current query. If provided, the optional clause will be AND-concatenated onto the existing WHERE clause for the count query. If no WHERE clause is present, the optional clause will be used as the count WHERE clause alone. |
 
 Every command submitted at the command line is interpreted like `<command> [args]`.
@@ -245,5 +245,4 @@ For advanced users, note that most of these map directly onto fields in htslib's
 A dump is a small, self-contained sqlite3 file with just the reads at this one locus. Picking a session back up later with `apb db` is one
 reason to use it; a few others:
 
-- Full SQL - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates, etc.).
-- D
+- Full SQL - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates, e

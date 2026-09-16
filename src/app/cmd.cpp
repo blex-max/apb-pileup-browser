@@ -137,6 +137,9 @@ struct QuitCmd {
 
 struct ShowTableColCmd {
   constexpr static std::string_view call{"col"};
+  constexpr static std::array<std::string_view, 1> callAlias{
+      "c"
+  };
   inline static const std::string usage =
       fmt::format ("{} <field-name>...", call);
   constexpr static std::string_view desc{
@@ -221,7 +224,7 @@ struct ShowTableColCmd {
   };
 
   inline static const CmdView view{
-      call, {}, &operator(), usage, desc
+      call, callAlias, &operator(), usage, desc
   };
 };
 
@@ -608,6 +611,9 @@ struct ShowPaneCmd {
   constexpr static double kDefaultFrac = 0.5;
 
   constexpr static std::string_view call{"pane"};
+  constexpr static std::array<std::string_view, 1> callAlias{
+      "p"
+  };
   inline static const std::string usage =
       fmt::format ("{} [{}]", call, fmt::join (paneNames, "|"));
   constexpr static std::string_view desc{
@@ -673,7 +679,7 @@ struct ShowPaneCmd {
   }
 
   inline static const CmdView view{
-      call, {}, &operator(), usage, desc
+      call, callAlias, &operator(), usage, desc
   };
 };
 
@@ -687,6 +693,9 @@ struct ShowTrackCmd {
       };
 
   constexpr static std::string_view call{"track"};
+  constexpr static std::array<std::string_view, 1> callAlias{
+      "t"
+  };
   inline static const std::string usage = fmt::format (
       "{} [({})...] - nargs: 0 - {}", call,
       fmt::join (trackNames, "|"), trackNames.size()
@@ -795,7 +804,7 @@ struct ShowTrackCmd {
   }
 
   inline static const CmdView view{
-      call, {}, &operator(), usage, desc
+      call, callAlias, &operator(), usage, desc
   };
 };
 
@@ -958,17 +967,58 @@ struct HelpCmd {
   };
 };
 
-// TODO: add compile time assertion that no
-// aliases overlap
-static constexpr const CmdView* cmdRegistry_SH[]{
-    &HelpCmd::view,         &QuitCmd::view,
-    &WhereCmd::view,        &AndCmd::view,
-    &OrCmd::view,           &BackCmd::view,
-    &ClearWhereCmd::view,   &OrderCmd::view,
-    &ClearCmd::view,        &DumpCmd::view,
-    &ShowPaneCmd::view,     &ShowTrackCmd::view,
-    &ShowTableColCmd::view, &CountCmd::view,
+static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{
+    {&HelpCmd::view, &QuitCmd::view, &WhereCmd::view,
+     &AndCmd::view, &OrCmd::view, &BackCmd::view,
+     &ClearWhereCmd::view, &OrderCmd::view, &ClearCmd::view,
+     &DumpCmd::view, &ShowPaneCmd::view, &ShowTrackCmd::view,
+     &ShowTableColCmd::view, &CountCmd::view}
 };
+
+// `view`s are not constexpr, so here's somewhat horrible
+// solution for compile time overlap checking. Keep in
+// sync with above!
+static constexpr std::array<
+    std::span<const std::string_view>, 14>
+    cmdAliases_SH{
+        {HelpCmd::alias,
+         QuitCmd::callAlias,
+         WhereCmd::callAlias,
+         {},
+         {},
+         BackCmd::callAlias,
+         ClearWhereCmd::callAlias,
+         OrderCmd::callAlias,
+         ClearCmd::callAlias,
+         {},
+         ShowPaneCmd::callAlias,
+         ShowTrackCmd::callAlias,
+         ShowTableColCmd::callAlias,
+         CountCmd::callAlias}
+    };
+static constexpr bool all_aliases_unique()
+{
+  // somewhat horrible
+  for (size_t i = 0; i < cmdAliases_SH.size(); i++) {
+    const auto& iAliases = cmdAliases_SH[i];
+    for (size_t j = i + 1; j < cmdAliases_SH.size(); j++) {
+      const auto& jAliases = cmdAliases_SH[j];
+      for (const auto& iAlias : iAliases) {
+        for (const auto& jAlias : jAliases) {
+          if (iAlias == jAlias) {
+            return false;
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+static_assert (
+    all_aliases_unique(),
+    "Command registry contains overlapping aliases!"
+);
+
 
 std::span<const CmdView* const> get_cmd_registry()
 {
