@@ -17,6 +17,8 @@ apb Manual - A Pileup Browser
 **IMPORTANT**:
 The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
 
+It is recommended to read this manual using a line/word-wrapping pager, such as `less`.
+
 1) Overview
 
 Given an alignment file and a genomic locus apb builds the pileup at that position and loads the reads into a fast, queryable database structure. The TUI then renders the reads as aligned at the pileup position, displays user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command line at which you can enter commands to query the reads or change the display. The display and command line can be navigated via simple arrow key navigation.
