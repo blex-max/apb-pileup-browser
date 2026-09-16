@@ -133,10 +133,7 @@ VoidOrErr loop (AppState& state)
       return std::unexpected{drawRet.error()};
     }
 
-    PLOGD << fmt::format (
-        "Processed frame {}", state.mData.frameCount
-    );
-    ++state.mData.frameCount;
+    PLOGD << "Processed frame";
   }
 
   return {};

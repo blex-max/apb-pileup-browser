@@ -35,7 +35,6 @@ struct AppConfig {
 };
 
 struct AppMetadata {
-  size_t frameCount = 0;
   tb_event lastEv{};
 };
 
