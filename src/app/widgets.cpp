@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <plog/Log.h>
 
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
@@ -477,7 +478,6 @@ static SharedArgs prepare_shared (
 {
   assert (pileupSpanGStart > 0);
   assert (writeStartXGPos > 0);
-  assert (writeStartXGPos >= pileupSpanGStart);
   assert (valid (writeLimits));
 
   return SharedArgs{
@@ -592,7 +592,7 @@ static e2::Delta seq1 (
     }
 
     const auto opSz = bam_cigar_oplen (op);
-    const auto opOnScreen = (iGc + opSz) >= sh.writeStartX;
+    const auto opOnScreen = (iGc + opSz) >= sh.writeStartXGPos;
 
     if (!opOnScreen) {
       // skip op, incrementing indexes
@@ -736,7 +736,13 @@ static e2::Delta seq1 (
         uintattr_t dispAttr = 0;
         auto dispChar = readFields.seq[iQuery + i];
         // mask bases that match the reference with '='.
-        if (ref && (dispChar == (*ref)[iRef + i])) {
+        if (ref &&
+            (std::toupper (
+                 static_cast<unsigned char> (dispChar)
+             ) ==
+             std::toupper (
+                 static_cast<unsigned char> ((*ref)[iRef + i])
+             ))) {
           dispChar = '=';
           dispAttr = TB_DIM;
         }

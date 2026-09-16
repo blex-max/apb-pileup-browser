@@ -43,7 +43,8 @@ static char mutate_base (char refBase, std::mt19937& rng)
 }
 
 VoidOrErr insert_demo_data (
-    PileupDB& db, size_t regWidth, size_t nQuery
+    PileupDB& db, size_t regWidth, size_t nQuery,
+    hts_pos_t gOffset
 )
 {
   std::mt19937 rng;
@@ -322,6 +323,15 @@ VoidOrErr insert_demo_data (
       static_cast<size_t> (span.end - span.start)
   );
 
+  for (auto& ru_pf : reads) {
+    ru_pf.start += gOffset;
+    ru_pf.end += gOffset;
+  }
+  const hts_pos_t gPileupPos = pileupPos + gOffset;
+  const GenomicSpan gSpan{
+      span.start + gOffset, span.end + gOffset
+  };
+
   // demo data has no real alignment file / contigs; placeholder
   // metadata row just satisfies the reads table's loci_id FK chain.
   const AlnFile dummyAln;
@@ -331,7 +341,7 @@ VoidOrErr insert_demo_data (
   }
 
   auto ilRet = insert_loci (
-      db, make_locus_data ("demo", pileupPos, span, refSlice)
+      db, make_locus_data ("demo", gPileupPos, gSpan, refSlice)
   );
   if (!ilRet) {
     return std::unexpected{ilRet.error()};

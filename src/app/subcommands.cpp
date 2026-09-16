@@ -17,7 +17,8 @@ VoidOrErr run_mode (const DemoModeArgs& args)
   }
 
   PLOGD << "Inserting demo data into pileup db";
-  auto demoRet = insert_demo_data (db, 300, 100);
+  constexpr hts_pos_t demoGOffset = 10'000'000;
+  auto demoRet = insert_demo_data (db, 300, 100, demoGOffset);
   if (!demoRet) {
     return std::unexpected (demoRet.error());
   }
