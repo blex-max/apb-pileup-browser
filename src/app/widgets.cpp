@@ -718,7 +718,7 @@ static e2::Delta seq1 (
       for (size_t i = skipOffscreenBases;
            i < opSz && writeHead.x < sh.writeLimits.x;
            ++i, ++writeHead.x) {
-        set (writeHead, '-', TB_UNDERLINE);
+        set (writeHead, 'x', TB_UNDERLINE);
       }
       iRef += opSz;
       iGc += opSz;
