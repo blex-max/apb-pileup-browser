@@ -1,8 +1,8 @@
 
-# `apb` Manual
+# apb Manual - A Pileup Browser
 
-**This manual is generated directly from the `apb` binary. Please use `apb --dump-manual` to ensure you are
-reading the information appropriate to your version of the tool.**
+**The `apb` manual is generated directly from the binary. Please use check the helptext for instructions as to 
+how to generate the manual for your version of the tool.**
 
 ## Overview
 
@@ -21,8 +21,8 @@ samtools view, and the representation of loci in VCF.**
 usage: apb [options] MODE [FILE] [LOCI] [REF]
 
  apb is an terminal-based genome browser designed for viewing
- and querying pileup loci. It features a REPL-like command
- line and simple SQL-based query syntax.
+ and querying pileup loci. It features an easy-to-navigate
+ interface and powerful SQL-based query syntax.
 
 modes:
   locus  FILE LOCUS [REF]   view a single locus
@@ -36,9 +36,10 @@ modes:
 options:
   -h, --help          show this help message and exit
   -v, --version       print version information and exit
-  --dump PATH         convert pileup to sqlite3 database, dump to disk, and exit
+  --dump PATH         convert pileup to sqlite3 database,
+                      dump to disk, and exit
                       (invalid in db mode)
-  --dump-manual PATH  write the apb manual to PATH and exit
+  --manual            Print the apb manual to stdout and exit
   --log PATH          log debug output to file
 
  IMPORTANT:
@@ -49,10 +50,10 @@ options:
   representation of loci in VCF.
 
 
- See README.md for project background, or MANUAL.md for
- usage (or use the in-app help: type ? and press enter in
- the TUI). If you don't have the manual, write it to disk
- with `apb --dump-manual PATH`.
+ Print the manual with `apb --manual` for extended help.
+ Type ? and press enter in the TUI for in-app help.
+ See README.md for project background and development
+ information.
 
  In the TUI, type q and press enter or press Ctrl-C
  twice to quit.
@@ -245,4 +246,25 @@ For advanced users, note that most of these map directly onto fields in htslib's
 A dump is a small, self-contained sqlite3 file with just the reads at this one locus. Picking a session back up later with `apb db` is one
 reason to use it; a few others:
 
-- Full SQL - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates, e
+- Full SQL - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates, etc.).
+- Downstream use - A dump is a normal sqlite3 file, so anything with a sqlite driver can read it.
+- Sharing - send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM,
+reference genome, or even `apb` if they're happy just to use `sqlite3`.
+- Debugging (for developers) - a dump is a stable snapshot of exactly what got loaded, inspectable without the original alignment file or
+TUI. Mostly relevant if you're developing `apb` itself, rather than just using it.
+
+### A Word on Indexing Systems
+
+`htslib`/`samtools`/`bcftools`, and by extension all alignment and VCF data, mix 3 (3!!) coordinate systems. This can be tricky to navigate.
+
+**`apb` uses 0-based half-open coordinates throughout, except for the locus argument when starting `apb` from the command line in locus
+mode, which is 1-based**.
+A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification, and to `samtools` commands
+e.g. `samtools view ...`.
+However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less bug-prone) to display the alignment
+information as 0-based. This is an inevitable UX compromise.
+
+---
+
+See the README or the project [GitHub](https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap,
+and other background.

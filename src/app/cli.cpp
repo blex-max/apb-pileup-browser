@@ -2,7 +2,6 @@
 
 #include <cstdlib>
 #include <expected>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -31,8 +30,8 @@ static constexpr std::string_view sh_cliHelp =
     R"txt(usage: apb [options] MODE [FILE] [LOCI] [REF]
 
  apb is an terminal-based genome browser designed for viewing
- and querying pileup loci. It features a REPL-like command
- line and simple SQL-based query syntax.
+ and querying pileup loci. It features an easy-to-navigate
+ interface and powerful SQL-based query syntax.
 
 modes:
   locus  FILE LOCUS [REF]   view a single locus
@@ -46,9 +45,10 @@ modes:
 options:
   -h, --help          show this help message and exit
   -v, --version       print version information and exit
-  --dump PATH         convert pileup to sqlite3 database, dump to disk, and exit
+  --dump PATH         convert pileup to sqlite3 database,
+                      dump to disk, and exit
                       (invalid in db mode)
-  --dump-manual PATH  write the apb manual to PATH and exit
+  --manual            Print the apb manual to stdout and exit
   --log PATH          log debug output to file
 
  IMPORTANT:
@@ -59,10 +59,10 @@ options:
   representation of loci in VCF.
 
 
- See README.md for project background, or MANUAL.md for
- usage (or use the in-app help: type ? and press enter in
- the TUI). If you don't have the manual, write it to disk
- with `apb --dump-manual PATH`.
+ Print the manual with `apb --manual` for extended help.
+ Type ? and press enter in the TUI for in-app help.
+ See README.md for project background and development
+ information.
 
  In the TUI, type q and press enter or press Ctrl-C
  twice to quit.
@@ -134,57 +134,40 @@ ArgsOrErr parse_args (int argc, char** argv)
   );
   std::string logPath;
 
-  // NOTE: help, version, dump-manual
+  // NOTE: helptext NOT built from
+  // CLI; see helptext above. Confirm
+  // they match when making changes
+  // NOTE: help, version, manual
   // all exit program
   cli.add_argument ("-h", "--help")
       .action ([] (const auto&) {
         std::cout << sh_cliHelp << "\n";
         std::exit (0);
       })
-      .default_value (false)
-      .implicit_value (true)
-      .nargs (0);
+      .flag();
   cli.add_argument ("-v", "--version")
       .action ([] (const auto&) {
         std::cout << APB_VERSION << "\n";
         std::exit (0);
       })
-      .default_value (false)
-      .implicit_value (true)
-      .nargs (0);
-  cli.add_argument ("--dump-manual")
-      .help ("write the apb manual to PATH and exit")
-      .metavar ("PATH")
-      .action ([] (const std::string& path) {
-        std::ofstream ofs (path);
-        if (!ofs) {
-          std::cerr << "could not open " << path
-                    << " for writing\n";
-          std::exit (EXIT_FAILURE);
-        }
-        ofs << get_manual();
-        std::exit (EXIT_SUCCESS);
-      });
+      .flag();
+  cli.add_argument ("--manual").flag().action ([] (const auto&) {
+    std::cout << get_manual();
+    std::exit (EXIT_SUCCESS);
+  });
 
-  cli.add_argument ("--dump")
-      .help (
-          "convert pileup to sqlite3 database, "
-          "dump to disk, and exit."
-      )  // headless mode
-      .metavar ("PATH");
+  cli.add_argument ("--dump").metavar ("PATH");
   cli.add_argument ("--log")
-      .help ("log debug output to file")
       .nargs (1)
       .metavar ("PATH")
       .store_into (logPath);
 
-  cli.add_argument ("MODE")
-      .help ("locus|vcf|db|demo")
-      .choices ("locus", "vcf", "db", "demo");
-  cli.add_argument ("ARGS")
-      .help ("mode-specific positional arguments; see -h")
-      .nargs (0, 3)
-      .default_value (std::vector<std::string>{});
+  cli.add_argument ("MODE").choices (
+      "locus", "vcf", "db", "demo"
+  );
+  cli.add_argument ("ARGS").nargs (0, 3).default_value (
+      std::vector<std::string>{}
+  );
 
   try {
     cli.parse_args (argc, argv);

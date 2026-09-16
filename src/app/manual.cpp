@@ -76,10 +76,10 @@ static std::string build_cmd_ref_markdown_table()
 }
 
 static constexpr std::string_view sh_manualPre = R"md(
-# `apb` Manual
+# apb Manual - A Pileup Browser
 
-**This manual is generated directly from the `apb` binary. Please use `apb --dump-manual` to ensure you are
-reading the information appropriate to your version of the tool.**
+**The `apb` manual is generated directly from the binary. Please use check the helptext for instructions as to 
+how to generate the manual for your version of the tool.**
 
 ## Overview
 
