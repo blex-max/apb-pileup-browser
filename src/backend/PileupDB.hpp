@@ -59,6 +59,8 @@ PileupMetadata make_locus_data (
 LocusOrErr get_locus_data (const PileupDB& db);
 
 // TIED TO SCHEMA CREATE ORDER
+// TODO: this is an unscoped enum and that is a huge
+// pain elswhere!!
 enum SelectFields : uint8_t {
   id,  // 0
   loci_id,
