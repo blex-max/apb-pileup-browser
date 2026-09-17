@@ -27,7 +27,7 @@ static std::string cmd_format_misuse (
 )
 {
   return fmt::format (
-      "Bad call - {}. Usage: {}", misuseMsg, cmdUsage
+      "Misuse - {}. Usage: {}", misuseMsg, cmdUsage
   );
 }
 static std::string cmd_format_fail (std::string_view failMsg)
@@ -170,7 +170,7 @@ struct ShowTableColCmd {
           false,
           cmd_format_misuse (
               fmt::format (
-                  "duplicated tokens {}", fmt::join (dups, ", ")
+                  "duplicated arg/s {}", fmt::join (dups, ", ")
               ),
               usage
           )
@@ -682,30 +682,39 @@ struct ShowPaneCmd {
 };
 
 struct ShowTrackCmd {
-  enum Track : uint8_t { qual, ins, COUNT };
-  constexpr static std::array<std::string_view, Track::COUNT>
-      trackNames{{[Track::qual] = "qual", [Track::ins] = "ins"}};
-  constexpr static std::array<std::string_view, Track::COUNT>
-      trackFullNames{
-          {[Track::qual] = "quality", [Track::ins] = "insertion"}
-      };
+  enum TrackID : uint8_t { qual, ins };
+  constexpr static std::array<std::string_view, 2> trackNames{
+      {[qual] = "quality", [ins] = "insertion"}
+  };
+  static constexpr std::string_view track_by_name (
+      std::string_view name
+  ) noexcept
+  {
+    // NOTE: this works because the track names
+    // are entirely unambiguous from the first character
+    for (const auto& trackName : trackNames) {
+      if (name == trackName.substr (0, name.length())) {
+        return trackName;
+      }
+    }
+    return {};
+  }
 
   constexpr static std::string_view call{"track"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "t"
+  constexpr static std::array<std::string_view, 2> callAlias{
+      "t", "tr"
   };
   inline static const std::string usage = fmt::format (
-      "{} [({})...] - nargs: 0 - {}", call,
-      fmt::join (trackNames, "|"), trackNames.size()
+      "{} [({})...]", call, fmt::join (trackNames, "|")
   );
   constexpr static std::string_view desc{
       "Show/hide insertion and quality score tracks in "
-      "alignment pane, or reset to default with no args."
+      "alignment pane, or reset to default with no args. "
+      "Any unambiguous substring of the track name may"
+      "be used, e.g. `track qual`."
   };
 
 
-  // TODO: ShowCols... has a simpler approach.
-  // In any case might be more readable to unify.
   static CmdResult operator() (
       std::string_view args, AppState& state
   )
@@ -725,68 +734,62 @@ struct ShowTrackCmd {
     }
     const auto tokens = split_whitespace (args);
 
-    if (const auto expectedNTok =
-            cmd_validate_ntok (tokens, 1, Track::COUNT, usage);
+    if (const auto expectedNTok = cmd_validate_ntok (
+            tokens, 1, trackNames.size(), usage
+        );
         !expectedNTok) {
       return expectedNTok.error();
     }
 
-    std::vector<Track> tracksToToggle;
+    std::unordered_set<std::string_view> seen;
     for (const auto& tok : tokens) {
-      // validate tokens
-      bool matchFound = false;
-      for (uint8_t id = 0;
-           id < static_cast<uint8_t> (Track::COUNT); ++id) {
-        if (trackNames[id] == tok) {
-          const auto trackId = static_cast<Track> (id);
-          if (std::ranges::contains (tracksToToggle, trackId)) {
-            return {
-                false, cmd_format_misuse (
-                           fmt::format (
-                               "{} specified more than once", tok
-                           ),
-                           usage
-                       )
-            };
-          }
-          tracksToToggle.push_back (trackId);
-          matchFound = true;
-        }
-      }
-      if (!matchFound) {
+      if (!seen.insert (tok).second) {
         return {
             false,
             cmd_format_misuse (
-                fmt::format ("unknown pane {}", tok), usage
+                fmt::format ("duplicated token \"{}\"", tok),
+                usage
             )
         };
       }
     }
 
+    // verify tokens are legtimate track names
+    std::vector<std::string_view> tracksToToggle;
+    for (const auto& tok : tokens) {
+      tracksToToggle.emplace_back (track_by_name (tok));
+      if (tracksToToggle.back() == "") {
+        return {
+            false,
+            cmd_format_misuse (
+                fmt::format ("unknown track \"{}\"", tok), usage
+            )
+        };
+      }
+    }
+
+    // switch drawing behaviour
     std::vector<std::string_view> nowShown;
     std::vector<std::string_view> nowHidden;
-    for (const auto& id : tracksToToggle) {
-      switch (id) {
-        case Track::qual:
-          switches.qual = !switches.qual;
-          (switches.qual ? nowShown : nowHidden)
-              .push_back (trackFullNames[id]);
-          break;
-        case Track::ins:
-          switches.ins = !switches.ins;
-          (switches.ins ? nowShown : nowHidden)
-              .push_back (trackFullNames[id]);
-          break;
-        case Track::COUNT:
-          assert (false && "COUNT is not a real value");
-          std::unreachable();
+    for (const auto& track : tracksToToggle) {
+      if (track == trackNames[TrackID::qual]) {
+        switches.qual = !switches.qual;
+        (switches.qual ? nowShown : nowHidden).push_back (track);
+      }
+      else if (track == trackNames[TrackID::ins]) {
+        switches.ins = !switches.ins;
+        (switches.ins ? nowShown : nowHidden).push_back (track);
+      }
+      else {
+        // we have already verified the tokens,
+        std::unreachable();
       }
     }
 
     std::string outMsg;
     if (!nowShown.empty()) {
       outMsg += fmt::format (
-          "Showing: {}", fmt::join (nowShown, ", ")
+          "Showing track/s: {}", fmt::join (nowShown, ", ")
       );
     }
     if (!nowHidden.empty()) {
@@ -794,7 +797,7 @@ struct ShowTrackCmd {
         outMsg += " | ";
       }
       outMsg += fmt::format (
-          "Hiding: {}", fmt::join (nowHidden, ", ")
+          "Hiding track/s: {}", fmt::join (nowHidden, ", ")
       );
     }
 
