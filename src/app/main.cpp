@@ -262,12 +262,6 @@ static VoidOrFailMsg populate_db_mode_locus (
     ff.emplace (std::move (*ffRet));
   }
 
-  PLOGD << "Inserting metadata";
-  auto imRet = insert_metadata (db, aln);
-  if (!imRet) {
-    return std::unexpected (imRet.error().msg);
-  }
-
   PLOGD << "Inserting pileup";
   auto irRet = insert_pileup (db, aln, pos, ff);
   if (!irRet) {

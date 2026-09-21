@@ -91,8 +91,8 @@ PileupOrErr prepare_pileup (
 // Span (genomic start/end) covered by every read in a prepared pileup.
 GenomicSpan get_pileup_span (const PreparedPileup& plp);
 
-// insert pileup loci into database, returning id.
-[[nodiscard]] IntOrErr insert_loci (
+// insert the pileup locus into the database's single metadata row.
+[[nodiscard]] VoidOrErr insert_metadata (
     PileupDB& db, const PileupMetadata& locus
 );
 
@@ -104,20 +104,17 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp);
 prepare_insert_reads_stmt (PileupDB& db);
 
 // Insert reads covering a pileup position into database.
-// br_plpArr/nPlp: the pileup array produced by prepare_pileup, for the
-// locus identified by lociId.
+// br_plpArr/nPlp: the pileup array produced by prepare_pileup.
 [[nodiscard]] VoidOrErr insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* br_plpArr, size_t nPlp,
-    int lociId, const Tid2StrFn& tid2str
+    const Tid2StrFn& tid2str
 );
 
 // Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads. lociId identifies the locus this read belongs
-// to. Returns the sqlite3 result code of the first failing bind call,
-// or SQLITE_OK if all columns bound successfully.
+// stmt_str_InsertReads. Returns the sqlite3 result code of the first
+// failing bind call, or SQLITE_OK if all columns bound successfully.
 [[nodiscard]] int bind_pileup_fields (
-    SqliteStmt& stmt, sqlite3_int64 lociId,
-    const PileupFields& pf
+    SqliteStmt& stmt, const PileupFields& pf
 );
 
 // convert to database-facing interface type

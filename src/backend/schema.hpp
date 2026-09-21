@@ -15,26 +15,15 @@ inline constexpr std::string_view sqlSetTempStoreMemory =
     PRAGMA temp_store = MEMORY;
 )sql";
 
-// metadata table storing provenance data, possibly
-// information retreived from the header. Deliberately unlinked to
-// loci/reads: one alignment file (and therefore one metadata row) per db.
 inline constexpr std::string_view sqlCreateMetaDataTable =
     R"sql(
 CREATE TABLE metadata (
-    id     INTEGER PRIMARY KEY,
-    field1 INT NOT NULL -- placeholder
-)
-)sql";
-
-inline constexpr std::string_view sqlCreateLociTable =
-    R"sql(
-CREATE TABLE loci (
-    id         INTEGER PRIMARY KEY,
-    contig     TEXT NOT NULL,
-    pos        INTEGER NOT NULL, -- 0-based pileup position
-    start      INTEGER,
-    end        INTEGER,
-    ref        TEXT              -- reference slice spanned by pileup
+    id     INTEGER PRIMARY KEY CHECK (id = 1),  -- one row only; one locus per db
+    contig TEXT NOT NULL,
+    pos    INTEGER NOT NULL, -- 0-based pileup position
+    start  INTEGER,
+    end    INTEGER,
+    ref    TEXT              -- reference slice spanned by pileup
 )
 )sql";
 
@@ -42,7 +31,6 @@ CREATE TABLE loci (
 struct FieldIndex {
   enum Idx : uint8_t {
     id,  // 0
-    loci_id,
     qname,
     flag,
     rstart,
@@ -72,7 +60,6 @@ inline constexpr std::string_view sqlCreateReadsTable =
     R"sql(
 CREATE TABLE reads (
     id          INTEGER PRIMARY KEY,
-    loci_id     INTEGER NOT NULL REFERENCES loci(id) ON DELETE CASCADE,
 
     -- pileup position fields
     qname       TEXT,  -- Query template NAME
@@ -110,33 +97,21 @@ CREATE TABLE reads (
 );
 )sql";
 
-// Supports both the common "reads at this locus" query and cascade
-// deletes (loci -> reads).
-inline constexpr std::string_view sqlCreateReadsLociIdIndex =
-    R"sql(
-CREATE INDEX idx_reads_loci_id ON reads(loci_id);
-)sql";
-
 // --- STATEMENTS ---
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
-INSERT INTO metadata (field1) VALUES (?);
+INSERT INTO metadata (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
 )sql";
 
-inline constexpr std::string_view sqlInsertLoci = R"sql(
-INSERT INTO loci (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
-)sql";
-
-inline constexpr std::string_view sqlSelectLoci = R"sql(
-SELECT contig, pos, start, end, ref FROM loci;
+inline constexpr std::string_view sqlSelectMetadata = R"sql(
+SELECT contig, pos, start, end, ref FROM metadata;
 )sql";
 
 inline constexpr std::string_view sqlInsertReads = R"sql(
 INSERT INTO reads (
-  loci_id,
   qname, flag, rstart, rend, mapq,
   base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
   cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
 )sql";
 
 }  // namespace schema

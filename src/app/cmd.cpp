@@ -932,6 +932,7 @@ std::vector<std::string> build_cmd_ref_table()
           bodyIndent, width
       );
     }
+    lines.push_back ("");
   }
   return lines;
 }

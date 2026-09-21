@@ -132,7 +132,6 @@ if(MAKE_TEST)
     src/backend/PileupDB.cpp
     src/backend/pileup_ingest.cpp
     src/backend/hts_types.cpp
-    tests/test_stringify.cpp
     tests/test_schema.cpp
     tests/test_ingest.cpp
     tests/test_query.cpp

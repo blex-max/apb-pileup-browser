@@ -49,21 +49,7 @@ VoidOrErr init_db (PileupDB& db)
     };
   }
 
-  if (sqlRc = excFn (schema::sqlCreateLociTable);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
-  }
-
   if (sqlRc = excFn (schema::sqlCreateReadsTable);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
-  }
-
-  if (sqlRc = excFn (schema::sqlCreateReadsLociIdIndex);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
@@ -359,9 +345,9 @@ LocusOrErr get_locus_data (const PileupDB& db)
 
   sqlite3_stmt* o_stmt = NULL;
   int sqlRc = sqlite3_prepare_v2 (
-      db, schema::sqlSelectLoci.data(),
-      static_cast<int> (schema::sqlSelectLoci.size()), &o_stmt,
-      NULL
+      db, schema::sqlSelectMetadata.data(),
+      static_cast<int> (schema::sqlSelectMetadata.size()),
+      &o_stmt, NULL
   );
   if (sqlRc != SQLITE_OK) {
     return std::unexpected{
@@ -416,62 +402,6 @@ PileupMetadata make_locus_data (
   };
 }
 
-namespace {
-
-std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
-    PileupDB& db
-)
-{
-  SqliteStmt stmt;
-  int rc;
-  if (rc = sqlite3_prepare_v2 (
-          db, schema::sqlInsertMetadata.data(),
-          static_cast<int> (schema::sqlInsertMetadata.size()),
-          &stmt.o_stmt, NULL
-      );
-      rc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errmsg (db))
-    };
-  }
-  return stmt;
-}
-
-}  // namespace
-
-VoidOrErr insert_metadata (PileupDB& db, const AlnFile&)
-{
-  /*
-    insert provenance metadata into database.
-
-    uses automatic transaction handling.
-  */
-  // NOTE: automatic transaction handling
-  // means no need to handle rollback on
-  // error paths.
-  auto r = prepare_insert_metadata_stmt (db);
-  if (!r) {
-    return std::unexpected{r.error()};
-  }
-  auto stmt{std::move (*r)};
-
-  const int col = 1;
-  int rc;
-  // placeholder bind;
-  // in future will use data from AlnFile
-  if (rc = sqlite3_bind_int (stmt, col, 1); rc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errstr (rc))
-    };
-  }
-  if (rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errmsg (db))
-    };
-  }
-  return {};
-}
-
 VoidOrErr insert_pileup (
     PileupDB& db, const AlnFile& aln, const PileupPosition& pos,
     const std::optional<FastaFile>& ff
@@ -507,24 +437,21 @@ VoidOrErr insert_pileup (
     }
   }
 
-  // NOTE: not checking if loci already exists
-  // NOTE: if insert_reads_interal fails,
-  // insert_loci not rolled back.
-  // NOTE: nreads not currently recorded
-  // in loci table
-  auto ilRet = insert_loci (
+  // NOTE: if insert_reads_internal fails, insert_metadata not
+  // rolled back.
+  // NOTE: nreads not currently recorded in metadata table
+  auto imRet = insert_metadata (
       db, make_locus_data (contigName, pos.pos, rSpan, refSlice)
   );
-  if (!ilRet) {
-    return std::unexpected{ilRet.error()};
+  if (!imRet) {
+    return std::unexpected{imRet.error()};
   }
-  auto lociId = *ilRet;
 
   auto tid2str = [&aln] (int tid) {
     return sam_hdr_tid2name (aln.o_hdr, tid);
   };
   auto irRet = insert_reads_internal (
-      db, reads.br_plpArr, reads.nPlp, lociId, tid2str
+      db, reads.br_plpArr, reads.nPlp, tid2str
   );
   if (!irRet) {
     return std::unexpected{irRet.error()};

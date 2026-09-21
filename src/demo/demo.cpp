@@ -332,21 +332,12 @@ VoidOrErr insert_demo_data (
       span.start + gOffset, span.end + gOffset
   };
 
-  // demo data has no real alignment file / contigs; placeholder
-  // metadata row just satisfies the reads table's loci_id FK chain.
-  const AlnFile dummyAln;
-  auto imRet = insert_metadata (db, dummyAln);
+  auto imRet = insert_metadata (
+      db, make_locus_data ("demo", gPileupPos, gSpan, refSlice)
+  );
   if (!imRet) {
     return std::unexpected{imRet.error()};
   }
-
-  auto ilRet = insert_loci (
-      db, make_locus_data ("demo", gPileupPos, gSpan, refSlice)
-  );
-  if (!ilRet) {
-    return std::unexpected{ilRet.error()};
-  }
-  const int lociId = *ilRet;
 
   auto stmtRet = prepare_insert_reads_stmt (db);
   if (!stmtRet) {
@@ -359,8 +350,7 @@ VoidOrErr insert_demo_data (
   }
 
   for (const auto& ru_pf : reads) {
-    if (const int sqlRc =
-            bind_pileup_fields (stmt, lociId, ru_pf);
+    if (const int sqlRc = bind_pileup_fields (stmt, ru_pf);
         sqlRc != SQLITE_OK) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);

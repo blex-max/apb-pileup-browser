@@ -16,12 +16,6 @@
 struct PileupDB : public SqliteConn {};
 VoidOrErr init_db (PileupDB& db);
 
-// insert provenance metadata into database (unlinked to loci/reads —
-// one alignment file per db).
-[[nodiscard]] VoidOrErr insert_metadata (
-    PileupDB& db, const AlnFile& aln
-);
-
 // insert reads at pileup position into database
 [[nodiscard]] VoidOrErr insert_pileup (
     PileupDB& db, const AlnFile& aln, const PileupPosition& pos,

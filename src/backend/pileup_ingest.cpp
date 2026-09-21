@@ -17,15 +17,15 @@
 
 namespace {
 
-std::expected<SqliteStmt, Err> prepare_insert_loci_stmt (
+std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
     PileupDB& db
 )
 {
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, schema::sqlInsertLoci.data(),
-          static_cast<int> (schema::sqlInsertLoci.size()),
+          db, schema::sqlInsertMetadata.data(),
+          static_cast<int> (schema::sqlInsertMetadata.size()),
           &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
@@ -263,15 +263,15 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
   return out;
 }
 
-[[nodiscard]] IntOrErr insert_loci (
+[[nodiscard]] VoidOrErr insert_metadata (
     PileupDB& db, const PileupMetadata& locus
 )
 {
   /*
-    insert pileup loci into database, returning id.
+    insert the pileup locus into the database's single metadata row.
     Uses automatic transaction handling.
   */
-  auto r = prepare_insert_loci_stmt (db);
+  auto r = prepare_insert_metadata_stmt (db);
   if (!r) {
     return std::unexpected{r.error()};
   }
@@ -330,26 +330,20 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
         make_sqlite3_err (rc, sqlite3_errmsg (db))
     };
   }
-  return sqlite3_last_insert_rowid (db);
+  return {};
 }
 
 // Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads. lociId identifies the locus this read belongs
-// to. Returns the sqlite3 result code of the first failing bind call,
-// or SQLITE_OK if all columns bound successfully.
+// stmt_str_InsertReads. Returns the sqlite3 result code of the first
+// failing bind call, or SQLITE_OK if all columns bound successfully.
 [[nodiscard]] int bind_pileup_fields (
-    SqliteStmt& stmt, sqlite3_int64 lociId,
-    const PileupFields& pf
+    SqliteStmt& stmt, const PileupFields& pf
 )
 {
   // NOTE: returns sql error code directly;
   // outer scope needs to handle error/rollback anyway
   int col = 1;
   int sqlRc;
-  if (sqlRc = sqlite3_bind_int64 (stmt, col++, lociId);
-      sqlRc != SQLITE_OK) {
-    return sqlRc;
-  }
   if (sqlRc = sqlite3_bind_text (
           stmt, col++, pf.qName.data(),
           static_cast<int> (pf.qName.size()), SQLITE_TRANSIENT
@@ -534,7 +528,7 @@ VoidOrErr commit (PileupDB& db)
 
 VoidOrErr insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* br_plpArr, size_t nPlp,
-    int lociId, const Tid2StrFn& tid2str
+    const Tid2StrFn& tid2str
 )
 {
   if (nPlp == 0) {
@@ -585,8 +579,7 @@ VoidOrErr insert_reads_internal (
       return std::unexpected{ffRet.error()};
     }
 
-    if (const int sqlRc =
-            bind_pileup_fields (stmt, lociId, ru_pf);
+    if (const int sqlRc = bind_pileup_fields (stmt, ru_pf);
         sqlRc != SQLITE_OK) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);

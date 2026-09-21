@@ -47,7 +47,7 @@ Note that this is all subject to change pending user feedback.
 
 3.1) Basic Navigation
 
-The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. Normal typing goes directly to the command line at the bottom of the TUI. `Enter` dispatches the contents as a command.
+The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. Normal typing goes directly to the command line at the bottom of the TUI. `Enter` dispatches the contents as a command. This table is also available via `help nav` at the in-app command line.
 
 Navigation Keys:
 
@@ -59,7 +59,7 @@ Ctrl-C clears the command line if any input is present, and exits the program ot
 
 3.2) Command Reference
 
-Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use.
+Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use. This table is built directly from the command implementation in src and is also available via `help cmd` at the in-app command line.
 
 )txt";
 
@@ -141,7 +141,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 3.4) Table Reference
 
-For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This table is directly printed from the in-app table reference accessible with `help table`.
+For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help table` at the in-app command line.
 
 )txt";
 
