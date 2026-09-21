@@ -54,20 +54,13 @@ struct UIBundle {
 };
 
 
-void set_overlay_widget (UIBundle& ui, TextBlockRef content);
-void draw_overlay (const OverlayWgt& oWgt);
+VoidOrErr size_widgets (UIBundle& ui);
+void size_and_set_overlay_widget (
+    UIBundle& ui, TextBlockRef content
+);
 
-struct SizeBrowserPaneSwitches {
-  bool showAln = true;
-  bool showTable = true;
-};
-void size_browser_panes (
-    BrowserWgt& bWgt, SizeBrowserPaneSwitches switches
-);
-VoidOrErr size_widgets (
-    UIBundle& ui, SizeBrowserPaneSwitches switches
-);
 
 VoidOrErr draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf
 );
+void draw_overlay (const OverlayWgt& oWgt);

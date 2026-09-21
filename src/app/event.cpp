@@ -6,11 +6,9 @@
 #include "app/widgets.hpp"
 #include "plog/Log.h"
 
-static VoidOrErr handle_resize (
-    UIBundle& ui, SizeBrowserPaneSwitches switches
-)
+static VoidOrErr handle_resize (UIBundle& ui)
 {
-  auto calcRet = size_widgets (ui, switches);
+  auto calcRet = size_widgets (ui);
   if (!calcRet) {
     return std::unexpected (calcRet.error());
   }
@@ -208,11 +206,7 @@ VoidOrErr handle_event (AppState& state, const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    const auto& switches = state.conf.drawPaneSwitches;
-    auto rszRet = handle_resize (
-        state.ui,
-        {.showAln = switches.aln, .showTable = switches.table}
-    );
+    auto rszRet = handle_resize (state.ui);
     if (!rszRet) {
       return std::unexpected (rszRet.error());
     }

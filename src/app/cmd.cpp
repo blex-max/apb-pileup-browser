@@ -143,6 +143,8 @@ struct ShowTableColCmd {
       fmt::format ("{} <field-name>...", call);
   constexpr static std::string_view desc{
       "Show/hide read data columns in the table pane."
+      "For a list of available columns, check the "
+      "manual or run `? table`."
   };
 
   static CmdResult operator() (
@@ -280,7 +282,8 @@ struct WhereCmd {
       fmt::format ("{} <clause>", call);
   constexpr static std::string_view desc{
       "Start a new WHERE clause, overwriting any existing "
-      "clause."
+      "clause. For a reference of queryable columns, check "
+      "the manual or run `? table`."
   };
 
   static CmdResult operator() (
@@ -598,81 +601,110 @@ struct ClearCmd {
   };
 };
 
-struct ShowPaneCmd {
-  enum Pane : uint8_t { aln, table, COUNT };
-  constexpr static std::array<std::string_view, Pane::COUNT>
-      paneNames{{[Pane::aln] = "aln", [Pane::table] = "table"}};
-  constexpr static std::array<std::string_view, Pane::COUNT>
-      paneFullNames{
-          {[Pane::aln] = "alignment", [Pane::table] = "table"}
-      };
-  constexpr static double kDefaultFrac = 0.5;
+// NOTE: kept for now for future reference
+// struct ShowPaneCmd {
+//   enum Pane : uint8_t { aln, table, COUNT };
+//   constexpr static std::array<std::string_view, Pane::COUNT>
+//       paneNames{{[Pane::aln] = "aln", [Pane::table] = "table"}};
+//   constexpr static std::array<std::string_view, Pane::COUNT>
+//       paneFullNames{
+//           {[Pane::aln] = "alignment", [Pane::table] = "table"}
+//       };
 
-  constexpr static std::string_view call{"pane"};
+//   constexpr static std::string_view call{"pane"};
+//   constexpr static std::array<std::string_view, 1> callAlias{
+//       "p"
+//   };
+//   inline static const std::string usage =
+//       fmt::format ("{} [{}]", call, fmt::join (paneNames, "|"));
+//   constexpr static std::string_view desc{
+//       "Show/hide either of the alignment or table panes, or "
+//       "reset to default with no args."
+//   };
+
+//   static CmdResult operator() (
+//       std::string_view args, AppState& state
+//   )
+//   {
+//     auto& switches = state.conf.drawPaneSwitches;
+//     const auto tokens = split_whitespace (args);
+
+//     if (tokens.size() > 1) {
+//       return {
+//           false,
+//           cmd_format_misuse ("specify a single pane only", usage)
+//       };
+//     }
+
+//     std::string msg;
+//     if (tokens.empty()) {
+//       switches.table = true;
+//       msg = "Reset view to default";
+//     }
+//     else if (tokens[0] == paneNames[Pane::aln]) {
+//       switches.aln = !switches.aln;
+//       if (!switches.aln && !switches.table) {
+//         switches.table = true;
+//       }
+//       msg = fmt::format (
+//           "{} {} pane", (switches.aln) ? "Unfolded" : "Folded",
+//           paneFullNames[Pane::aln]
+//       );
+//     }
+//     else if (tokens[0] == paneNames[Pane::table]) {
+//       switches.table = !switches.table;
+//       if (!switches.table && !switches.aln) {
+//         switches.aln = true;
+//       }
+//       msg = fmt::format (
+//           "{} {} pane", (switches.table) ? "Unfolded" : "Folded",
+//           paneFullNames[Pane::table]
+//       );
+//     }
+//     else {
+//       return {
+//           false,
+//           cmd_format_misuse (
+//               fmt::format ("unknown pane {}", tokens[0]), usage
+//           )
+//       };
+//     }
+
+//     return {true, msg};
+//   }
+
+//   inline static const CmdView view{
+//       call, callAlias, &operator(), usage, desc
+//   };
+// };
+
+struct ShowTableCmd {
+  constexpr static std::string_view call{"show-table"};
   constexpr static std::array<std::string_view, 1> callAlias{
-      "p"
+      "st"
   };
-  inline static const std::string usage =
-      fmt::format ("{} [{}]", call, fmt::join (paneNames, "|"));
-  constexpr static std::string_view desc{
-      "Show/hide either of the alignment or table panes, or "
-      "reset to default with no args."
-  };
+  constexpr static std::string_view usage = call;
+  constexpr static std::string_view desc{"Show/hide table pane"};
 
   static CmdResult operator() (
       std::string_view args, AppState& state
   )
   {
-    auto& switches = state.conf.drawPaneSwitches;
-    const auto tokens = split_whitespace (args);
-
-    if (tokens.size() > 1) {
-      return {
-          false,
-          cmd_format_misuse ("specify a single pane only", usage)
-      };
+    const auto valRet = cmd_validate_args_empty (args, usage);
+    if (!valRet) {
+      return valRet.error();
     }
 
-    std::string msg;
-    if (tokens.empty()) {
-      switches.aln = true;
-      switches.table = true;
-      msg = "Reset view to default";
-    }
-    else if (tokens[0] == paneNames[Pane::aln]) {
-      switches.aln = !switches.aln;
-      if (!switches.aln && !switches.table) {
-        switches.table = true;
-      }
-      msg = fmt::format (
-          "{} {} pane", (switches.aln) ? "Unfolded" : "Folded",
-          paneFullNames[Pane::aln]
-      );
-    }
-    else if (tokens[0] == paneNames[Pane::table]) {
-      switches.table = !switches.table;
-      if (!switches.table && !switches.aln) {
-        switches.aln = true;
-      }
-      msg = fmt::format (
-          "{} {} pane", (switches.table) ? "Unfolded" : "Folded",
-          paneFullNames[Pane::table]
-      );
-    }
-    else {
-      return {
-          false,
-          cmd_format_misuse (
-              fmt::format ("unknown pane {}", tokens[0]), usage
-          )
-      };
-    }
-
-    size_browser_panes (
-        state.ui.browsr,
-        {.showAln = switches.aln, .showTable = switches.table}
-    );
-    return {true, msg};
+    state.conf.drawPaneSwitches.table =
+        !state.conf.drawPaneSwitches.table;
+    return {
+        true,
+        fmt::format (
+            "{} table pane", (state.conf.drawPaneSwitches.table)
+                                 ? "Unfolded"
+                                 : "Folded"
+        )
+    };
   }
 
   inline static const CmdView view{
@@ -910,9 +942,13 @@ struct HelpCmd {
       "h", "?"
   };
 
-  enum Topic : uint8_t { nav, cmd, COUNT };
+  enum Topic : uint8_t { nav, cmd, table, COUNT };
   constexpr static std::array<std::string_view, Topic::COUNT>
-      topicNames{{[Topic::nav] = "nav", [Topic::cmd] = "cmd"}};
+      topicNames{{
+          [Topic::nav] = "nav",
+          [Topic::cmd] = "cmd",
+          [Topic::table] = "table",
+      }};
 
   inline static const std::string usage = fmt::format (
       "{} [({})]", call, fmt::join (topicNames, "|")
@@ -934,14 +970,14 @@ struct HelpCmd {
     CmdResult out;
     if (tokens.empty()) {
       state.conf.showOverlay = true;
-      set_overlay_widget (state.ui, sh_helpBlock);
+      size_and_set_overlay_widget (state.ui, sh_helpBlock);
       out.success = true;
     }
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
       if (topic == topicNames[Topic::nav]) {
         state.conf.showOverlay = true;
-        set_overlay_widget (state.ui, sh_navBlock);
+        size_and_set_overlay_widget (state.ui, sh_navBlock);
         out.success = true;
       }
       else if (topic == topicNames[Topic::cmd]) {
@@ -951,8 +987,16 @@ struct HelpCmd {
         tableView.assign (cmdTable.begin(), cmdTable.end());
 
         state.conf.showOverlay = true;
-        set_overlay_widget (state.ui, tableView);
+        size_and_set_overlay_widget (state.ui, tableView);
         out.success = true;
+      }
+      else if (topic == topicNames[Topic::table]) {
+        state.conf.showOverlay = true;
+        size_and_set_overlay_widget (state.ui, sh_colBlock);
+        out.success = true;
+      }
+      else {
+        std::unreachable();
       }
     }
     else {
@@ -969,13 +1013,22 @@ struct HelpCmd {
   };
 };
 
-static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{
-    {&HelpCmd::view, &QuitCmd::view, &WhereCmd::view,
-     &AndCmd::view, &OrCmd::view, &BackCmd::view,
-     &ClearWhereCmd::view, &OrderCmd::view, &ClearCmd::view,
-     &DumpCmd::view, &ShowPaneCmd::view, &ShowTrackCmd::view,
-     &ShowTableColCmd::view, &CountCmd::view}
-};
+static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{{
+    &HelpCmd::view,
+    &QuitCmd::view,
+    &WhereCmd::view,
+    &AndCmd::view,
+    &OrCmd::view,
+    &BackCmd::view,
+    &ClearWhereCmd::view,
+    &OrderCmd::view,
+    &ClearCmd::view,
+    &DumpCmd::view,
+    &ShowTableCmd::view,
+    &ShowTrackCmd::view,
+    &ShowTableColCmd::view,
+    &CountCmd::view,
+}};
 
 // `view`s are not constexpr, so here's somewhat horrible
 // solution for compile time overlap checking. Keep in
@@ -993,14 +1046,13 @@ static constexpr std::array<
          OrderCmd::callAlias,
          ClearCmd::callAlias,
          {},
-         ShowPaneCmd::callAlias,
+         ShowTableCmd::callAlias,
          ShowTrackCmd::callAlias,
          ShowTableColCmd::callAlias,
          CountCmd::callAlias}
     };
 static constexpr bool all_aliases_unique()
 {
-  // somewhat horrible
   for (size_t i = 0; i < cmdAliases_SH.size(); i++) {
     const auto& iAliases = cmdAliases_SH[i];
     for (size_t j = i + 1; j < cmdAliases_SH.size(); j++) {

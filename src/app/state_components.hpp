@@ -137,7 +137,6 @@ struct AppConfig {
     bool ins = true;
   } drawTrackSwitches;
   struct {
-    bool aln = true;
     bool table = true;
   } drawPaneSwitches;
 };

@@ -11,7 +11,7 @@
 #include "app/text_blocks.hpp"
 
 
-static constexpr std::string_view sh_manualPre = R"txt(
+static constexpr std::string_view sh_manualChunk1 = R"txt(
 apb Manual - A Pileup Browser
 
 **IMPORTANT**:
@@ -53,7 +53,7 @@ Navigation Keys:
 
 )txt";
 
-static constexpr std::string_view sh_manualMid = R"txt(
+static constexpr std::string_view sh_manualChunk2 = R"txt(
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
@@ -63,7 +63,7 @@ Every command submitted at the command line is interpreted like `<command> [args
 
 )txt";
 
-static constexpr std::string_view sh_manualPost = R"txt(
+static constexpr std::string_view sh_manualChunk3 = R"txt(
 
 3.3) Querying the Pileup
 
@@ -143,47 +143,9 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format.
 
- TABLE REFERENCE
-  `qname`:
-      read/template name
-  `flag`:
-      SAM bitwise FLAG
-  `rstart`:
-      0-based leftmost mapping position
-  `rend`:
-      0-based rightmost mapping position
-  `mapq`:
-      mapping quality
-  `basequal`:
-      Phred base quality at the pileup position
-  `qpos`:
-      0-based offset into `seq`/`qual` for the pileup locus position
-  `cigar`:
-      CIGAR string
-  `mtid`:
-      reference name of the mate/next read
-  `mstart`:
-      mate/next read's leftmost mapping position
-  `tags`:
-      aux tags as JSON; able to be individually queried
-  `base`:
-      the read's base at the pileup position
-  `indel`:
-      indel length to the next mapped base in the read (0 none, >0 insertion, <0 deletion)
-  `is_del`:
-      1 if this position is a deletion
-  `is_head`:
-      1 if this is the read's first aligned base
-  `is_tail`:
-      1 if this is the read's last aligned base
-  `is_refskip`:
-      1 if this position is a reference skip
-  `seq`:
-      the read's sequence string
-  `qual`:
-      the read's ASCII quality string
-  `ncig`:
-      number of CIGAR operations in the read
+)txt";
+
+static constexpr std::string_view sh_manualChunk4 = R"txt(
 
 `indel` might require some explanation. Essentially, if the base at the pileup position is followed by an indel, then `indel` will contain the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size (bases gained).
 
@@ -214,9 +176,10 @@ See the README or the project GitHub (https://github.com/blex-max/apb-pileup-bro
 std::string_view get_manual()
 {
   static const std::string sh_manual = fmt::format (
-      "{}{}{}{}{}", sh_manualPre, fmt::join (sh_navBlock, "\n"),
-      sh_manualMid, fmt::join (build_cmd_ref_table(), "\n"),
-      sh_manualPost
+      "{}{}{}{}{}{}{}", sh_manualChunk1,
+      fmt::join (sh_navBlock, "\n"), sh_manualChunk2,
+      fmt::join (build_cmd_ref_table(), "\n"), sh_manualChunk3,
+      fmt::join (sh_colBlock, "\n"), sh_manualChunk4
   );
   return sh_manual;
 }

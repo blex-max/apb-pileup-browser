@@ -64,11 +64,13 @@ static std::pair<int, int> get_screen_size (UIBundle& ui)
   return {ui.screenW, ui.screenH};
 }
 
-void set_overlay_widget (UIBundle& ui, TextBlockRef content)
+void size_and_set_overlay_widget (
+    UIBundle& ui, TextBlockRef content
+)
 {
-  if (content.empty()) {
-    return;
-  }
+  // set overlay widget, dynamically sizing to content
+  assert (!content.empty());
+
   auto& oWgt = ui.help;
   const auto [screenW, screenH] = get_screen_size (ui);
 
@@ -107,149 +109,7 @@ void set_overlay_widget (UIBundle& ui, TextBlockRef content)
   oWgt.content = content;
 }
 
-void draw_overlay (const OverlayWgt& oWgt)
-{
-  const auto& box = oWgt.contentBox;
-  const auto& frame = oWgt.frame;
-  const auto& content = oWgt.content;
-
-  // NOTE: a nice property of the global only/
-  // single surface drawing approach. Clearing
-  // this layer clears everything "below".
-  clear (box);
-  clear (frame);
-
-  set (edgeAB (frame), boxch::horzLine);
-  set (edgeBC (frame), boxch::vertLine);
-  set (edgeCD (frame), boxch::horzLine);
-  set (edgeDA (frame), boxch::vertLine);
-
-  set (vertexA (frame), boxch::topLeftRoundCorner);
-  set (vertexB (frame), boxch::topRightRoundCorner);
-  set (vertexD (frame), boxch::bottomLeftRoundCorner);
-  set (vertexC (frame), boxch::bottomRightRoundCorner);
-
-  auto xEnd =
-      last (box.xspan) - 1;  // leave a gap before the border
-
-  auto writeHead = vertexA (frame);
-  writeHead.x += 1;
-  writeHead.x += e2::write_string (
-      writeHead, xEnd, " q: close overlay ", TB_DIM
-  );
-  writeHead.x += 3;
-  const auto lnN = height (box);
-  if (lnN < std::ssize (content)) {
-    e2::write_string (
-        writeHead, xEnd, "Up / Down: scroll", TB_DIM
-    );
-  }
-
-  const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
-  auto lnY = extb::vertexA (box);
-  for (int i = 0; i < lnN && i < std::ssize (content); ++i) {
-    e2::write_string (
-        lnY, xEnd, content[static_cast<size_t> (i) + lnOff]
-    );
-    ++lnY.y;
-  }
-}
-
-
-void size_browser_panes (
-    BrowserWgt& bWgt, SizeBrowserPaneSwitches switches
-)
-{
-  PLOGD << "Sizing browser child panes";
-
-  assert (valid (bWgt.frame));
-
-  const auto& [frameX, frameY] = spans (bWgt.frame);
-  const auto& contentX = body (frameX);
-  const auto& contentY = body (frameY);
-  // skip header, separator. leave 2 rows at end
-  const auto dataY =
-      e2::Span{first (contentY) + 2, last (contentY) - 1};
-
-
-  if (switches.showTable) {
-    int splitRelativeX;
-    e2::Span alnPaneX;
-    e2::Span tablePaneX;
-    if (switches.showAln) {
-      splitRelativeX = static_cast<int> (
-          ceil (static_cast<double> (size (contentX)) * 0.5)
-      );
-      alnPaneX = construct_relative (frameX, 1, splitRelativeX);
-      tablePaneX = construct_relative (
-          frameX, splitRelativeX + 1, size (contentX) + 1
-      );
-      bWgt.vSep = {
-          first (frameX) + splitRelativeX,
-          construct_relative (frameY, 0, size (frameY) - 1)
-      };
-    }
-    else {
-      alnPaneX = {first (contentX), first (contentX) + 1};
-      bWgt.vSep = {
-          last (alnPaneX),
-          construct_relative (frameY, 0, size (frameY) - 1)
-      };
-      tablePaneX = {bWgt.vSep.x + 1, size (frameX) - 1};
-    }
-
-    bWgt.alnPaneRefLine = {alnPaneX, first (contentY)};
-    bWgt.tablePaneHeaderLine = {tablePaneX, first (contentY)};
-    bWgt.alnPaneDataBox = {alnPaneX, dataY};
-    bWgt.tablePaneDataBox = {tablePaneX, dataY};
-  }
-  else {
-    bWgt.tablePaneHeaderLine = {};  // invalid
-    bWgt.tablePaneDataBox = {};
-    bWgt.vSep = {};
-
-    bWgt.alnPaneRefLine = {contentX, first (contentY)};
-    bWgt.alnPaneDataBox = {contentX, dataY};
-  }
-
-  bWgt.headerSep = {
-      frameX, first (contentY) + 1
-  };  // overlapping frame in X, to set connectors
-
-  bWgt.ambientSep = {frameX, last (dataY)};
-  bWgt.ambientLine = {contentX, last (contentY)};
-}
-
-// precondition: widget frame is set
-static void size_cmd_widget (CmdWgt& cWgt)
-{
-  const auto& [cmdX, cmdY] = spans (cWgt.frame);
-
-  auto y = first (cmdY) + 1;
-  cWgt.queryStatusLine = e2::HLine{body (cmdX), y++};
-  cWgt.statusSep = e2::HLine{
-      cmdX,  // include frame, to draw pipe connectors at line ends
-      y++
-  };
-
-  // cmd input
-  cWgt.inputCaret = e2::GlobalCell{first (cmdX) + 1, y};
-  cWgt.inputLine = e2::HLine{
-      // skip border, leave space for caret ':'
-      construct_relative (cmdX, 2, size (cmdX) - 1), y++
-  };
-
-  cWgt.sepLine = e2::HLine{
-      cmdX,  // include frame, to draw pipe connectors at line ends
-      y++
-  };
-
-  cWgt.msgLine = e2::HLine{body (cmdX), y};
-}
-
-VoidOrErr size_widgets (
-    UIBundle& ui, SizeBrowserPaneSwitches switches
-)
+VoidOrErr size_widgets (UIBundle& ui)
 {
   PLOGD << "Calculating widget size";
 
@@ -274,23 +134,53 @@ VoidOrErr size_widgets (
     ));
   }
 
-  // widgets to calc
-  auto& bWgt = ui.browsr;
-  bWgt.frame = e2::Box{screenX, mainY};
+  {
+    auto& bWgt = ui.browsr;
+    bWgt.frame = e2::Box{screenX, mainY};
+    const auto& browsrContentX = body (screenX);
+    const auto& browsrContentY = body (mainY);
+    // skip header, separator. leave 2 rows at end
+    const auto dataY = e2::Span{
+        first (browsrContentY) + 2, last (browsrContentY) - 1
+    };
+    bWgt.headerSep = {
+        screenX, first (browsrContentY) + 1
+    };  // overlapping frame in X, to set connectors
+    bWgt.ambientSep = {screenX, last (dataY)};
+    bWgt.ambientLine = {browsrContentX, last (browsrContentY)};
+  }
 
-  size_browser_panes (bWgt, switches);
+  {
+    auto& cWgt = ui.cmd;
+    cWgt.frame = e2::Box{screenX, cmdY};
 
-  auto& cWgt = ui.cmd;
-  cWgt.frame = e2::Box{screenX, cmdY};
+    auto y = first (cmdY) + 1;
+    cWgt.queryStatusLine = e2::HLine{body (screenX), y++};
+    cWgt.statusSep = e2::HLine{
+        screenX,  // include frame, to draw pipe connectors at line ends
+        y++
+    };
 
-  size_cmd_widget (cWgt);
+    // cmd input
+    cWgt.inputCaret = e2::GlobalCell{first (screenX) + 1, y};
+    cWgt.inputLine = e2::HLine{
+        // skip border, leave space for caret ':'
+        construct_relative (screenX, 2, size (screenX) - 1), y++
+    };
 
-  // for resize
-  set_overlay_widget (ui, ui.help.content);
+    cWgt.sepLine = e2::HLine{
+        screenX,  // include frame, to draw pipe connectors at line ends
+        y++
+    };
+
+    cWgt.msgLine = e2::HLine{body (screenX), y};
+  }
+
+  // dynamically sized to content
+  size_and_set_overlay_widget (ui, ui.help.content);
 
   return {};
 }
-
 // --- end sizing --- //
 
 // --- draw layout --- //
@@ -319,10 +209,6 @@ static void draw_browser_chrome (BrowserWgt& bWgt)
   set (body (bWgt.ambientSep), boxch::horzLine, TB_DIM);
   set (first (bWgt.ambientSep), boxch::rightTConnect, TB_DIM);
   set (last (bWgt.ambientSep), boxch::leftTConnect, TB_DIM);
-
-  set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
-  set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
-  set (last (bWgt.vSep), boxch::upTConnect, TB_DIM);
 
   set (last (bWgt.headerSep), boxch::leftTConnect, TB_DIM);
 }
@@ -833,32 +719,83 @@ static VoidOrErr draw_query_data (
 )
 {
   // draw reads and data table
+  PLOGD << "Drawing browser child panes";
+
+  // preconditions:
+  assert (valid (bWgt.frame));
+  assert (size (bWgt.frame.xspan) > 2);
 
   sqlite3_reset (db.stmt);
 
-  auto& seqPane = bWgt.alnPaneDataBox;
-  auto& dataPane = bWgt.tablePaneDataBox;
-  auto& hdrLine = bWgt.tablePaneHeaderLine;
-
+  uint16_t tableWidth = 0;
   std::vector<const ColMetadata*> activeCols;
   for (const auto& col : conf.displayTableCols) {
     if (col.visible) {
       activeCols.emplace_back (&col);
+      // +1 per column for the field separator drawn after it
+      // (see data_table::draw_header/draw_row_separators/draw_row)
+      tableWidth += col.displayWidth + 1;
     }
   }
+  // Reserve room for at least one column of alignment/pileup
+  // view, so a narrow terminal shrinks the table pane rather
+  // than squeezing the alignment pane out of existence. (The
+  // vSep column is already accounted for below: the table
+  // pane's real rendered width is tableWidth - 1.)
+  constexpr int minAlnPaneWidth = 1;
+  const auto maxTableWidth = static_cast<uint16_t> (
+      std::max (0, size (bWgt.frame.xspan) - 2 - minAlnPaneWidth)
+  );
+  tableWidth = std::min (tableWidth, maxTableWidth);
+
+  const auto& [frameX, frameY] = spans (bWgt.frame);
+  const auto& contentX = body (frameX);
+  const auto& contentY = body (frameY);
+  // skip header, separator. leave 2 rows at end
+  const auto dataY =
+      e2::Span{first (contentY) + 2, last (contentY) - 1};
 
   if (conf.drawPaneSwitches.table) {
-    data_table::draw_header (hdrLine, activeCols);
-    data_table::draw_row_separators (dataPane, activeCols);
+    const int splitAbsX = last (contentX) - tableWidth;
+    e2::Span alnPaneX{first (contentX), splitAbsX};
+    e2::Span tablePaneX{splitAbsX + 1, last (contentX)};
+
+    bWgt.alnPaneRefLine = {alnPaneX, first (contentY)};
+    bWgt.tablePaneHeaderLine = {tablePaneX, first (contentY)};
+    bWgt.alnPaneDataBox = {alnPaneX, dataY};
+    bWgt.tablePaneDataBox = {tablePaneX, dataY};
+
+    data_table::draw_header (
+        bWgt.tablePaneHeaderLine, activeCols
+    );
+    data_table::draw_row_separators (
+        bWgt.tablePaneDataBox, activeCols
+    );
+    bWgt.vSep = {
+        splitAbsX,
+        construct_relative (frameY, 0, size (frameY) - 1)
+    };
+    set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
+    set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
+    set (last (bWgt.vSep), boxch::upTConnect, TB_DIM);
+  }
+  else {
+    bWgt.tablePaneHeaderLine = {};  // invalid
+    bWgt.tablePaneDataBox = {};
+    bWgt.vSep = {};
+
+    bWgt.alnPaneRefLine = {contentX, first (contentY)};
+    bWgt.alnPaneDataBox = {contentX, dataY};
   }
 
-  auto seqWriteHead = vertexA (seqPane);
-  auto seqWriteLim =
-      vertexC (seqPane) + e2::dXY (1, 1);  // exclusive limit
+  auto seqWriteHead = vertexA (bWgt.alnPaneDataBox);
+  auto seqWriteLim = vertexC (bWgt.alnPaneDataBox) +
+                     e2::dXY (1, 1);  // exclusive limit
 
   const auto drawAlignmentShared =
       draw_alignment::prepare_shared (
-          seqWriteHead.x, db.locus.pos - (width (seqPane) / 2),
+          seqWriteHead.x,
+          db.locus.pos - (width (bWgt.alnPaneDataBox) / 2),
           db.locus.start, seqWriteLim
       );
 
@@ -888,9 +825,10 @@ static VoidOrErr draw_query_data (
     if (conf.drawPaneSwitches.table) {
       data_table::draw_row (
           e2::GlobalCell{
-              {.x = first (dataPane.xspan), .y = seqWriteHead.y}
+              {.x = first (bWgt.tablePaneDataBox.xspan),
+               .y = seqWriteHead.y}
           },
-          last (dataPane.xspan), db.stmt, activeCols
+          last (bWgt.tablePaneDataBox.xspan), db.stmt, activeCols
       );
     }
     seqWriteHead.y += dHead.dy;
@@ -898,23 +836,24 @@ static VoidOrErr draw_query_data (
   }
   bWgt.nReadOnscreen = nReadDrawn;
 
-  auto pileupXPos =
-      first (seqPane.xspan) + (width (seqPane) / 2);
+  auto pileupXPos = first (bWgt.alnPaneDataBox.xspan) +
+                    (width (bWgt.alnPaneDataBox) / 2);
 
-  if (conf.drawPaneSwitches.aln) {
-    // set crosshair if alignment pane unfolded
-    e2::VLine pileupCrosshair{pileupXPos, seqPane.yspan};
-    // At some point I thought it was necessary to
-    // rm the DIM attribute under the crosshair because
-    // something looked bad. I can't reproduce that
-    // now so leaving the attr.
-    // rm_attr (pileupCrosshair, TB_DIM);
-    add_attr (pileupCrosshair, TB_REVERSE);
-  }
+  e2::VLine pileupCrosshair{
+      pileupXPos, bWgt.alnPaneDataBox.yspan
+  };
+  // At some point I thought it was necessary to
+  // rm the DIM attribute under the crosshair because
+  // something looked bad. I can't reproduce that
+  // now so leaving the attr.
+  // rm_attr (pileupCrosshair, TB_DIM);
+  add_attr (pileupCrosshair, TB_REVERSE);
   // connect to ref base
   set (
-      e2::GlobalCell{pileupXPos, first (seqPane.yspan) - 1}, '|',
-      TB_DIM
+      e2::GlobalCell{
+          pileupXPos, first (bWgt.alnPaneDataBox.yspan) - 1
+      },
+      '|', TB_DIM
   );
 
   return {};
@@ -1025,9 +964,6 @@ static void draw_cmd (
   );
 }
 
-// could make a config
-// subobject for pileup switches,
-// which is all these functions use.
 VoidOrErr draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf
 )
@@ -1036,7 +972,6 @@ VoidOrErr draw_main_ui (
   // since some places just overwrite
   // previous draw calls
   PLOGD << "Drawing widgets";
-
 
   draw_layout_chrome (ui.browsr, ui.cmd);
 
@@ -1049,4 +984,52 @@ VoidOrErr draw_main_ui (
   draw_cmd (ui.cmd, db.userClause);
 
   return {};
+}
+
+void draw_overlay (const OverlayWgt& oWgt)
+{
+  const auto& box = oWgt.contentBox;
+  const auto& frame = oWgt.frame;
+  const auto& content = oWgt.content;
+
+  // NOTE: a nice property of the global only/
+  // single surface drawing approach. Clearing
+  // this layer clears everything "below".
+  clear (box);
+  clear (frame);
+
+  set (edgeAB (frame), boxch::horzLine);
+  set (edgeBC (frame), boxch::vertLine);
+  set (edgeCD (frame), boxch::horzLine);
+  set (edgeDA (frame), boxch::vertLine);
+
+  set (vertexA (frame), boxch::topLeftRoundCorner);
+  set (vertexB (frame), boxch::topRightRoundCorner);
+  set (vertexD (frame), boxch::bottomLeftRoundCorner);
+  set (vertexC (frame), boxch::bottomRightRoundCorner);
+
+  auto xEnd =
+      last (box.xspan) - 1;  // leave a gap before the border
+
+  auto writeHead = vertexA (frame);
+  writeHead.x += 1;
+  writeHead.x += e2::write_string (
+      writeHead, xEnd, " q: close overlay ", TB_DIM
+  );
+  writeHead.x += 3;
+  const auto lnN = height (box);
+  if (lnN < std::ssize (content)) {
+    e2::write_string (
+        writeHead, xEnd, "Up / Down: scroll", TB_DIM
+    );
+  }
+
+  const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
+  auto lnY = extb::vertexA (box);
+  for (int i = 0; i < lnN && i < std::ssize (content); ++i) {
+    e2::write_string (
+        lnY, xEnd, content[static_cast<size_t> (i) + lnOff]
+    );
+    ++lnY.y;
+  }
 }
