@@ -65,7 +65,7 @@ static std::pair<int, int> get_screen_size (UIBundle& ui)
 }
 
 void size_and_set_overlay_widget (
-    UIBundle& ui, TextBlockRef content
+    UIBundle& ui, helpblocks::TextBlockRef content
 )
 {
   // set overlay widget, dynamically sizing to content
