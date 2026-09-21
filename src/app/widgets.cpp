@@ -1037,14 +1037,18 @@ VoidOrErr draw_main_ui (
   auto dqRc =
       draw_query_data::draw_query_data (ui.browsr, db, conf);
   switch (dqRc) {
+    // NOTE: strictly speaking, BUG here.
     case draw_query_data::ReturnCodes::success:
-      break;
     case draw_query_data::ReturnCodes::insufficientSize:
-      // TODO print message
+      // TODO test behaviour in practice and decide
+      // on appropriate error strategy
       break;
     case draw_query_data::ReturnCodes::sqlFail:
-      // TODO die
-      break;
+      // TODO error strategy not properly considered;
+      // what actually happens upstream??
+      return std::unexpected (make_internal_err (
+          "SQL error; failed while iterating query rows."
+      ));
   }
 
   draw_pileup_ambient (ui.browsr, db.locus);
