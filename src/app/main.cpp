@@ -65,11 +65,12 @@ options:
   which is 1-based to match samtools, and the
   representation of loci in VCF.
 
+ On startup your cursor will be focused at the in-app
+ command line at the bottom of the TUI. In the TUI,
+ type q and press enter or press Ctrl-C twice to quit.
+
  See README.md for project background and development
  information.
-
- In the TUI, type q and press enter or press Ctrl-C
- twice to quit.
 )txt";
 
 

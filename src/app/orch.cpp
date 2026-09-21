@@ -82,6 +82,7 @@ AppStateOrErr init (
   }
   auto newStmt = std::move (*prepRet);
   uint32_t nRow = 0;
+  // check no error
   for (;; ++nRow) {
     const auto nrRet = next_read (newStmt, state.db.db);
     if (!nrRet) {
@@ -104,6 +105,7 @@ AppStateOrErr init (
   if (!drawRet) {
     return std::unexpected{drawRet.error()};
   }
+
   return state;
 }
 
