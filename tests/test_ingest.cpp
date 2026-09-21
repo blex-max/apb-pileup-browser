@@ -8,6 +8,7 @@
 
 #include "backend/PileupDB.hpp"
 #include "backend/pileup_ingest.hpp"
+#include "backend/schema.hpp"
 
 namespace {
 
@@ -239,16 +240,15 @@ TEST_CASE (
 {
   PileupDB db;
   REQUIRE (init_db (db));
-  auto lociId = insert_loci (
-      db, LocusData{
+  REQUIRE (insert_metadata (
+      db, PileupMetadata{
               .contig = "chr1",
               .pos = 100,
               .start = 100,
               .end = 150,
               .refSlice = std::nullopt
           }
-  );
-  REQUIRE (lociId);
+  ));
 
   auto stmtRet = prepare_insert_reads_stmt (db);
   REQUIRE (stmtRet);
@@ -257,7 +257,7 @@ TEST_CASE (
   auto pf = make_basic_fields();
   // mtidName empty, mStart < 0, auxJson empty -- all should round-trip
   // to SQL NULL, not empty-string/zero/"{}".
-  REQUIRE (bind_pileup_fields (stmt, *lociId, pf) == SQLITE_OK);
+  REQUIRE (bind_pileup_fields (stmt, pf) == SQLITE_OK);
   REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
 
   sqlite3_stmt* o_stmt = NULL;
@@ -272,9 +272,18 @@ TEST_CASE (
   REQUIRE (stepRet);
   REQUIRE (*stepRet);
 
-  CHECK (get_mtid (o_stmt) == "");
-  CHECK (get_mstart (o_stmt) == -1);
-  CHECK (get_tags (o_stmt) == "");  // NULL, not "{}"
+  CHECK (
+      sqlite3_column_type (o_stmt, schema::FieldIndex::mtid) ==
+      SQLITE_NULL
+  );
+  CHECK (
+      sqlite3_column_type (o_stmt, schema::FieldIndex::mstart) ==
+      SQLITE_NULL
+  );
+  CHECK (
+      sqlite3_column_type (o_stmt, schema::FieldIndex::tags) ==
+      SQLITE_NULL
+  );  // NULL, not "{}"
 
   sqlite3_finalize (o_stmt);
 }
@@ -287,16 +296,15 @@ TEST_CASE (
 {
   PileupDB db;
   REQUIRE (init_db (db));
-  auto lociId = insert_loci (
-      db, LocusData{
+  REQUIRE (insert_metadata (
+      db, PileupMetadata{
               .contig = "chr1",
               .pos = 100,
               .start = 100,
               .end = 150,
               .refSlice = std::nullopt
           }
-  );
-  REQUIRE (lociId);
+  ));
 
   SECTION ("valid JSON is accepted")
   {
@@ -306,9 +314,7 @@ TEST_CASE (
 
     auto pf = make_basic_fields();
     pf.auxJson = "{\"XY\":[1,2,3]}";
-    REQUIRE (
-        bind_pileup_fields (stmt, *lociId, pf) == SQLITE_OK
-    );
+    REQUIRE (bind_pileup_fields (stmt, pf) == SQLITE_OK);
     CHECK (sqlite3_step (stmt) == SQLITE_DONE);
   }
 
@@ -324,9 +330,7 @@ TEST_CASE (
     auto pf = make_basic_fields();
     pf.auxJson =
         "{\"XY\":[1,2,3,]}";  // the pre-fix (buggy) shape
-    REQUIRE (
-        bind_pileup_fields (stmt, *lociId, pf) == SQLITE_OK
-    );
+    REQUIRE (bind_pileup_fields (stmt, pf) == SQLITE_OK);
     CHECK (sqlite3_step (stmt) == SQLITE_CONSTRAINT);
   }
 }
@@ -340,23 +344,22 @@ TEST_CASE (
 {
   PileupDB db;
   REQUIRE (init_db (db));
-  auto lociId = insert_loci (
-      db, LocusData{
+  REQUIRE (insert_metadata (
+      db, PileupMetadata{
               .contig = "chr1",
               .pos = 100,
               .start = 100,
               .end = 150,
               .refSlice = std::nullopt
           }
-  );
-  REQUIRE (lociId);
+  ));
 
   REQUIRE (begin_transaction (db));
   auto stmtRet = prepare_insert_reads_stmt (db);
   REQUIRE (stmtRet);
   auto stmt{std::move (*stmtRet)};
   auto pf = make_basic_fields();
-  REQUIRE (bind_pileup_fields (stmt, *lociId, pf) == SQLITE_OK);
+  REQUIRE (bind_pileup_fields (stmt, pf) == SQLITE_OK);
   REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
   REQUIRE (commit (db));
 

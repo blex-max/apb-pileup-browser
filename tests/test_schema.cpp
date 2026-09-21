@@ -61,54 +61,29 @@ TEST_CASE (
   REQUIRE (init_db (db));
 
   CHECK (object_exists (db, "table", "metadata"));
-  CHECK (object_exists (db, "table", "loci"));
   CHECK (object_exists (db, "table", "reads"));
-  CHECK (object_exists (db, "index", "idx_reads_loci_id"));
 
   CHECK (pragma_value (db, "foreign_keys") == 1);
   CHECK (pragma_value (db, "temp_store") == 2);  // 2 == MEMORY
 }
 
 TEST_CASE (
-    "insert_metadata inserts exactly one provenance row",
-    "[schema]"
+    "insert_metadata / get_locus_data round trip", "[schema]"
 )
-{
-  PileupDB db;
-  REQUIRE (init_db (db));
-
-  REQUIRE (insert_metadata (db, AlnFile{}));
-
-  sqlite3_stmt* o_stmt = NULL;
-  const std::string_view sql = "SELECT COUNT(*) FROM metadata;";
-  REQUIRE (
-      sqlite3_prepare_v2 (
-          db, sql.data(), static_cast<int> (sql.size()), &o_stmt,
-          NULL
-      ) == SQLITE_OK
-  );
-  REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
-  CHECK (sqlite3_column_int64 (o_stmt, 0) == 1);
-  sqlite3_finalize (o_stmt);
-}
-
-TEST_CASE ("insert_loci / get_locus_data round trip", "[schema]")
 {
   PileupDB db;
   REQUIRE (init_db (db));
 
   SECTION ("with a reference slice")
   {
-    LocusData locus{
+    PileupMetadata locus{
         .contig = "chr1",
         .pos = 12345,
         .start = 12300,
         .end = 12400,
         .refSlice = std::make_optional<std::string> ("ACGTACGT")
     };
-    auto idRet = insert_loci (db, locus);
-    REQUIRE (idRet);
-    CHECK (*idRet > 0);
+    REQUIRE (insert_metadata (db, locus));
 
     auto readBack = get_locus_data (db);
     REQUIRE (readBack);
@@ -122,15 +97,14 @@ TEST_CASE ("insert_loci / get_locus_data round trip", "[schema]")
 
   SECTION ("with no reference slice")
   {
-    LocusData locus{
+    PileupMetadata locus{
         .contig = "chr2",
         .pos = 500,
         .start = 400,
         .end = 600,
         .refSlice = std::nullopt
     };
-    auto idRet = insert_loci (db, locus);
-    REQUIRE (idRet);
+    REQUIRE (insert_metadata (db, locus));
 
     auto readBack = get_locus_data (db);
     REQUIRE (readBack);
@@ -140,7 +114,30 @@ TEST_CASE ("insert_loci / get_locus_data round trip", "[schema]")
 }
 
 TEST_CASE (
-    "get_locus_data on an empty loci table surfaces a sqlite3 "
+    "insert_metadata rejects a second row via CHECK (id = 1)",
+    "[schema]"
+)
+{
+  PileupDB db;
+  REQUIRE (init_db (db));
+
+  PileupMetadata locus{
+      .contig = "chr1",
+      .pos = 100,
+      .start = 100,
+      .end = 200,
+      .refSlice = std::nullopt
+  };
+  REQUIRE (insert_metadata (db, locus));
+
+  auto secondInsert = insert_metadata (db, locus);
+  REQUIRE_FALSE (secondInsert);
+  CHECK (secondInsert.error().src == ErrSrc::sqlite);
+}
+
+TEST_CASE (
+    "get_locus_data on an empty metadata table surfaces a "
+    "sqlite3 "
     "error",
     "[schema]"
 )
@@ -150,7 +147,7 @@ TEST_CASE (
 
   auto readBack = get_locus_data (db);
   REQUIRE_FALSE (readBack);
-  CHECK (readBack.error().src == ErrSrc::sqlite3);
+  CHECK (readBack.error().src == ErrSrc::sqlite);
 }
 
 TEST_CASE (

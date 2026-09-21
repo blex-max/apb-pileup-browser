@@ -8,6 +8,7 @@
 
 #include "backend/PileupDB.hpp"
 #include "backend/pileup_ingest.hpp"
+#include "backend/schema.hpp"
 #include "shared/err.hpp"
 
 namespace {
@@ -16,24 +17,21 @@ namespace {
 // distinguish them.
 struct SeededDb {
   PileupDB db;
-  int lociId;
 };
 
 SeededDb make_seeded_db()
 {
   PileupDB db;
   REQUIRE (init_db (db));
-  auto lociIdRet = insert_loci (
-      db, LocusData{
+  REQUIRE (insert_metadata (
+      db, PileupMetadata{
               .contig = "chr1",
               .pos = 100,
               .start = 100,
               .end = 200,
               .refSlice = std::nullopt
           }
-  );
-  REQUIRE (lociIdRet);
-  const int lociId = *lociIdRet;
+  ));
 
   auto stmtRet = prepare_insert_reads_stmt (db);
   REQUIRE (stmtRet);
@@ -74,13 +72,13 @@ SeededDb make_seeded_db()
       row ("readC", 99, 45, 90),
   };
   for (const auto& pf : rows) {
-    REQUIRE (bind_pileup_fields (stmt, lociId, pf) == SQLITE_OK);
+    REQUIRE (bind_pileup_fields (stmt, pf) == SQLITE_OK);
     REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
     sqlite3_reset (stmt);
     sqlite3_clear_bindings (stmt);
   }
 
-  return SeededDb{.db = std::move (db), .lociId = lociId};
+  return SeededDb{.db = std::move (db)};
 }
 
 size_t count_rows (sqlite3_stmt* o_stmt, PileupDB& db)
@@ -158,17 +156,26 @@ TEST_CASE ("prepare_select_reads honours ORDER BY", "[query]")
   auto r1 = next_read (stmt, seeded.db);
   REQUIRE (r1);
   REQUIRE (*r1);
-  CHECK (get_rstart (stmt) == 120);  // readB
+  CHECK (
+      sqlite3_column_int64 (stmt, schema::FieldIndex::rstart) ==
+      120
+  );  // readB
 
   auto r2 = next_read (stmt, seeded.db);
   REQUIRE (r2);
   REQUIRE (*r2);
-  CHECK (get_rstart (stmt) == 100);  // readA
+  CHECK (
+      sqlite3_column_int64 (stmt, schema::FieldIndex::rstart) ==
+      100
+  );  // readA
 
   auto r3 = next_read (stmt, seeded.db);
   REQUIRE (r3);
   REQUIRE (*r3);
-  CHECK (get_rstart (stmt) == 90);  // readC
+  CHECK (
+      sqlite3_column_int64 (stmt, schema::FieldIndex::rstart) ==
+      90
+  );  // readC
 }
 
 TEST_CASE (
@@ -183,7 +190,7 @@ TEST_CASE (
   DynamicFragments frags{.where = {"flag ="}, .orderBy = ""};
   auto stmtRet = prepare_select_reads (seeded.db, frags);
   REQUIRE_FALSE (stmtRet);
-  CHECK (stmtRet.error().src == ErrSrc::sqlite3);
+  CHECK (stmtRet.error().src == ErrSrc::sqlite);
 }
 
 TEST_CASE (
@@ -248,6 +255,6 @@ TEST_CASE (
   {
     auto stmtRet = prepare_count_reads (seeded.db, {"flag ="});
     REQUIRE_FALSE (stmtRet);
-    CHECK (stmtRet.error().src == ErrSrc::sqlite3);
+    CHECK (stmtRet.error().src == ErrSrc::sqlite);
   }
 }
