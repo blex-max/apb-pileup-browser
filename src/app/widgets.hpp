@@ -28,7 +28,7 @@ struct CmdWgt {
   e2::HLine statusSep;
   e2::HLine inputLine;
   e2::GlobalCell inputCaret;
-  EditBuf inputBuf;  // namespace?
+  EditBuf inputBuf;
   CmdHistory history;
   e2::HLine sepLine;
   e2::HLine msgLine;
@@ -39,7 +39,7 @@ static constexpr auto sh_cmdH = 7;  // inc. borders
 struct OverlayWgt {
   e2::Box frame;
   e2::Box contentBox;
-  std::span<const std::string_view> content = sh_helpBlock;
+  helpblocks::TextBlockRef content = helpblocks::app;
   int contentLnOffset = 0;
 };
 
@@ -53,12 +53,10 @@ struct UIBundle {
   // for each widget
 };
 
-
 VoidOrErr size_widgets (UIBundle& ui);
 void size_and_set_overlay_widget (
-    UIBundle& ui, TextBlockRef content
+    UIBundle& ui, helpblocks::TextBlockRef content
 );
-
 
 VoidOrErr draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf

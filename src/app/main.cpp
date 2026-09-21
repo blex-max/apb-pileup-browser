@@ -15,6 +15,7 @@
 #include "app/state.hpp"
 #include "argparse/argparse.hpp"
 #include "backend/PileupDB.hpp"
+#include "backend/sql.hpp"
 #include "demo/demo.hpp"
 #include "shared/err.hpp"
 
@@ -38,22 +39,23 @@ static constexpr std::string_view sh_cliHelp =
  Type ? and press enter in the TUI for in-app help.
 
 modes:
-  locus  FILE LOCUS [REF]   view a single locus
+  locus  FILE LOCUS [REF]   view a single locus.
                             FILE   alignment file (sam/bam/cram)
                             LOCUS  genomic locus, e.g. chr1:12345
                             REF    reference fasta (optional)
-  db     DB                 load from a dumped db
+  db     DB                 load from a dumped db.
                             DB     path to db dump
-  demo                      view demo data
+  demo                      view demo data.
 
 options:
-  -h, --help          show this help message and exit
-  -v, --version       print version information and exit
+  -h, --help          show this help message and exit.
+  -v, --version       print version information and exit.
   --dump PATH         convert pileup to sqlite3 database,
-                      dump to disk, and exit
+                      dump to disk, and exit.
                       (invalid in db mode)
-  --manual            Print the apb manual to stdout and exit
-  --log PATH          log debug output to file
+  --manual            Print the apb manual to stdout and exit.
+  --schema            Print the apb SQL schema to stdout and exit.
+  --log PATH          log debug output to file.
 
  **IMPORTANT**:
   apb displays all coordinate data in 0-based half-open
@@ -93,8 +95,8 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   // NOTE: helptext NOT built from
   // CLI; see helptext above. Confirm
   // they match when making changes
-  // NOTE: help, version, manual
-  // all exit program
+  // NOTE: some args perform an action and immediately exit
+  // the program.
   cli.add_argument ("-h", "--help")
       .action ([] (const auto&) {
         std::cout << sh_cliHelp << "\n";
@@ -109,6 +111,10 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
       .flag();
   cli.add_argument ("--manual").flag().action ([] (const auto&) {
     std::cout << get_manual();
+    std::exit (EXIT_SUCCESS);
+  });
+  cli.add_argument ("--schema").flag().action ([] (const auto&) {
+    std::cout << schema::sqlCreateReadsTable;
     std::exit (EXIT_SUCCESS);
   });
 

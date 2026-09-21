@@ -141,7 +141,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 3.4) Table Reference
 
-For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format.
+For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This table is directly printed from the in-app table reference accessible with `help table`.
 
 )txt";
 
@@ -151,7 +151,7 @@ static constexpr std::string_view sh_manualChunk4 = R"txt(
 
 The first eleven (`qname` through `tags`) can also be displayed in tabular format; see Section 3.2 (Command Reference) for details on showing and hiding particular columns.
 
-For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs.
+For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs - consult the schema.
 
 5) A Word on `dump` Functionality
 
@@ -175,11 +175,11 @@ See the README or the project GitHub (https://github.com/blex-max/apb-pileup-bro
 
 std::string_view get_manual()
 {
-  static const std::string sh_manual = fmt::format (
+  static const std::string manual = fmt::format (
       "{}{}{}{}{}{}{}", sh_manualChunk1,
-      fmt::join (sh_navBlock, "\n"), sh_manualChunk2,
+      fmt::join (helpblocks::navigation, "\n"), sh_manualChunk2,
       fmt::join (build_cmd_ref_table(), "\n"), sh_manualChunk3,
-      fmt::join (sh_colBlock, "\n"), sh_manualChunk4
+      fmt::join (helpblocks::table, "\n"), sh_manualChunk4
   );
-  return sh_manual;
+  return manual;
 }

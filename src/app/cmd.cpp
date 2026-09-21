@@ -970,14 +970,16 @@ struct HelpCmd {
     CmdResult out;
     if (tokens.empty()) {
       state.conf.showOverlay = true;
-      size_and_set_overlay_widget (state.ui, sh_helpBlock);
+      size_and_set_overlay_widget (state.ui, helpblocks::app);
       out.success = true;
     }
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
       if (topic == topicNames[Topic::nav]) {
         state.conf.showOverlay = true;
-        size_and_set_overlay_widget (state.ui, sh_navBlock);
+        size_and_set_overlay_widget (
+            state.ui, helpblocks::navigation
+        );
         out.success = true;
       }
       else if (topic == topicNames[Topic::cmd]) {
@@ -992,7 +994,9 @@ struct HelpCmd {
       }
       else if (topic == topicNames[Topic::table]) {
         state.conf.showOverlay = true;
-        size_and_set_overlay_widget (state.ui, sh_colBlock);
+        size_and_set_overlay_widget (
+            state.ui, helpblocks::table
+        );
         out.success = true;
       }
       else {
