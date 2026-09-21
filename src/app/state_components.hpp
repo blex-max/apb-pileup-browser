@@ -1,7 +1,7 @@
 #pragma once
 
 #include "backend/PileupDB.hpp"
-#include "backend/sql.hpp"
+#include "backend/schema.hpp"
 #include "frontend/extb/extb.hpp"
 
 struct ColMetadata {

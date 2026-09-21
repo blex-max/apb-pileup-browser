@@ -51,6 +51,12 @@ struct PileupMetadata {
   int64_t start;
   int64_t end;
   std::optional<std::string> refSlice;
+
+  bool valid() const noexcept
+  {
+    return !contig.empty() && start >= 0 && start < end &&
+           pos >= start && pos <= end;
+  }
 };
 using LocusOrErr = std::expected<PileupMetadata, Err>;
 

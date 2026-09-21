@@ -11,7 +11,7 @@
 #include <string>
 
 #include "backend/hts_types.hpp"
-#include "backend/sql.hpp"
+#include "backend/schema.hpp"
 #include "plog/Log.h"
 #include "shared/err.hpp"
 

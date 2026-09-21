@@ -12,13 +12,37 @@
 
 #include "app/state_components.hpp"
 #include "backend/PileupDB.hpp"
-#include "backend/sql.hpp"
+#include "backend/schema.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/err.hpp"
 
 // --- helpers --- //
+
+namespace validate {
+
+static bool widget_is_valid (const BrowserWgt& bWgt)
+{
+  return valid (bWgt.frame);
+};
+static bool widget_is_valid (const CmdWgt& cWgt)
+{
+  return valid (cWgt.frame);
+};
+static bool widget_is_valid (const OverlayWgt& oWgt)
+{
+  return valid (oWgt.frame);
+}
+static bool ui_is_valid (const UIBundle& ui)
+{
+  return ui.screenW > 0 && ui.screenH > 0 &&
+         widget_is_valid (ui.browsr) &&
+         widget_is_valid (ui.cmd) && widget_is_valid (ui.help);
+}
+
+}  // namespace validate
+
 
 // Project genomic coordinate onto Box X axis where box is centered
 // centered on `boxCenterGPos` in context of drawing sequence string.
@@ -187,6 +211,11 @@ VoidOrErr size_widgets (UIBundle& ui)
 
 static void draw_browser_chrome (BrowserWgt& bWgt)
 {
+  // preconds
+  assert (valid (bWgt.frame));
+  assert (width (bWgt.frame) > 1);
+  assert (height (bWgt.frame) > 1);
+
   auto& bFrame = bWgt.frame;
   set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
   set (vertexB (bFrame), boxch::topRightRoundCorner, TB_DIM);
@@ -215,6 +244,11 @@ static void draw_browser_chrome (BrowserWgt& bWgt)
 
 static void draw_cmd_chrome (CmdWgt& cWgt)
 {
+  // preconds
+  assert (valid (cWgt.frame));
+  assert (width (cWgt.frame) > 1);
+  assert (height (cWgt.frame) > 1);
+
   auto& cFrame = cWgt.frame;
   set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
   set (vertexB (cFrame), boxch::topRightRoundCorner, TB_DIM);
@@ -233,6 +267,9 @@ static void draw_cmd_chrome (CmdWgt& cWgt)
 static void draw_layout_chrome (BrowserWgt& bWgt, CmdWgt& cWgt)
 {
   PLOGD << "Drawing layout";
+
+  // preconds
+  assert (last (bWgt.frame.yspan) <= first (cWgt.frame.yspan));
 
   draw_browser_chrome (bWgt);
   draw_cmd_chrome (cWgt);
@@ -714,16 +751,27 @@ static e2::Delta seq1 (
 
 }  // namespace draw_alignment
 
-static VoidOrErr draw_query_data (
+namespace draw_query_data {
+
+struct ReturnCodes {
+  enum Codes : uint8_t {
+    success,
+    insufficientSize,
+    sqlFail,
+  };
+};
+
+static ReturnCodes::Codes draw_query_data (
     BrowserWgt& bWgt, DBBundle& db, const AppConfig& conf
 )
 {
   // draw reads and data table
   PLOGD << "Drawing browser child panes";
 
-  // preconditions:
-  assert (valid (bWgt.frame));
-  assert (size (bWgt.frame.xspan) > 2);
+  if (!valid (bWgt.frame) || size (bWgt.frame.xspan) < 4 ||
+      size (bWgt.frame.yspan) < 8) {
+    return ReturnCodes::insufficientSize;
+  }
 
   sqlite3_reset (db.stmt);
 
@@ -738,10 +786,7 @@ static VoidOrErr draw_query_data (
     }
   }
   // Reserve room for at least one column of alignment/pileup
-  // view, so a narrow terminal shrinks the table pane rather
-  // than squeezing the alignment pane out of existence. (The
-  // vSep column is already accounted for below: the table
-  // pane's real rendered width is tableWidth - 1.)
+  // view.
   constexpr int minAlnPaneWidth = 1;
   const auto maxTableWidth = static_cast<uint16_t> (
       std::max (0, size (bWgt.frame.xspan) - 2 - minAlnPaneWidth)
@@ -764,20 +809,16 @@ static VoidOrErr draw_query_data (
     bWgt.tablePaneHeaderLine = {tablePaneX, first (contentY)};
     bWgt.alnPaneDataBox = {alnPaneX, dataY};
     bWgt.tablePaneDataBox = {tablePaneX, dataY};
-
-    data_table::draw_header (
-        bWgt.tablePaneHeaderLine, activeCols
-    );
-    data_table::draw_row_separators (
-        bWgt.tablePaneDataBox, activeCols
-    );
     bWgt.vSep = {
         splitAbsX,
         construct_relative (frameY, 0, size (frameY) - 1)
     };
-    set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
-    set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
-    set (last (bWgt.vSep), boxch::upTConnect, TB_DIM);
+
+    assert (valid (bWgt.tablePaneHeaderLine));
+    assert (size (bWgt.tablePaneHeaderLine) > 0);
+    assert (valid (bWgt.tablePaneDataBox));
+    assert (height (bWgt.tablePaneDataBox) > 0);
+    assert (width (bWgt.tablePaneDataBox) > 0);
   }
   else {
     bWgt.tablePaneHeaderLine = {};  // invalid
@@ -786,6 +827,21 @@ static VoidOrErr draw_query_data (
 
     bWgt.alnPaneRefLine = {contentX, first (contentY)};
     bWgt.alnPaneDataBox = {contentX, dataY};
+  }
+  assert (valid (bWgt.alnPaneDataBox));
+  assert (height (bWgt.alnPaneDataBox) > 0);
+  assert (width (bWgt.alnPaneDataBox) > 0);
+
+  if (conf.drawPaneSwitches.table) {
+    data_table::draw_header (
+        bWgt.tablePaneHeaderLine, activeCols
+    );
+    data_table::draw_row_separators (
+        bWgt.tablePaneDataBox, activeCols
+    );
+    set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
+    set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
+    set (last (bWgt.vSep), boxch::upTConnect, TB_DIM);
   }
 
   auto seqWriteHead = vertexA (bWgt.alnPaneDataBox);
@@ -799,89 +855,105 @@ static VoidOrErr draw_query_data (
           db.locus.start, seqWriteLim
       );
 
-  uint16_t nReadDrawn = 0;
-  for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
-       ++iRead) {
-    auto nrRet = next_read (db.stmt, db.db);
-    if (!nrRet) {
-      // poor error handling policy
-      return std::unexpected{nrRet.error()};
-    }
-    if (!(*nrRet)) {
-      break;  // reads exhausted
-    }
-    if (static_cast<int64_t> (iRead) < db.stmtRowScrollOffset) {
-      // reads hidden by scrolling
-      continue;
-    }
-    const auto dHead = draw_alignment::seq1 (
-        seqWriteHead.y, db.stmt, db.locus.refSlice,
-        drawAlignmentShared,
-        draw_alignment::Seq1Switches{
-            conf.drawTrackSwitches.qual,
-            conf.drawTrackSwitches.ins
-        }
-    );
-    if (conf.drawPaneSwitches.table) {
-      data_table::draw_row (
-          e2::GlobalCell{
-              {.x = first (bWgt.tablePaneDataBox.xspan),
-               .y = seqWriteHead.y}
-          },
-          last (bWgt.tablePaneDataBox.xspan), db.stmt, activeCols
+  if (db.nStmtRows > 0) {
+    uint16_t nReadDrawn = 0;
+    for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
+         ++iRead) {
+      auto nrRet = next_read (db.stmt, db.db);
+      if (!nrRet) {
+        // poor error handling policy
+        return ReturnCodes::sqlFail;
+      }
+      if (!(*nrRet)) {
+        break;  // reads exhausted
+      }
+      if (static_cast<int64_t> (iRead) <
+          db.stmtRowScrollOffset) {
+        // reads hidden by scrolling
+        continue;
+      }
+      const auto dHead = draw_alignment::seq1 (
+          seqWriteHead.y, db.stmt, db.locus.refSlice,
+          drawAlignmentShared,
+          draw_alignment::Seq1Switches{
+              conf.drawTrackSwitches.qual,
+              conf.drawTrackSwitches.ins
+          }
       );
+      if (conf.drawPaneSwitches.table) {
+        data_table::draw_row (
+            e2::GlobalCell{
+                {.x = first (bWgt.tablePaneDataBox.xspan),
+                 .y = seqWriteHead.y}
+            },
+            last (bWgt.tablePaneDataBox.xspan), db.stmt,
+            activeCols
+        );
+      }
+      seqWriteHead.y += dHead.dy;
+      ++nReadDrawn;
     }
-    seqWriteHead.y += dHead.dy;
-    ++nReadDrawn;
+    bWgt.nReadOnscreen = nReadDrawn;
+    auto pileupXPos = first (bWgt.alnPaneDataBox.xspan) +
+                      (width (bWgt.alnPaneDataBox) / 2);
+
+    e2::VLine pileupCrosshair{
+        pileupXPos, bWgt.alnPaneDataBox.yspan
+    };
+    // At some point I thought it was necessary to
+    // rm the DIM attribute under the crosshair because
+    // something looked bad. I can't reproduce that
+    // now so leaving the attr.
+    // rm_attr (pileupCrosshair, TB_DIM);
+    add_attr (pileupCrosshair, TB_REVERSE);
+    // connect to ref base
+    set (
+        e2::GlobalCell{
+            pileupXPos, first (bWgt.alnPaneDataBox.yspan) - 1
+        },
+        '|', TB_DIM
+    );
   }
-  bWgt.nReadOnscreen = nReadDrawn;
+  else {
+    e2::write_string (
+        seqWriteHead, seqWriteLim.x,
+        "no reads at locus for current query", TB_DIM
+    );
+  }
 
-  auto pileupXPos = first (bWgt.alnPaneDataBox.xspan) +
-                    (width (bWgt.alnPaneDataBox) / 2);
 
-  e2::VLine pileupCrosshair{
-      pileupXPos, bWgt.alnPaneDataBox.yspan
-  };
-  // At some point I thought it was necessary to
-  // rm the DIM attribute under the crosshair because
-  // something looked bad. I can't reproduce that
-  // now so leaving the attr.
-  // rm_attr (pileupCrosshair, TB_DIM);
-  add_attr (pileupCrosshair, TB_REVERSE);
-  // connect to ref base
-  set (
-      e2::GlobalCell{
-          pileupXPos, first (bWgt.alnPaneDataBox.yspan) - 1
-      },
-      '|', TB_DIM
-  );
-
-  return {};
+  return ReturnCodes::success;
 }
 
+}  // namespace draw_query_data
+
+
 static void draw_pileup_ambient (
-    BrowserWgt& pWgt, const PileupMetadata& locusData
+    BrowserWgt& bWgt, const PileupMetadata& locusData
 )
 {
-  // TODO: get rid of projection function (?)
+  assert (validate::widget_is_valid (bWgt));
+  assert (locusData.valid());
+
+  // TODO: get rid of projection function
   if (locusData.refSlice) {
     auto proj = align_seq_to_box (
-        locusData.pos, size (pWgt.alnPaneRefLine),
+        locusData.pos, size (bWgt.alnPaneRefLine),
         locusData.start
     );
 
     e2::write_string (
-        {first (pWgt.alnPaneRefLine.xspan) + proj.xOffset,
-         pWgt.alnPaneRefLine.y},
-        last (pWgt.alnPaneRefLine.xspan),
+        {first (bWgt.alnPaneRefLine.xspan) + proj.xOffset,
+         bWgt.alnPaneRefLine.y},
+        last (bWgt.alnPaneRefLine.xspan),
         locusData.refSlice->substr (proj.skipChars)
     );
   }
 
   // locus info
   {
-    auto writeHead = first (pWgt.ambientLine);
-    const auto lineEnd = last (pWgt.ambientLine.xspan);
+    auto writeHead = first (bWgt.ambientLine);
+    const auto lineEnd = last (bWgt.ambientLine.xspan);
     writeHead.x++;  // initial space
     writeHead.x +=
         e2::write_string (writeHead, lineEnd, "LOCUS:", TB_DIM);
@@ -903,20 +975,6 @@ static void draw_pileup_ambient (
     writeHead.x++;  // space
     set (writeHead, boxch::vertLine, TB_DIM);
   }
-}
-
-static VoidOrErr draw_piluep (
-    BrowserWgt& pWgt, DBBundle& db, const AppConfig& conf
-)
-{
-  auto dqRet = draw_query_data (pWgt, db, conf);
-  if (!dqRet) {
-    return std::unexpected (dqRet.error());
-  }
-
-  draw_pileup_ambient (pWgt, db.locus);
-
-  return {};
 }
 
 // --- end draw browser pane --- //
@@ -972,14 +1030,24 @@ VoidOrErr draw_main_ui (
   // since some places just overwrite
   // previous draw calls
   PLOGD << "Drawing widgets";
+  assert (validate::ui_is_valid (ui));
 
   draw_layout_chrome (ui.browsr, ui.cmd);
 
-  auto dpRet = draw_piluep (ui.browsr, db, conf);
-  if (!dpRet) {
-    // TODO: not really well thought out error handling.
-    return std::unexpected (dpRet.error());
+  auto dqRc =
+      draw_query_data::draw_query_data (ui.browsr, db, conf);
+  switch (dqRc) {
+    case draw_query_data::ReturnCodes::success:
+      break;
+    case draw_query_data::ReturnCodes::insufficientSize:
+      // TODO print message
+      break;
+    case draw_query_data::ReturnCodes::sqlFail:
+      // TODO die
+      break;
   }
+
+  draw_pileup_ambient (ui.browsr, db.locus);
 
   draw_cmd (ui.cmd, db.userClause);
 
@@ -988,6 +1056,8 @@ VoidOrErr draw_main_ui (
 
 void draw_overlay (const OverlayWgt& oWgt)
 {
+  assert (validate::widget_is_valid (oWgt));
+
   const auto& box = oWgt.contentBox;
   const auto& frame = oWgt.frame;
   const auto& content = oWgt.content;

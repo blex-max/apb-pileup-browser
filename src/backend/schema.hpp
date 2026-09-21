@@ -9,10 +9,7 @@ inline constexpr std::string_view sqlPragmaForeignKeys =
     PRAGMA foreign_keys = ON;
 )sql";
 
-// Default temp_store spills large sorts/temp b-trees to disk. Everything in
-// this db is meant to live in memory only — force temp structures there too,
-// so a big sort can't fail with a disk I/O error on a machine with no disk
-// space but plenty of RAM.
+// keep all data in working memory.
 inline constexpr std::string_view sqlSetTempStoreMemory =
     R"sql(
     PRAGMA temp_store = MEMORY;

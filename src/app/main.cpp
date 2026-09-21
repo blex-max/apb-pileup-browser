@@ -15,7 +15,7 @@
 #include "app/state.hpp"
 #include "argparse/argparse.hpp"
 #include "backend/PileupDB.hpp"
-#include "backend/sql.hpp"
+#include "backend/schema.hpp"
 #include "demo/demo.hpp"
 #include "shared/err.hpp"
 
