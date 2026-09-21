@@ -10,9 +10,9 @@
 #include <optional>
 #include <utility>
 
-#include "app/data_table_cols.hpp"
 #include "app/state_components.hpp"
 #include "backend/PileupDB.hpp"
+#include "backend/sql.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
@@ -360,7 +360,7 @@ namespace data_table {
 
 static void draw_header (
     const e2::HLine& headerLine,
-    const std::span<const TableCol::ColMetadata*> cols
+    const std::span<const ColMetadata*> cols
 )
 {
   PLOGD << "Drawing table header";
@@ -403,8 +403,7 @@ static void draw_header (
 }
 
 static void draw_row_separators (
-    e2::Box dataPane,
-    const std::span<const TableCol::ColMetadata*> cols
+    e2::Box dataPane, const std::span<const ColMetadata*> cols
 )
 {
   auto writeHead = vertexA (dataPane);
@@ -429,7 +428,7 @@ static void draw_row_separators (
 
 static void draw_row (
     e2::GlobalCell writeHead, int xLim, sqlite3_stmt* br_dbRow,
-    const std::span<const TableCol::ColMetadata*> cols
+    const std::span<const ColMetadata*> cols
 )
 {
   assert (writeHead.x < xLim);
@@ -460,7 +459,6 @@ static void draw_row (
 
 namespace draw_alignment {
 
-namespace {
 
 struct SharedArgs {
   const int16_t writeStartX;
@@ -468,8 +466,6 @@ struct SharedArgs {
   const int64_t pileupSpanGStart;
   const e2::GlobalCell writeLimits;
 };
-
-}  // namespace
 
 static SharedArgs prepare_shared (
     int16_t writeStartX, int64_t writeStartXGPos,
@@ -492,29 +488,59 @@ static SharedArgs prepare_shared (
 namespace {
 // seq1 internals
 
-// shared constant = _shc
-constexpr uint8_t consumesNeitherQueryOrRef_shc = 0b00;
-constexpr uint8_t consumesQueryOnly_shc = 0b01;
-constexpr uint8_t consumesRefOnly_shc = 0b10;
-constexpr uint8_t consumesQueryAndRef_shc = 0b11;
-
 struct ReadFields {
-  decltype (get_rstart (std::declval<sqlite3_stmt*>())) rStart;
-  decltype (get_seq (std::declval<sqlite3_stmt*>())) seq;
-  decltype (get_qual (std::declval<sqlite3_stmt*>())) qual;
-  decltype (get_cigar_blob (
-      std::declval<sqlite3_stmt*>()
-  )) br_cigBlob;
-  decltype (get_ncig (std::declval<sqlite3_stmt*>())) nCig;
+  int64_t rStart;
+  std::string seq;
+  std::string qual;
+  const uint32_t* cig_br;
+  uint64_t nCig;
 };
-ReadFields get_seq1_read_fields (sqlite3_stmt* br_dbRow)
+ReadFields get_seq1_read_fields (sqlite3_stmt* row)
 {
+  // NOTE: currently does no error checking
   return {
-      .rStart = get_rstart (br_dbRow),
-      .seq = get_seq (br_dbRow),
-      .qual = get_qual (br_dbRow),
-      .br_cigBlob = get_cigar_blob (br_dbRow),
-      .nCig = get_ncig (br_dbRow)
+      .rStart =
+          sqlite3_column_int64 (row, schema::FieldIndex::rstart),
+      .seq =
+          [&row]() {
+            const auto* p = sqlite3_column_text (
+                row, schema::FieldIndex::seq
+            );
+            const auto len = sqlite3_column_bytes (
+                row, schema::FieldIndex::seq
+            );
+            return std::string (
+                reinterpret_cast<const char*> (p),
+                static_cast<size_t> (len)
+            );
+          }(),
+      .qual =
+          [&row]() {
+            const auto* br_p = sqlite3_column_text (
+                row, schema::FieldIndex::qual
+            );
+            const auto len = sqlite3_column_bytes (
+                row, schema::FieldIndex::qual
+            );
+            return std::string (
+                reinterpret_cast<const char*> (br_p),
+                static_cast<size_t> (len)
+            );
+          }(),
+      .cig_br =
+          [&row]() {
+            return static_cast<const uint32_t*> (
+                sqlite3_column_blob (
+                    row, schema::FieldIndex::cig_uint32
+                )
+            );
+          }(),
+      .nCig =
+          [&row]() {
+            return static_cast<uint64_t> (sqlite3_column_int (
+                row, schema::FieldIndex::ncig
+            ));
+          }()
   };
 };
 
@@ -531,6 +557,11 @@ static e2::Delta seq1 (
     const Seq1Switches& switches
 )
 {
+  constexpr uint8_t consumesNeitherQueryOrRef = 0b00;
+  constexpr uint8_t consumesQueryOnly = 0b01;
+  constexpr uint8_t consumesRefOnly = 0b10;
+  constexpr uint8_t consumesQueryAndRef = 0b11;
+
   if (sh.writeStartX >= sh.writeLimits.x ||
       yStart >= sh.writeLimits.y) {
     return {0, 0};  // no-op
@@ -583,10 +614,10 @@ static e2::Delta seq1 (
   );
   // FOR EACH OP
   for (size_t iOp = 0; iOp < readFields.nCig; iOp++) {
-    const auto op = readFields.br_cigBlob[iOp];
+    const auto op = readFields.cig_br[iOp];
     const auto opConsumeType = bam_cigar_type (op);
 
-    if (opConsumeType == consumesNeitherQueryOrRef_shc) {
+    if (opConsumeType == consumesNeitherQueryOrRef) {
       // padding and hard clipping ignored
       continue;
     }
@@ -597,14 +628,14 @@ static e2::Delta seq1 (
     if (!opOnScreen) {
       // skip op, incrementing indexes
       switch (opConsumeType) {
-        case (consumesQueryOnly_shc):
+        case (consumesQueryOnly):
           iQuery += opSz;
           continue;
-        case (consumesRefOnly_shc):
+        case (consumesRefOnly):
           iRef += opSz;
           iGc += opSz;
           continue;
-        case (consumesQueryAndRef_shc):
+        case (consumesQueryAndRef):
           iQuery += opSz;
           iRef += opSz;
           iGc += opSz;
@@ -620,7 +651,7 @@ static e2::Delta seq1 (
             ? static_cast<size_t> (sh.writeStartXGPos - iGc)
             : 0;
 
-    if (opConsumeType == consumesQueryOnly_shc) {
+    if (opConsumeType == consumesQueryOnly) {
       const auto opType = bam_cigar_op (op);
 
       if (opType == BAM_CINS && iGc > sh.writeStartXGPos) {
@@ -710,7 +741,7 @@ static e2::Delta seq1 (
 
       iQuery += opSz;
     }
-    else if (opConsumeType == consumesRefOnly_shc) {
+    else if (opConsumeType == consumesRefOnly) {
       // Deletions, or "skipped region"
       //     - the latter only relevant to RNA (TODO: disambiguate?)
       // don't advance query tracker
@@ -723,7 +754,7 @@ static e2::Delta seq1 (
       iRef += opSz;
       iGc += opSz;
     }
-    else if (opConsumeType == consumesQueryAndRef_shc) {
+    else if (opConsumeType == consumesQueryAndRef) {
       auto opLenRemain = opSz;
       iQuery += skipOffscreenBases;
       iRef += skipOffscreenBases;
@@ -809,10 +840,10 @@ static VoidOrErr draw_query_data (
   auto& dataPane = bWgt.tablePaneDataBox;
   auto& hdrLine = bWgt.tablePaneHeaderLine;
 
-  std::vector<const TableCol::ColMetadata*> activeCols;
-  for (const auto& colPack : conf.displayTableCols) {
-    if (colPack.first) {
-      activeCols.emplace_back (colPack.second);
+  std::vector<const ColMetadata*> activeCols;
+  for (const auto& col : conf.displayTableCols) {
+    if (col.visible) {
+      activeCols.emplace_back (&col);
     }
   }
 

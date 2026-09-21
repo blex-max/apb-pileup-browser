@@ -18,9 +18,9 @@ enum class ErrKind : uint8_t {
 };
 
 struct Err {
-  const ErrKind kind;
-  const ErrSrc src;
-  std::optional<const int>
+  ErrKind kind;
+  ErrSrc src;
+  std::optional<int>
       code;  // raw htslib/sqlite3 code, for diagnostics
   std::string msg;  // human-readable, for reporting
 };
@@ -48,14 +48,6 @@ inline Err make_internal_err (std::string msg)
 {
   return Err{
       ErrKind::fatal, ErrSrc::internal, std::nullopt,
-      std::move (msg)
-  };
-}
-
-inline Err make_cli_err (std::string msg)
-{
-  return Err{
-      ErrKind::fatal, ErrSrc::argparse, std::nullopt,
       std::move (msg)
   };
 }

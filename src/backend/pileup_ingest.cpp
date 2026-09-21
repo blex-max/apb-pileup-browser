@@ -24,8 +24,8 @@ std::expected<SqliteStmt, Err> prepare_insert_loci_stmt (
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, sh_sqlInsertLoci.data(),
-          static_cast<int> (sh_sqlInsertLoci.size()),
+          db, schema::sqlInsertLoci.data(),
+          static_cast<int> (schema::sqlInsertLoci.size()),
           &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
@@ -45,8 +45,8 @@ std::expected<SqliteStmt, Err> prepare_insert_reads_stmt (
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, sh_sqlInsertReads.data(),
-          static_cast<int> (sh_sqlInsertReads.size()),
+          db, schema::sqlInsertReads.data(),
+          static_cast<int> (schema::sqlInsertReads.size()),
           &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {

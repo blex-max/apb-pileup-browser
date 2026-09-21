@@ -11,7 +11,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "app/data_table_cols.hpp"
 #include "app/state.hpp"
 #include "app/text_blocks.hpp"
 #include "app/widgets.hpp"
@@ -183,15 +182,15 @@ struct ShowTableColCmd {
     for (const auto& tok : tokens) {
       bool tokMatch = false;
       for (auto& col : tableCols) {
-        if (tok == col.second->fieldName) {
+        if (tok == col.fieldName) {
           tokMatch = true;
-          if (col.first) {
+          if (col.visible) {
             nowHidden.emplace_back (tok);
           }
           else {
             nowVisible.emplace_back (tok);
           }
-          col.first = !col.first;
+          col.visible = !col.visible;
           continue;
         }
       }

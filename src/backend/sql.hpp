@@ -2,7 +2,9 @@
 
 #include <string_view>
 
-inline constexpr std::string_view sh_sqlPragmaForeignKeys =
+namespace schema {
+
+inline constexpr std::string_view sqlPragmaForeignKeys =
     R"sql(
     PRAGMA foreign_keys = ON;
 )sql";
@@ -11,7 +13,7 @@ inline constexpr std::string_view sh_sqlPragmaForeignKeys =
 // this db is meant to live in memory only — force temp structures there too,
 // so a big sort can't fail with a disk I/O error on a machine with no disk
 // space but plenty of RAM.
-inline constexpr std::string_view sh_sqlSetTempStoreMemory =
+inline constexpr std::string_view sqlSetTempStoreMemory =
     R"sql(
     PRAGMA temp_store = MEMORY;
 )sql";
@@ -19,7 +21,7 @@ inline constexpr std::string_view sh_sqlSetTempStoreMemory =
 // metadata table storing provenance data, possibly
 // information retreived from the header. Deliberately unlinked to
 // loci/reads: one alignment file (and therefore one metadata row) per db.
-inline constexpr std::string_view sh_sqlCreateMetaDataTable =
+inline constexpr std::string_view sqlCreateMetaDataTable =
     R"sql(
 CREATE TABLE metadata (
     id     INTEGER PRIMARY KEY,
@@ -27,7 +29,7 @@ CREATE TABLE metadata (
 )
 )sql";
 
-inline constexpr std::string_view sh_sqlCreateLociTable =
+inline constexpr std::string_view sqlCreateLociTable =
     R"sql(
 CREATE TABLE loci (
     id         INTEGER PRIMARY KEY,
@@ -39,8 +41,37 @@ CREATE TABLE loci (
 )
 )sql";
 
+// TIED TO SCHEMA CREATE ORDER
+struct FieldIndex {
+  enum Idx : uint8_t {
+    id,  // 0
+    loci_id,
+    qname,
+    flag,
+    rstart,
+    rend,
+    mapq,
+    base,
+    basequal,
+    qpos,
+    indel,
+    is_del,
+    is_head,
+    is_tail,
+    is_refskip,
+    cigar,
+    seq,
+    qual,
+    mtid,
+    mstart,
+    tags,
+    cig_uint32,
+    ncig
+  };
+};
+// TODO: key table off index?
 // One row per read overlapping pileup reference position.
-inline constexpr std::string_view sh_sqlCreateReadsTable =
+inline constexpr std::string_view sqlCreateReadsTable =
     R"sql(
 CREATE TABLE reads (
     id          INTEGER PRIMARY KEY,
@@ -76,7 +107,7 @@ CREATE TABLE reads (
     tags        TEXT CHECK (json_valid (tags)),
 
     -- for frontend alignment purposes
-    cig_uint32     BLOB NOT NULL,
+    cig_uint32     BLOB NOT NULL,  -- can be null per spec, but that would be an unmapped read, which apb does not handle
     ncig        INTEGER NOT NULL
 
 );
@@ -84,25 +115,25 @@ CREATE TABLE reads (
 
 // Supports both the common "reads at this locus" query and cascade
 // deletes (loci -> reads).
-inline constexpr std::string_view sh_sqlCreateReadsLociIdIndex =
+inline constexpr std::string_view sqlCreateReadsLociIdIndex =
     R"sql(
 CREATE INDEX idx_reads_loci_id ON reads(loci_id);
 )sql";
 
 // --- STATEMENTS ---
-inline constexpr std::string_view sh_sqlInsertMetadata = R"sql(
+inline constexpr std::string_view sqlInsertMetadata = R"sql(
 INSERT INTO metadata (field1) VALUES (?);
 )sql";
 
-inline constexpr std::string_view sh_sqlInsertLoci = R"sql(
+inline constexpr std::string_view sqlInsertLoci = R"sql(
 INSERT INTO loci (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
 )sql";
 
-inline constexpr std::string_view sh_sqlSelectLoci = R"sql(
+inline constexpr std::string_view sqlSelectLoci = R"sql(
 SELECT contig, pos, start, end, ref FROM loci;
 )sql";
 
-inline constexpr std::string_view sh_sqlInsertReads = R"sql(
+inline constexpr std::string_view sqlInsertReads = R"sql(
 INSERT INTO reads (
   loci_id,
   qname, flag, rstart, rend, mapq,
@@ -110,3 +141,5 @@ INSERT INTO reads (
   cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
 )sql";
+
+}  // namespace schema

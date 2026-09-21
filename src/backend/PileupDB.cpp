@@ -27,42 +27,42 @@ VoidOrErr init_db (PileupDB& db)
     return sqlite3_exec (db, stmt.data(), NULL, NULL, NULL);
   };
 
-  if (sqlRc = excFn (sh_sqlSetTempStoreMemory);
+  if (sqlRc = excFn (schema::sqlSetTempStoreMemory);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (sh_sqlPragmaForeignKeys);
+  if (sqlRc = excFn (schema::sqlPragmaForeignKeys);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (sh_sqlCreateMetaDataTable);
+  if (sqlRc = excFn (schema::sqlCreateMetaDataTable);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (sh_sqlCreateLociTable);
+  if (sqlRc = excFn (schema::sqlCreateLociTable);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (sh_sqlCreateReadsTable);
+  if (sqlRc = excFn (schema::sqlCreateReadsTable);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
     };
   }
 
-  if (sqlRc = excFn (sh_sqlCreateReadsLociIdIndex);
+  if (sqlRc = excFn (schema::sqlCreateReadsLociIdIndex);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
         make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
@@ -73,7 +73,7 @@ VoidOrErr init_db (PileupDB& db)
 }
 
 VoidOrErr dump_to_disk (
-    const PileupDB& db, const std::string& path
+    const PileupDB& db, std::string_view path
 )
 {
   /*
@@ -84,7 +84,8 @@ VoidOrErr dump_to_disk (
   sqlite3* o_dumpConn = NULL;
   sqlite3_backup* o_backupConn = NULL;
 
-  if (sqlRc = sqlite3_open (path.c_str(), &o_dumpConn);
+  if (sqlRc =
+          sqlite3_open (std::string{path}.c_str(), &o_dumpConn);
       sqlRc != SQLITE_OK) {
     goto err_sql;
   }
@@ -251,7 +252,7 @@ VoidOrErr verify_schema_and_pragmas (PileupDB& db)
 
 }  // namespace
 
-VoidOrErr load_from_disk (PileupDB& db, const std::string& path)
+VoidOrErr load_from_disk (PileupDB& db, std::string_view path)
 {
   /*
     Copy a database file on disk into an in-memory PileupDB,
@@ -262,7 +263,8 @@ VoidOrErr load_from_disk (PileupDB& db, const std::string& path)
   sqlite3_backup* o_backup = NULL;
 
   if (sqlRc = sqlite3_open_v2 (
-          path.c_str(), &o_fileDb, SQLITE_OPEN_READONLY, NULL
+          std::string{path}.c_str(), &o_fileDb,
+          SQLITE_OPEN_READONLY, NULL
       );
       sqlRc != SQLITE_OK) {
     // NOTE: the error here belongs to o_fileDb (the handle
@@ -301,7 +303,7 @@ VoidOrErr load_from_disk (PileupDB& db, const std::string& path)
 
   if (auto r = verify_schema_and_pragmas (db); !r) {
     Err err = r.error();
-    err.msg = "loaded db from " + path +
+    err.msg = "loaded db from " + std::string{path} +
               " failed verification: " + err.msg;
     return std::unexpected{err};
   }
@@ -331,8 +333,9 @@ LocusOrErr get_locus_data (const PileupDB& db)
 
   sqlite3_stmt* o_stmt = NULL;
   int sqlRc = sqlite3_prepare_v2 (
-      db, sh_sqlSelectLoci.data(),
-      static_cast<int> (sh_sqlSelectLoci.size()), &o_stmt, NULL
+      db, schema::sqlSelectLoci.data(),
+      static_cast<int> (schema::sqlSelectLoci.size()), &o_stmt,
+      NULL
   );
   if (sqlRc != SQLITE_OK) {
     return std::unexpected{
@@ -396,8 +399,8 @@ std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
   SqliteStmt stmt;
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, sh_sqlInsertMetadata.data(),
-          static_cast<int> (sh_sqlInsertMetadata.size()),
+          db, schema::sqlInsertMetadata.data(),
+          static_cast<int> (schema::sqlInsertMetadata.size()),
           &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {

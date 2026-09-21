@@ -82,8 +82,6 @@ endif()
 add_executable(apb
   src/app/main.cpp
   src/app/orch.cpp
-  src/app/cli.cpp
-  src/app/subcommands.cpp
   src/app/widgets.cpp
   src/app/cmd.cpp
   src/app/manual.cpp
