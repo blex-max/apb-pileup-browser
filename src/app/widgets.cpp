@@ -850,7 +850,7 @@ static ReturnCodes::Codes draw_query_data (
 
   const auto drawAlignmentShared =
       draw_alignment::prepare_shared (
-          seqWriteHead.x,
+          static_cast<int16_t> (seqWriteHead.x),
           db.locus.pos - (width (bWgt.alnPaneDataBox) / 2),
           db.locus.start, seqWriteLim
       );
@@ -873,8 +873,8 @@ static ReturnCodes::Codes draw_query_data (
         continue;
       }
       const auto dHead = draw_alignment::seq1 (
-          seqWriteHead.y, db.stmt, db.locus.refSlice,
-          drawAlignmentShared,
+          static_cast<int16_t> (seqWriteHead.y), db.stmt,
+          db.locus.refSlice, drawAlignmentShared,
           draw_alignment::Seq1Switches{
               conf.drawTrackSwitches.qual,
               conf.drawTrackSwitches.ins

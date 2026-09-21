@@ -81,7 +81,7 @@ inline constexpr auto table = std::to_array<std::string_view> ({
     " TABLE REFERENCE                                ",
     "                                                ",
     " All of the following columns may be referenced ",
-    " in query commands, e.g. `where`. The first 11  ",
+    " in query commands, e.g. `where`. The first 10  ",
     " may be displayed in the table pane with the    ",
     " `col` command. This reference is provided for  ",
     " convenience, but the best reference is the     ",

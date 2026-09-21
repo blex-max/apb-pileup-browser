@@ -1,7 +1,7 @@
 #pragma once
 
+#include "app/helpblocks.hpp"
 #include "app/state_components.hpp"
-#include "app/text_blocks.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/history.hpp"
 #include "frontend/input.hpp"

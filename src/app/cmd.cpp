@@ -11,8 +11,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "app/helpblocks.hpp"
 #include "app/state.hpp"
-#include "app/text_blocks.hpp"
 #include "app/widgets.hpp"
 #include "backend/PileupDB.hpp"
 
@@ -199,7 +199,11 @@ struct ShowTableColCmd {
       if (!tokMatch) {
         return {
             false, cmd_format_fail (
-                       fmt::format ("unknown field {}", tok)
+                       fmt::format (
+                           "Column \"{}\" not known or "
+                           "unavailable for display",
+                           tok
+                       )
                    )
         };
       }

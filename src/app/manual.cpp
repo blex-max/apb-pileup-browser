@@ -8,7 +8,7 @@
 #include <string_view>
 
 #include "app/cmd.hpp"
-#include "app/text_blocks.hpp"
+#include "app/helpblocks.hpp"
 
 
 static constexpr std::string_view sh_manualChunk1 = R"txt(
@@ -149,7 +149,7 @@ static constexpr std::string_view sh_manualChunk4 = R"txt(
 
 `indel` might require some explanation. Essentially, if the base at the pileup position is followed by an indel, then `indel` will contain the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size (bases gained).
 
-The first eleven (`qname` through `tags`) can also be displayed in tabular format; see Section 3.2 (Command Reference) for details on showing and hiding particular columns.
+The first ten (`qname` through `mstart`) can also be displayed in tabular format; see Section 3.2 (Command Reference) for details on showing and hiding particular columns.
 
 For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs - consult the schema.
 
