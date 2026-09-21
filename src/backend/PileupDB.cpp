@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <htslib/sam.h>
 
+#include <cstdio>
 #include <expected>
 #include <string>
 
@@ -130,6 +131,31 @@ err_sql: {
   sqlite3_close_v2 (o_dumpConn);
   return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
 }
+}
+
+VoidOrErr dump_to_stdout (const PileupDB& db)
+{
+  sqlite3_int64 size = 0;
+  unsigned char* o_buf =
+      sqlite3_serialize (db, "main", &size, 0);
+  if (o_buf == NULL) {
+    return std::unexpected{
+        make_internal_err ("Failed to serialize database")
+    };
+  }
+
+  const size_t written =
+      std::fwrite (o_buf, 1, static_cast<size_t> (size), stdout);
+  sqlite3_free (o_buf);
+
+  if (written != static_cast<size_t> (size)) {
+    return std::unexpected{
+        make_internal_err ("Failed to write database to stdout")
+    };
+  }
+
+  std::fflush (stdout);
+  return {};
 }
 
 namespace {

@@ -34,6 +34,10 @@ VoidOrErr init_db (PileupDB& db);
     const PileupDB& db, std::string_view path
 );
 
+// Serialize the in-memory database and write the raw bytes to
+// stdout, for `--dump -`.
+[[nodiscard]] VoidOrErr dump_to_stdout (const PileupDB& db);
+
 // Copy a database file on disk into an in-memory PileupDB,
 // using sqlite3's online backup API.
 [[nodiscard]] VoidOrErr load_from_disk (

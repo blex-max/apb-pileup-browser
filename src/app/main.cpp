@@ -51,7 +51,8 @@ options:
   -h, --help          show this help message and exit.
   -v, --version       print version information and exit.
   --dump PATH         convert pileup to sqlite3 database,
-                      dump to disk, and exit.
+                      dump to disk, and exit. PATH may be
+                      - to dump to stdout.
                       (invalid in db mode)
   --manual            Print the apb manual to stdout and exit.
   --schema            Print the apb SQL schema to stdout and exit.
@@ -327,8 +328,8 @@ int main (int argc, char** argv)
     case ApbMode::locus:
       popRet = populate_db_mode_locus (
           db, args.alnPath, args.locus,
-          (args.refPath.empty()) ? std::optional (args.refPath)
-                                 : std::nullopt
+          (args.refPath.empty()) ? std::nullopt
+                                 : std::optional (args.refPath)
       );
       break;
     case ApbMode::demo:
@@ -346,7 +347,9 @@ int main (int argc, char** argv)
 
   if (!args.dumpPath.empty()) {
     PLOGD << "Dumping db";
-    auto dumpRet = dump_to_disk (db, args.dumpPath);
+    auto dumpRet = (args.dumpPath == "-")
+                       ? dump_to_stdout (db)
+                       : dump_to_disk (db, args.dumpPath);
     if (!dumpRet) {
       std::cerr << "Error: failed to dump database. Reporting: "
                 << dumpRet.error().msg << std::endl;
