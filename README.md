@@ -116,24 +116,36 @@ The compiled binary can be found at `build/apb`.
 ## Future Roadmap
 
 Feature suggestions are welcomed.
+General suggestions regarding improvements to commands and navigation are also appreciated; I'm happy to make changes before a 1.0 release.
 
-### Planned
-- VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
-  - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
-- General UX/UI improvments, particularly around the in-app command line.
-- Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
+### Planned Features
+
+- Multiple alignment pileups.
 - More stats in the status bar; allele counts, VAF (when in variant driven mode), reference span complexity assessment (useful when
 assessing artefactual variants).
 
-### Speculative
-These are items that I think might be useful,
-but are more work so I will only add them if users
-find them desirable.
+### Speculative Features
 
-- Multiple alignment pileups.
-- Locus-jumping from within TUI when reading an alignment file - e.g. `goto chr1:2500`.
+These are items that I think might be useful and could implement, but am unlikely to do so without requests - if you see something you would like, please ask!
+
+- Allow display of individual SAM tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
+- Allow providing a list or file of loci at the CLI, and jumping between them in the TUI.
+  - Could also support VCF-driven locus browsing more specifically.
+- Arbitrary locus-jumping from within TUI - e.g. `goto chr1:2500`.
   - Currently the view is fixed to a single locus specified at startup.
-  - This may also lead to multi-locus dbs, multi-sample browsing/dbs, etc.
+- Allow "saving" queries and returning to them within the same session, without having to type them out again.
+- Optionally use unicode block characters to draw the quality string as a "sparkline" for reading at a glance,
+  like so: ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁ (example may not render in the README if you don't have those characters in your font).
+- Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
+
+### Non-feature Work
+
+- Consistently assert invariants and preconditions in all frontend functions
+- Still some work to be done on a consistent/better error handling policy; particularly on when to crash and how to gracefully do so.
+- Backend code needs a cleanup pass in general and is overengineered around failure cases.
+- Currently the demo mode database is fixed at compile time, meaning different builds will have different demo data.
+  The demo data is generated in a parameterised manner so this isn't a big problem but it would be nice if a single
+  demo database could be distributed within the src.
 
 ## Development
 

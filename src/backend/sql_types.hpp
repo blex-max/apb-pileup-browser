@@ -4,10 +4,7 @@
 
 struct SqliteConn {
   sqlite3* o_conn = nullptr;
-  operator sqlite3*() const
-  {
-    return o_conn;
-  }  // avoid having to route through a layer to access ptr
+  operator sqlite3*() const { return o_conn; }
 
   SqliteConn() = default;
   // delete copy, avoid double free/close

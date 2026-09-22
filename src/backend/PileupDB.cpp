@@ -25,7 +25,9 @@ VoidOrErr init_db (PileupDB& db)
   }
 
   auto excFn = [&db] (const std::string_view stmt) -> int {
-    return sqlite3_exec (db, stmt.data(), NULL, NULL, NULL);
+    return sqlite3_exec (
+        db, std::string{stmt}.c_str(), NULL, NULL, NULL
+    );
   };
 
   if (sqlRc = excFn (schema::sqlSetTempStoreMemory);

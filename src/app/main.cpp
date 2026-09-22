@@ -36,7 +36,7 @@ static constexpr std::string_view cliHelp =
 
  Print the manual with `apb --manual` for extended help.
 
- Type ? and press enter in the TUI for in-app help.
+ Type `help` and press enter in the TUI for in-app help.
 
 modes:
   locus  FILE LOCUS [REF]   view a single locus.
