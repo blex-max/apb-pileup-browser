@@ -548,38 +548,35 @@ VoidOrErr insert_reads_internal (
   }
 
   PLOGD << "Inserting reads";
-  PileupFields ru_pf;
-  bam_pileup1_t* ru_p1;
-  bam1_t* ru_b1;
-  const char* ru_mtidName = NULL;
 
   for (size_t i = 0; i < nPlp; ++i) {
-    ru_p1 = const_cast<bam_pileup1_t*> (&br_plpArr[i]);
+    PileupFields readI;
+    const auto* p1 = &br_plpArr[i];
+    const char* mtidName = NULL;
     {
       /* stringify mtid, if available */
       // '=' if same contig as this read, per SAM RNEXT convention;
       // NULL if no mate reference (core.mtid < 0).
-      ru_b1 = ru_p1->b;
-      if (ru_b1->core.mtid >= 0) {
+      const auto* b1 = p1->b;
+      if (b1->core.mtid >= 0) {
         // NOTE: in the case where tid2name
         // fails, null recorded in database.
         // Hence failure not checked.
-        ru_mtidName = (ru_b1->core.mtid == ru_b1->core.tid)
-                          ? "="
-                          : tid2str (ru_b1->core.mtid);
+        mtidName = (b1->core.mtid == b1->core.tid)
+                       ? "="
+                       : tid2str (b1->core.mtid);
       }
       else {
-        ru_mtidName = NULL;
+        mtidName = NULL;
       }
     }
 
-    if (auto ffRet = fill_fields (ru_pf, ru_p1, ru_mtidName);
-        !ffRet) {
+    if (auto ffRet = fill_fields (readI, p1, mtidName); !ffRet) {
       rollback_on_err (db, ffRet.error());
       return std::unexpected{ffRet.error()};
     }
 
-    if (const int sqlRc = bind_pileup_fields (stmt, ru_pf);
+    if (const int sqlRc = bind_pileup_fields (stmt, readI);
         sqlRc != SQLITE_OK) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);

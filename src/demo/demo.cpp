@@ -12,7 +12,7 @@
 #include "backend/pileup_ingest.hpp"
 #include "shared/err.hpp"
 
-static const char sh_bases[] = "ACGT";
+static const char kBaseArray[] = "ACGT";
 
 // Deterministic reference sequence
 static std::string fixed_ref_seq (size_t len)
@@ -20,7 +20,7 @@ static std::string fixed_ref_seq (size_t len)
   std::string out;
   out.reserve (len);
   for (size_t i = 0; i < len; ++i) {
-    out += sh_bases[i % 4];
+    out += kBaseArray[i % 4];
   }
   return out;
 }
@@ -28,7 +28,7 @@ static std::string fixed_ref_seq (size_t len)
 static char random_base (std::mt19937& rng)
 {
   std::uniform_int_distribution<size_t> pick (0, 3);
-  return sh_bases[pick (rng)];
+  return kBaseArray[pick (rng)];
 }
 
 // A base guaranteed to differ from refBase, for injecting mismatches
@@ -47,8 +47,6 @@ VoidOrErr insert_demo_data (
     hts_pos_t gOffset
 )
 {
-  std::mt19937 rng;
-
   const hts_pos_t pileupPos =
       static_cast<hts_pos_t> ((regWidth / 2) - 1);
   const auto qLen = static_cast<size_t> (pileupPos);
@@ -57,10 +55,10 @@ VoidOrErr insert_demo_data (
       'A';  // known ref base at the variant site
 
   constexpr size_t maxDelLen = 4;
+
   // Headroom of maxDelLen reserved so start+qLen+delLen
   // can never exceed regWidth, whether or not a given read ends up with
   // a deletion.
-  //
   // Reserving start >= 1 keeps qPos in [0, qLen-1] for every read.
   std::uniform_int_distribution<size_t> gstartGen (
       1, qLen - maxDelLen
@@ -75,7 +73,7 @@ VoidOrErr insert_demo_data (
   std::uniform_int_distribution<uint8_t> mapQGen (0, 60);
 
   // At most one of {deletion, insertion, leading clip, trailing clip}
-  // per read - eaiser to implement
+  // per read - eaiser to implement.
   enum class ReadVariant : uint8_t {
     None,
     Deletion,
@@ -87,33 +85,26 @@ VoidOrErr insert_demo_data (
       {0.55, 0.15, 0.10, 0.10, 0.10}
   );
 
-  // Generate all reads' fields up front (no DB calls yet), tracking the
-  // overall span so the loci row -- inserted below, before any reads
-  // that FK-reference it -- can carry real pos/start/end/refSlice
-  // instead of a placeholder.
-  std::vector<PileupFields> reads;
-  reads.reserve (nQuery);
+  std::vector<PileupFields> readsBuffer;
+  readsBuffer.reserve (nQuery);
   GenomicSpan span{INT64_MAX, 0};
-
+  std::mt19937 rng;
   for (size_t i = 0; i < nQuery; ++i) {
-    PileupFields ru_pf;
-    ru_pf.flag = 0;
-    ru_pf.isDel = false;
-    ru_pf.isRefSkip = false;
-    ru_pf.mapQ = mapQGen (rng);
-    ru_pf.mStart = -1;
-    ru_pf.mtidName = '*';  // not present
-    ru_pf.qName = "read" + std::to_string (i);
+    PileupFields readI;
+    readI.flag = 0;
+    readI.isDel = false;
+    readI.isRefSkip = false;
+    readI.mapQ = mapQGen (rng);
+    readI.mStart = -1;
+    readI.mtidName = '*';  // not present
+    readI.qName = "read" + std::to_string (i);
 
-    ru_pf.start = static_cast<hts_pos_t> (gstartGen (rng));
+    readI.start = static_cast<hts_pos_t> (gstartGen (rng));
     const auto qPos =
-        static_cast<int32_t> (pileupPos - ru_pf.start);
+        static_cast<int32_t> (pileupPos - readI.start);
 
-    // Every variant below needs at least one base of "room" past the
-    // pileup column to split/shrink the aligned run into -- same guard
-    // for all three, so qPos/isHead/isTail stay exactly the plain-read
-    // formulas below regardless of which variant (if any) got picked;
-    // only what's generated on either side of the pileup column changes.
+    // Every variant below needs at least one base past the
+    // pileup column to split/shrink the aligned run into.
     const bool hasRoom = qPos <= static_cast<int32_t> (qLen) - 2;
     const auto variant =
         hasRoom ? static_cast<ReadVariant> (variantDist (rng))
@@ -156,12 +147,9 @@ VoidOrErr insert_demo_data (
         break;
     }
 
-    // indel is only nonzero when the event immediately follows the
-    // pileup base in THIS read (htslib bam_pileup1_t::indel semantics)
-    // -- not merely "this read contains an indel somewhere".
     const bool indelAtPileup =
         mSplit == static_cast<size_t> (qPos) + 1;
-    ru_pf.indel = indelAtPileup ? static_cast<int> (insLen) -
+    readI.indel = indelAtPileup ? static_cast<int> (insLen) -
                                       static_cast<int> (delLen)
                                 : 0;
 
@@ -169,9 +157,7 @@ VoidOrErr insert_demo_data (
         leadClip ? qPos + static_cast<int32_t> (clipLen) : qPos;
 
     // Insertions add query bases that aren't in the reference, so
-    // (unlike deletions, which only widen the ref span) the read's own
-    // seq/qual buffers grow by insLen; insLen is 0 for every other
-    // variant, so this is a no-op there.
+    // the read seq/qual buffers grow by insLen
     const size_t seqLen = qLen + insLen;
     std::string seq (seqLen, ' ');
     std::string qual (seqLen, ' ');
@@ -185,9 +171,7 @@ VoidOrErr insert_demo_data (
       if (j == static_cast<size_t> (finalQPos)) {
         constexpr char pileupAlt = 'T';
 
-        // Designed SNV at the pileup locus: a fixed alt base at a fixed
-        // VAF, distinct from (and not diluted by) the generic background
-        // mismatch roll below.
+        // fixed alt base at fixed VAF
         seq[j] = snvAlleleDist (rng)
                      ? pileupAlt
                      : refSeq[static_cast<size_t> (pileupPos)];
@@ -198,8 +182,6 @@ VoidOrErr insert_demo_data (
           leadClip ? j < clipLen
                    : (clipLen > 0 && j >= qLen - clipLen);
       if (inClip) {
-        // Clipped bases aren't aligned to any reference position --
-        // nothing to compare against, so they're plain random filler.
         seq[j] = random_base (rng);
         continue;
       }
@@ -207,8 +189,6 @@ VoidOrErr insert_demo_data (
       const bool inInsertion =
           insLen > 0 && j >= mSplit && j < mSplit + insLen;
       if (inInsertion) {
-        // Inserted bases aren't aligned to any reference position
-        // either -- same treatment as clipped bases.
         seq[j] = random_base (rng);
         continue;
       }
@@ -221,14 +201,14 @@ VoidOrErr insert_demo_data (
         alignedIdx = j - insLen;
       }
       const size_t refOffset =
-          static_cast<size_t> (ru_pf.start) + alignedIdx +
+          static_cast<size_t> (readI.start) + alignedIdx +
           (alignedIdx < mSplit ? 0 : delLen);
       const char refBase = refSeq[refOffset];
       seq[j] = mismatchDist (rng) ? mutate_base (refBase, rng)
                                   : refBase;
     }
-    ru_pf.seqBases = std::move (seq);
-    ru_pf.qualAscii = std::move (qual);
+    readI.seqBases = std::move (seq);
+    readI.qualAscii = std::move (qual);
 
     std::vector<uint32_t> cigOps;
     if (leadClip) {
@@ -286,33 +266,33 @@ VoidOrErr insert_demo_data (
           )
       );
     }
-    ru_pf.nCig = cigOps.size();
-    ru_pf.rawCig = std::move (cigOps);
-    ru_pf.cig =
-        stringify_cigar (ru_pf.rawCig.data(), ru_pf.nCig);
+    readI.nCig = cigOps.size();
+    readI.rawCig = std::move (cigOps);
+    readI.cig =
+        stringify_cigar (readI.rawCig.data(), readI.nCig);
 
-    ru_pf.end =
-        ru_pf.start +
+    readI.end =
+        readI.start +
         (delLen > 0 ? static_cast<hts_pos_t> (qLen + delLen)
                     : static_cast<hts_pos_t> (qLen - clipLen));
 
-    ru_pf.qPos = finalQPos;
-    ru_pf.base = ru_pf.seqBases[static_cast<size_t> (finalQPos)];
-    ru_pf.baseQual = static_cast<uint8_t> (
-        ru_pf.qualAscii[static_cast<size_t> (finalQPos)] - 33
+    readI.qPos = finalQPos;
+    readI.base = readI.seqBases[static_cast<size_t> (finalQPos)];
+    readI.baseQual = static_cast<uint8_t> (
+        readI.qualAscii[static_cast<size_t> (finalQPos)] - 33
     );
-    ru_pf.isHead = (finalQPos == 0);
-    ru_pf.isTail =
+    readI.isHead = (finalQPos == 0);
+    readI.isTail =
         (finalQPos == static_cast<int32_t> (qLen - 1));
 
-    span.start = std::min (ru_pf.start, span.start);
-    span.end = std::max (ru_pf.end, span.end);
+    span.start = std::min (readI.start, span.start);
+    span.end = std::max (readI.end, span.end);
 
-    reads.push_back (std::move (ru_pf));
+    readsBuffer.push_back (std::move (readI));
   }
 
   std::sort (
-      reads.begin(), reads.end(),
+      readsBuffer.begin(), readsBuffer.end(),
       [] (const PileupFields& a, const PileupFields& b) {
         return a.start < b.start;
       }
@@ -323,9 +303,9 @@ VoidOrErr insert_demo_data (
       static_cast<size_t> (span.end - span.start)
   );
 
-  for (auto& ru_pf : reads) {
-    ru_pf.start += gOffset;
-    ru_pf.end += gOffset;
+  for (auto& readI : readsBuffer) {
+    readI.start += gOffset;
+    readI.end += gOffset;
   }
   const hts_pos_t gPileupPos = pileupPos + gOffset;
   const GenomicSpan gSpan{
@@ -349,8 +329,8 @@ VoidOrErr insert_demo_data (
     return std::unexpected{beginRet.error()};
   }
 
-  for (const auto& ru_pf : reads) {
-    if (const int sqlRc = bind_pileup_fields (stmt, ru_pf);
+  for (const auto& readI : readsBuffer) {
+    if (const int sqlRc = bind_pileup_fields (stmt, readI);
         sqlRc != SQLITE_OK) {
       Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
       rollback_on_err (db, err);

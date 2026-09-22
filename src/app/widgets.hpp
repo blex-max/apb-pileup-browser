@@ -23,6 +23,7 @@ struct BrowserWgt {
   int64_t userPanOffset = 0;
 };
 struct CmdWgt {
+  static constexpr auto widgetHeight = 7;  // inc. borders
   e2::Box frame;
   e2::HLine
       queryStatusLine;  // for displaying current filter applied to records
@@ -35,7 +36,6 @@ struct CmdWgt {
   e2::HLine msgLine;
   std::string msgBuf;
 };
-static constexpr auto sh_cmdH = 7;  // inc. borders
 
 struct OverlayWgt {
   e2::Box frame;

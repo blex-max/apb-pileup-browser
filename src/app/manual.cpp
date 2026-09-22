@@ -11,7 +11,7 @@
 #include "app/helpblocks.hpp"
 
 
-static constexpr std::string_view sh_manualChunk1 = R"txt(
+static constexpr std::string_view manualChunk1 = R"txt(
 apb Manual - A Pileup Browser
 
 **IMPORTANT**:
@@ -53,7 +53,7 @@ Navigation Keys:
 
 )txt";
 
-static constexpr std::string_view sh_manualChunk2 = R"txt(
+static constexpr std::string_view manualChunk2 = R"txt(
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
@@ -63,7 +63,7 @@ Every command submitted at the command line is interpreted like `<command> [args
 
 )txt";
 
-static constexpr std::string_view sh_manualChunk3 = R"txt(
+static constexpr std::string_view manualChunk3 = R"txt(
 
 3.3) Querying the Pileup
 
@@ -145,7 +145,7 @@ For each read, the database stores the columns detailed below. All columns are q
 
 )txt";
 
-static constexpr std::string_view sh_manualChunk4 = R"txt(
+static constexpr std::string_view manualChunk4 = R"txt(
 
 `indel` might require some explanation. Essentially, if the base at the pileup position is followed by an indel, then `indel` will contain the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size (bases gained).
 
@@ -176,10 +176,10 @@ See the README or the project GitHub (https://github.com/blex-max/apb-pileup-bro
 std::string_view get_manual()
 {
   static const std::string manual = fmt::format (
-      "{}{}{}{}{}{}{}", sh_manualChunk1,
-      fmt::join (helpblocks::navigation, "\n"), sh_manualChunk2,
-      fmt::join (build_cmd_ref_table(), "\n"), sh_manualChunk3,
-      fmt::join (helpblocks::table, "\n"), sh_manualChunk4
+      "{}{}{}{}{}{}{}", manualChunk1,
+      fmt::join (helpblocks::navigation, "\n"), manualChunk2,
+      fmt::join (build_cmd_ref_table(), "\n"), manualChunk3,
+      fmt::join (helpblocks::table, "\n"), manualChunk4
   );
   return manual;
 }

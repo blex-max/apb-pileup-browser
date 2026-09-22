@@ -2,7 +2,6 @@
 
 #include "backend/PileupDB.hpp"
 #include "backend/schema.hpp"
-#include "frontend/extb/extb.hpp"
 
 struct ColMetadata {
   bool visible;
@@ -120,10 +119,6 @@ struct AppConfig {
   struct {
     bool table = true;
   } drawPaneSwitches;
-};
-
-struct AppMetadata {
-  tb_event lastEv{};
 };
 
 struct DBBundle {

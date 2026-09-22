@@ -113,8 +113,12 @@ VoidOrErr size_widgets (UIBundle& ui)
   const e2::Span screenY{0, screenH};
 
   // vertical sectioning of terminal
-  const e2::Span mainY{screenY.first, screenY.last - sh_cmdH};
-  const e2::Span cmdY{mainY.last, mainY.last + sh_cmdH};
+  const e2::Span mainY{
+      screenY.first, screenY.last - CmdWgt::widgetHeight
+  };
+  const e2::Span cmdY{
+      mainY.last, mainY.last + CmdWgt::widgetHeight
+  };
 
   PLOGD << "screen y last: " << screenY.last;
   PLOGD << "cmd y first: " << cmdY.first;

@@ -120,8 +120,6 @@ Feature suggestions are welcomed.
 ### Planned
 - VCF-driven locus browsing - input a VCF along with alignment/s and navigate between variant loci.
   - unlikely to implement any filtering of the vcf as that can be done at or before startup with `bcftools` and shell piping/substitution.
-- Better column discoverability - they are currently found only in the manual (e.g. an in-app column reference).
-- Pannable alignment view (currently the view is only scrollable up/down - side to side is planned).
 - General UX/UI improvments, particularly around the in-app command line.
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
 - More stats in the status bar; allele counts, VAF (when in variant driven mode), reference span complexity assessment (useful when
@@ -139,12 +137,11 @@ find them desirable.
 
 ## Development
 
-### Use of Hungarian Prefixing
+### Use of Hungarian Notation
 
 **o_** - owned pointer, this scope must handle lifetime.  
 **br_** - borrowed pointer, this scope must not affect lifetime.  
-**sh_** - shared statically-allocated (probably) object, not defined in this scope.  
-**ru_** - buffer reused across loop iterations.  
+**k** - constant. I don't use an underscore with this one  
 
 I am almost certainly not using these reliably, but I do find them helpful.
 

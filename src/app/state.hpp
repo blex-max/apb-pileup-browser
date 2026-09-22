@@ -6,6 +6,5 @@
 struct AppState {
   UIBundle ui;
   AppConfig conf;
-  AppMetadata mData;
   DBBundle db;
 };

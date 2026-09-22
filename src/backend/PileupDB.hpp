@@ -68,7 +68,7 @@ LocusOrErr get_locus_data (const PileupDB& db);
 );
 
 struct DynamicSelectReadsStmt : public SqliteStmt {
-  static inline const std::string_view sh_sqlPrefix =
+  static inline const std::string_view sqlStmtPrefix =
       "SELECT * FROM reads";
 };
 struct DynamicFragments {
@@ -85,7 +85,7 @@ inline SelectStmtOrErr prepare_select_reads (
   DynamicSelectReadsStmt stmt;
 
   std::string rsql_builtStmt{
-      DynamicSelectReadsStmt::sh_sqlPrefix
+      DynamicSelectReadsStmt::sqlStmtPrefix
   };
 
   // build WHERE
@@ -135,7 +135,7 @@ inline SelectStmtOrErr prepare_select_reads (
 };
 
 struct DynamicCountReadsStmt : public SqliteStmt {
-  static inline const std::string_view sh_sqlPrefix =
+  static inline const std::string_view sqlStmtPrefix =
       "SELECT COUNT(*) FROM reads";
 };
 
@@ -147,7 +147,7 @@ inline CountStmtOrErr prepare_count_reads (
   DynamicCountReadsStmt stmt;
 
   std::string rsql_builtStmt{
-      DynamicCountReadsStmt::sh_sqlPrefix
+      DynamicCountReadsStmt::sqlStmtPrefix
   };
 
   // build WHERE

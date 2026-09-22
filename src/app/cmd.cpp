@@ -232,23 +232,6 @@ struct ShowTableColCmd {
   };
 };
 
-static const std::unordered_set<std::string_view>
-    sh_validConjunctions{"AND", "and", "OR", "or"};
-
-static std::string stringify_where (
-    const std::vector<std::string>& where
-)
-{
-  std::string out;
-  for (size_t i = 0; i < where.size(); ++i) {
-    out.append (where[i]);
-    if (i != (where.size() - 1)) {
-      out.append (" ");
-    }
-  }
-  return out;
-}
-
 static CmdResult try_apply_query_clause (
     AppState& state, DynamicFragments newClause,
     std::string_view successMsg
@@ -569,6 +552,20 @@ struct CountCmd {
     };
   }
 
+  static std::string stringify_where (
+      const std::vector<std::string>& where
+  )
+  {
+    std::string out;
+    for (size_t i = 0; i < where.size(); ++i) {
+      out.append (where[i]);
+      if (i != (where.size() - 1)) {
+        out.append (" ");
+      }
+    }
+    return out;
+  }
+
   inline static const CmdView view{
       call, callAlias, &operator(), usage, desc
   };
@@ -604,83 +601,6 @@ struct ClearCmd {
       call, callAlias, &operator(), usage, desc
   };
 };
-
-// NOTE: kept for now for future reference
-// struct ShowPaneCmd {
-//   enum Pane : uint8_t { aln, table, COUNT };
-//   constexpr static std::array<std::string_view, Pane::COUNT>
-//       paneNames{{[Pane::aln] = "aln", [Pane::table] = "table"}};
-//   constexpr static std::array<std::string_view, Pane::COUNT>
-//       paneFullNames{
-//           {[Pane::aln] = "alignment", [Pane::table] = "table"}
-//       };
-
-//   constexpr static std::string_view call{"pane"};
-//   constexpr static std::array<std::string_view, 1> callAlias{
-//       "p"
-//   };
-//   inline static const std::string usage =
-//       fmt::format ("{} [{}]", call, fmt::join (paneNames, "|"));
-//   constexpr static std::string_view desc{
-//       "Show/hide either of the alignment or table panes, or "
-//       "reset to default with no args."
-//   };
-
-//   static CmdResult operator() (
-//       std::string_view args, AppState& state
-//   )
-//   {
-//     auto& switches = state.conf.drawPaneSwitches;
-//     const auto tokens = split_whitespace (args);
-
-//     if (tokens.size() > 1) {
-//       return {
-//           false,
-//           cmd_format_misuse ("specify a single pane only", usage)
-//       };
-//     }
-
-//     std::string msg;
-//     if (tokens.empty()) {
-//       switches.table = true;
-//       msg = "Reset view to default";
-//     }
-//     else if (tokens[0] == paneNames[Pane::aln]) {
-//       switches.aln = !switches.aln;
-//       if (!switches.aln && !switches.table) {
-//         switches.table = true;
-//       }
-//       msg = fmt::format (
-//           "{} {} pane", (switches.aln) ? "Unfolded" : "Folded",
-//           paneFullNames[Pane::aln]
-//       );
-//     }
-//     else if (tokens[0] == paneNames[Pane::table]) {
-//       switches.table = !switches.table;
-//       if (!switches.table && !switches.aln) {
-//         switches.aln = true;
-//       }
-//       msg = fmt::format (
-//           "{} {} pane", (switches.table) ? "Unfolded" : "Folded",
-//           paneFullNames[Pane::table]
-//       );
-//     }
-//     else {
-//       return {
-//           false,
-//           cmd_format_misuse (
-//               fmt::format ("unknown pane {}", tokens[0]), usage
-//           )
-//       };
-//     }
-
-//     return {true, msg};
-//   }
-
-//   inline static const CmdView view{
-//       call, callAlias, &operator(), usage, desc
-//   };
-// };
 
 struct ShowTableCmd {
   constexpr static std::string_view call{"show-table"};

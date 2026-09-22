@@ -27,7 +27,7 @@
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
 // have not drifted.
-static constexpr std::string_view sh_cliHelp =
+static constexpr std::string_view cliHelp =
     R"txt(usage: apb [options] MODE [FILE] [LOCI] [REF]
 
  apb is an terminal-based genome browser designed for viewing
@@ -101,7 +101,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   // the program.
   cli.add_argument ("-h", "--help")
       .action ([] (const auto&) {
-        std::cout << sh_cliHelp << "\n";
+        std::cout << cliHelp << "\n";
         std::exit (0);
       })
       .flag();
@@ -136,7 +136,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   }
   catch (const std::exception& ex) {
     std::ostringstream oss;
-    oss << ex.what() << "\n" << sh_cliHelp << "\n";
+    oss << ex.what() << "\n" << cliHelp << "\n";
     return std::unexpected (oss.str());
   }
 
