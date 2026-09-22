@@ -262,8 +262,8 @@ static CmdResult try_apply_query_clause (
 
 struct WhereCmd {
   constexpr static std::string_view call{"where"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "wh"
+  constexpr static std::array<std::string_view, 2> callAlias{
+      "w", "wh"
   };
   inline static const std::string usage =
       fmt::format ("{} <clause>", call);
@@ -464,8 +464,8 @@ struct ClearWhereCmd {
 
 struct OrderCmd {
   constexpr static std::string_view call{"order-by"};
-  constexpr static std::array<std::string_view, 2> callAlias{
-      "order", "ob"
+  constexpr static std::array<std::string_view, 3> callAlias{
+      "order", "ob", "o"
   };
   inline static const std::string usage =
       fmt::format ("{} <clause>", call);

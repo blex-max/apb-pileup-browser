@@ -17,7 +17,7 @@ apb Manual - A Pileup Browser
 **IMPORTANT**:
 The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
 
-It is recommended to read this manual using a line/word-wrapping pager, such as `less`.
+It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
 1) Overview
 

@@ -50,21 +50,22 @@ static_assert (
 
 inline constexpr auto navigation =
     std::to_array<std::string_view> (
-        {" BROWSER PANE                                  ",
-         "  Up / Down         scroll one row             ",
-         "  PgUp / PgDn       scroll one page            ",
-         "                                               ",
-         " COMMAND LINE                                  ",
-         "  Enter             run command                ",
-         "  S-Up / S-Down     step command history       ",
-         "  Left / Right      move cursor                ",
-         "  M-Left / M-Right  back / forward one word    ",
-         "  M-b / M-f         back / forward one word    ",
-         "  C-a / C-e         start / end of line        ",
-         "  Bksp / M-Bksp     delete char / whole line   ",
-         "  C-c               clear input, else quit apb ",
-         "                                               ",
-         " M-: Alt | C-: Ctrl | S-: Shift                "}
+        {" BROWSER PANE                                       ",
+         "  Up / Down         scroll one row                  ",
+         "  S-Left / S-Right  pan alignment view side-to-side ",
+         "  PgUp / PgDn       scroll one page                 ",
+         "                                                    ",
+         " COMMAND LINE                                       ",
+         "  Enter             run command                     ",
+         "  S-Up / S-Down     step command history            ",
+         "  Left / Right      move cursor                     ",
+         "  M-Left / M-Right  back / forward one word         ",
+         "  M-b / M-f         back / forward one word         ",
+         "  C-a / C-e         start / end of line             ",
+         "  Bksp / M-Bksp     delete char / whole line        ",
+         "  C-c               clear input, else quit apb      ",
+         "                                                    ",
+         " M-: Alt | C-: Ctrl | S-: Shift                     "}
     );
 static_assert (
     !navigation.empty() &&

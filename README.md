@@ -141,7 +141,7 @@ find them desirable.
 
 **o_** - owned pointer, this scope must handle lifetime.  
 **br_** - borrowed pointer, this scope must not affect lifetime.  
-**k** - constant. I don't use an underscore with this one  
+**k** - file-level constant used across multiple scopes. I don't use an underscore with this one.
 
 I am almost certainly not using these reliably, but I do find them helpful.
 
@@ -161,7 +161,5 @@ I am almost certainly not using these reliably, but I do find them helpful.
 
 This repo has been developed by hand, with some use of AI tools for extraneous work like implementing githooks etc.
 The design and implementation of all core types and logic are made by the maintainer.
-The benefit is a codebase that is (hopefully) well-designed, effective, and concise - and therefore easy to maintain
-and easy to contribute to.
 Contributions are more than welcome, but would ideally follow this standard.
 
