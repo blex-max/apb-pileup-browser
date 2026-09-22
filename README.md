@@ -77,8 +77,8 @@ This software is in a demo state and feedback is very much appreciated as I work
 
 For CLI/TUI usage, command syntax, and query examples, generate a markdown manual specific to your version with `apb --manual > MANUAL.md`
 (Check the helptext for exact instructions for manual generation).
-You may also read the copy [MANUAL.md](MANUAL.md) shipped with the repository without building,
-but note that it may not correspond to your version of the tool!
+You may also read the copy of [MANUAL.md](MANUAL.md) shipped with the repository without building,
+but note that it may not exactly correspond to your version of the tool!
 
 **`apb` displays all coordinate data in the TUI in 0-based half-open coordinates, matching the internal representation of htslib.
 The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,
@@ -128,14 +128,14 @@ assessing artefactual variants).
 
 These are items that I think might be useful and could implement, but am unlikely to do so without requests - if you see something you would like, please ask!
 
-- Allow display of individual SAM tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
+- Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
 - Allow providing a list or file of loci at the CLI, and jumping between them in the TUI.
   - Could also support VCF-driven locus browsing more specifically.
 - Arbitrary locus-jumping from within TUI - e.g. `goto chr1:2500`.
   - Currently the view is fixed to a single locus specified at startup.
 - Allow "saving" queries and returning to them within the same session, without having to type them out again.
 - Optionally use unicode block characters to draw the quality string as a "sparkline" for reading at a glance,
-  like so: ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁ (example may not render in the README if you don't have those characters in your font).
+  like so: ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁ (example does not render well on github markdown viewer).
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
 
 ### Non-feature Work
