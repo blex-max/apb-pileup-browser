@@ -75,7 +75,7 @@ Advantages:
 
 This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
 
-For CLI/TUI usage, command syntax, and query examples, generate a markdown manual specific to your version with `apb --dump > MANUAL.md`
+For CLI/TUI usage, command syntax, and query examples, generate a markdown manual specific to your version with `apb --manual > MANUAL.md`
 (Check the helptext for exact instructions for manual generation).
 You may also read the copy [MANUAL.md](MANUAL.md) shipped with the repository without building,
 but note that it may not correspond to your version of the tool!
