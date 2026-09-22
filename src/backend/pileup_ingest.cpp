@@ -17,7 +17,7 @@
 
 namespace {
 
-std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
+std::expected<SqliteStmt, int> prepare_insert_metadata_stmt (
     PileupDB& db
 )
 {
@@ -29,16 +29,14 @@ std::expected<SqliteStmt, Err> prepare_insert_metadata_stmt (
           &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errmsg (db))
-    };
+    return std::unexpected (rc);
   }
   return stmt;
 }
 
 }  // namespace
 
-std::expected<SqliteStmt, Err> prepare_insert_reads_stmt (
+std::expected<SqliteStmt, int> prepare_insert_reads_stmt (
     PileupDB& db
 )
 {
@@ -50,9 +48,7 @@ std::expected<SqliteStmt, Err> prepare_insert_reads_stmt (
           &stmt.o_stmt, NULL
       );
       rc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errmsg (db))
-    };
+    return std::unexpected (rc);
   }
   return stmt;
 }
@@ -101,79 +97,72 @@ void append_json_escaped (
   }
 }
 
-VoidOrErr aux1_to_json (
-    const uint8_t* br_aux1, const uint8_t* br_auxEnd,
-    std::string& entryOut
+// converts single aux tag to json entry
+// returns nullopt on failure to parse aux tag.
+std::optional<std::string> aux1_to_json (
+    const uint8_t* aux1Start, const uint8_t* aux1End
 )
 {
-  // TODO: error strategy
   kstring_t o_kstr;
   ks_initialize (&o_kstr);
   if (sam_format_aux1 (
-          br_aux1 - 2, *br_aux1, br_aux1 + 1, br_auxEnd, &o_kstr
+          aux1Start - 2, *aux1Start, aux1Start + 1, aux1End,
+          &o_kstr
       ) == NULL) {
-    return std::unexpected{make_htslib_err (
-        -1,
-        "failed to parse aux "
-        "tag"
-    )};  // TODO: better error
+    return std::nullopt;
   }
   const char* br_str = ks_str (&o_kstr);
 
   /* append key */
-  entryOut += '"';  // open key quotes
-  entryOut.append (br_str, 2);  // 2-ch tag
-  entryOut += '"';  // close
-  entryOut += ':';  // add key-val separator
+  std::string out{'"'};  // open key quotes
+  out.append (br_str, 2);  // 2-ch tag
+  out += '"';  // close
+  out += ':';  // add key-val separator
 
   /* append val */
   const char typeCh = *(br_str + 3);
   if (typeCh == 'B') {
-    entryOut += '[';  // open array
-    // handle array
-    // header is always "TAG:B:<subtype>" (2 + 1 + 2 + 1 = 6 chars);
-    // htslib only emits the first ',' -- and therefore anything past
-    // the header -- once there's at least one element, so an empty
-    // array (ks_len == headerLen) must short-circuit here rather than
-    // read past the end of the formatted buffer.
-    const size_t headerLen = 6;
-    if (ks_len (&o_kstr) > headerLen) {
-      const char* br_valStart = br_str + headerLen + 1;
+    // array aux tag
+    out += '[';  // open JSON array
+    // form "TAG:B:<subtype>" (2 + 1 + 2 + 1 = 6 chars);
+    constexpr auto arrayTagPrefixLen = 6;
+    if (ks_len (&o_kstr) > arrayTagPrefixLen) {
+      const char* payloadStartPtr =
+          br_str + arrayTagPrefixLen + 1;
       // all allowed array types are numeric
       // no need to check type
       ks_tokaux_t tokAux;
-      const char* br_tok;
+      const char* tok;
       bool firstTok = true;
-      for (br_tok = kstrtok (br_valStart, ",", &tokAux);
-           br_tok != nullptr;
-           br_tok = kstrtok (NULL, NULL, &tokAux)) {
+      for (tok = kstrtok (payloadStartPtr, ",", &tokAux);
+           tok != nullptr; tok = kstrtok (NULL, NULL, &tokAux)) {
         const size_t tokLen =
-            static_cast<size_t> (tokAux.p - br_tok);
+            static_cast<size_t> (tokAux.p - tok);
         if (!firstTok) {
-          entryOut += ',';
+          out += ',';
         }
-        entryOut.append (br_tok, tokLen);
+        out.append (tok, tokLen);
         firstTok = false;
       }
     }
-    entryOut += ']';
+    out += ']';  // close JSON array
   }
   else {
-    const size_t valStartOffset = 5;
-    const char* br_valStart = br_str + valStartOffset;
-    const size_t valLen = ks_len (&o_kstr) - valStartOffset;
+    constexpr auto tagPrefixLen = 5;
+    const auto* payloadStartPtr = br_str + tagPrefixLen;
+    const size_t payloadLen = ks_len (&o_kstr) - tagPrefixLen;
     switch (typeCh) {
       case 'A':
       case 'Z':
       case 'H':
-        // val as string
-        entryOut += '"';
-        append_json_escaped (br_valStart, valLen, entryOut);
-        entryOut += '"';
+        // payload as string
+        out += '"';
+        append_json_escaped (payloadStartPtr, payloadLen, out);
+        out += '"';
         break;
       default:
-        // val as numeric
-        entryOut.append (br_valStart, valLen);
+        // payload as numeric
+        out.append (payloadStartPtr, payloadLen);
         break;
     }
   }
@@ -192,7 +181,7 @@ int pileup_func (void* br_data, bam1_t* br_b)
 }
 
 PileupOrErr prepare_pileup (
-    const AlnFile& aln, const PileupPosition& pos
+    const AlnFile& aln, const PileupLocus& pos
 )
 {
   PLOGD << "Begin prepare_pileup";
@@ -263,13 +252,14 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
   return out;
 }
 
-[[nodiscard]] VoidOrErr insert_metadata (
+
+[[nodiscard]] std::expected<void, int> insert_metadata (
     PileupDB& db, const PileupMetadata& locus
 )
 {
   /*
     insert the pileup locus into the database's single metadata row.
-    Uses automatic transaction handling.
+    Uses automatic transaction handling, not necessary to begin/end transaction.
   */
   auto r = prepare_insert_metadata_stmt (db);
   if (!r) {
@@ -283,33 +273,23 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
           stmt, col++, locus.contig.c_str(), -1, SQLITE_TRANSIENT
       );
       rc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errstr (rc))
-    };
+    return std::unexpected (rc);
   }
   if (rc = sqlite3_bind_int64 (stmt, col++, locus.pos);
       rc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errstr (rc))
-    };
+    return std::unexpected (rc);
   }
   if ((rc = sqlite3_bind_int64 (stmt, col++, locus.start)) !=
       SQLITE_OK) {
-    return std::unexpected (
-        make_sqlite3_err (rc, sqlite3_errstr (rc))
-    );
+    return std::unexpected (rc);
   }
   if ((rc = sqlite3_bind_int64 (stmt, col++, locus.end)) !=
       SQLITE_OK) {
-    return std::unexpected (
-        make_sqlite3_err (rc, sqlite3_errstr (rc))
-    );
+    return std::unexpected (rc);
   }
   if (!locus.refSlice) {
     if (rc = sqlite3_bind_null (stmt, col++); rc != SQLITE_OK) {
-      return std::unexpected (
-          make_sqlite3_err (rc, sqlite3_errstr (rc))
-      );
+      return std::unexpected (rc);
     }
   }
   else {
@@ -319,16 +299,12 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
             SQLITE_TRANSIENT
         );
         rc != SQLITE_OK) {
-      return std::unexpected (
-          make_sqlite3_err (rc, sqlite3_errstr (rc))
-      );
+      return std::unexpected (rc);
     }
   }
 
   if (rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errmsg (db))
-    };
+    return std::unexpected (rc);
   }
   return {};
 }
@@ -491,14 +467,12 @@ GenomicSpan get_pileup_span (const PreparedPileup& plp)
   return SQLITE_OK;
 }
 
-VoidOrErr begin_transaction (PileupDB& db)
+std::expected<void, int> begin_transaction (PileupDB& db)
 {
-  if (const int sqlRc =
+  if (const auto rc =
           sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
   }
   return {};
 }
@@ -514,19 +488,18 @@ void rollback_on_err (PileupDB& db, Err& err)
   }
 }
 
-VoidOrErr commit (PileupDB& db)
+std::expected<void, int> commit (PileupDB& db)
 {
-  if (const int sqlRc =
+  if (const auto rc =
           sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
-      sqlRc != SQLITE_OK) {
-    Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
-    rollback_on_err (db, err);
-    return std::unexpected{err};
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
   }
   return {};
 }
 
-VoidOrErr insert_reads_internal (
+
+std::expected<void, InsertReadsErr> insert_reads_internal (
     PileupDB& db, const bam_pileup1_t* br_plpArr, size_t nPlp,
     const Tid2StrFn& tid2str
 )
@@ -537,14 +510,16 @@ VoidOrErr insert_reads_internal (
 
   auto r = prepare_insert_reads_stmt (db);
   if (!r) {
-    return std::unexpected{r.error()};  // no rollback needed
+    return std::unexpected (
+        InsertReadsErr{InsertReadsErr::sqlFail, r.error()}
+    );
   }
   auto stmt{std::move (*r)};
 
   if (auto beginRet = begin_transaction (db); !beginRet) {
-    return std::unexpected{
-        beginRet.error()
-    };  // BEGIN never succeeded, nothing to roll back
+    return std::unexpected (
+        InsertReadsErr{InsertReadsErr::sqlFail, beginRet.error()}
+    );
   }
 
   PLOGD << "Inserting reads";
@@ -571,23 +546,25 @@ VoidOrErr insert_reads_internal (
       }
     }
 
-    if (auto ffRet = fill_fields (readI, p1, mtidName); !ffRet) {
-      rollback_on_err (db, ffRet.error());
-      return std::unexpected{ffRet.error()};
+    if (!fill_fields (readI, p1, mtidName)) {
+      return std::unexpected (
+          InsertReadsErr{
+              InsertReadsErr::auxParseFail, std::nullopt
+          }
+      );
     }
 
-    if (const int sqlRc = bind_pileup_fields (stmt, readI);
-        sqlRc != SQLITE_OK) {
-      Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
-      rollback_on_err (db, err);
-      return std::unexpected{err};
+    if (const auto rc = bind_pileup_fields (stmt, readI);
+        rc != SQLITE_OK) {
+      return std::unexpected (
+          InsertReadsErr{InsertReadsErr::sqlFail, rc}
+      );
     }
 
-    if (const int sqlRc = sqlite3_step (stmt);
-        sqlRc != SQLITE_DONE) {
-      Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
-      rollback_on_err (db, err);
-      return std::unexpected{err};
+    if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
+      return std::unexpected (
+          InsertReadsErr{InsertReadsErr::sqlFail, rc}
+      );
     }
     sqlite3_reset (
         stmt
@@ -599,7 +576,9 @@ VoidOrErr insert_reads_internal (
 
   auto comRet = commit (db);
   if (!comRet) {
-    return std::unexpected{comRet.error()};
+    return std::unexpected (
+        InsertReadsErr{InsertReadsErr::sqlFail, comRet.error()}
+    );
   }
 
   return {};
@@ -611,7 +590,7 @@ VoidOrErr insert_reads_internal (
 //
 // NOTE: takes mTidName directly to
 // avoid dealing with SAM header.
-VoidOrErr fill_fields (
+bool fill_fields (
     PileupFields& pf, const bam_pileup1_t* br_p1,
     const char* mTidName
 )
@@ -672,15 +651,12 @@ VoidOrErr fill_fields (
     const uint8_t* br_aux1 = bam_aux_first (br_b1);
     if (br_aux1 != NULL) {
       auxJson += '{';
-      std::string ru_aux1{};
       for (; br_aux1 != nullptr;) {
-        ru_aux1.clear();
-        auto convRet =
-            aux1_to_json (br_aux1, br_dataEnd, ru_aux1);
-        if (!convRet) {
-          return std::unexpected{convRet.error()};
+        auto tagEntry = aux1_to_json (br_aux1, br_dataEnd);
+        if (!tagEntry) {
+          return false;
         }
-        auxJson += ru_aux1;
+        auxJson += *tagEntry;
         br_aux1 = bam_aux_next (br_b1, br_aux1);
         if (br_aux1 == NULL) {
           break;
@@ -691,5 +667,5 @@ VoidOrErr fill_fields (
     }
   }
 
-  return {};
+  return true;
 }

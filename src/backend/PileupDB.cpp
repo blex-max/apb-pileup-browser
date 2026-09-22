@@ -37,13 +37,6 @@ VoidOrErr init_db (PileupDB& db)
     };
   }
 
-  if (sqlRc = excFn (schema::sqlPragmaForeignKeys);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
-  }
-
   if (sqlRc = excFn (schema::sqlCreateMetaDataTable);
       sqlRc != SQLITE_OK) {
     return std::unexpected{
@@ -148,10 +141,8 @@ VoidOrErr dump_to_stdout (const PileupDB& db)
 
 namespace {
 
-// Concatenate every table/index definition in `db`'s schema into one
-// string, in a deterministic order. Two connections built from the same
-// DDL produce byte-identical output; any drift (missing table, added or
-// removed column, changed constraint) shows up as a difference.
+// Concatenate every table/index definition in db schema into one
+// string in a deterministic order.
 std::expected<std::string, Err> schema_fingerprint (PileupDB& db)
 {
   sqlite3_stmt* o_stmt = NULL;
@@ -184,34 +175,8 @@ std::expected<std::string, Err> schema_fingerprint (PileupDB& db)
   return out;
 }
 
-// NOTE: unnecessary usage of
-// prepare - replace with sqlite3_exec
-std::expected<int, Err> pragma_int (
-    PileupDB& db, const char* pragmaSql
-)
-{
-  sqlite3_stmt* o_stmt = NULL;
-  int sqlRc =
-      sqlite3_prepare_v2 (db, pragmaSql, -1, &o_stmt, NULL);
-  if (sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
-  }
-  if (sqlRc = sqlite3_step (o_stmt); sqlRc != SQLITE_ROW) {
-    const std::string errMsg = sqlite3_errmsg (db);
-    sqlite3_finalize (o_stmt);
-    return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
-  }
-  const int val = sqlite3_column_int (o_stmt, 0);
-  sqlite3_finalize (o_stmt);
-  return val;
-}
-
-// Confirm `db` has the same schema and connection-level pragmas as a
-// freshly `init_db`-created database, so a loaded db is guaranteed to
-// behave identically to one populated directly (demo/sam modes).
-VoidOrErr verify_schema_and_pragmas (PileupDB& db)
+// Confirm db follows expected apb schema
+VoidOrErr verify_schema (PileupDB& db)
 {
   PileupDB refDb;
   if (auto r = init_db (refDb); !r) {
@@ -230,34 +195,6 @@ VoidOrErr verify_schema_and_pragmas (PileupDB& db)
     return std::unexpected{make_internal_err (
         "schema does not match the expected pileup-browser "
         "schema"
-    )};
-  }
-
-  auto refFk = pragma_int (refDb, "PRAGMA foreign_keys;");
-  if (!refFk) {
-    return std::unexpected{refFk.error()};
-  }
-  auto loadedFk = pragma_int (db, "PRAGMA foreign_keys;");
-  if (!loadedFk) {
-    return std::unexpected{loadedFk.error()};
-  }
-  if (*refFk != *loadedFk) {
-    return std::unexpected{make_internal_err (
-        "foreign_keys pragma does not match the expected value"
-    )};
-  }
-
-  auto refTempStore = pragma_int (refDb, "PRAGMA temp_store;");
-  if (!refTempStore) {
-    return std::unexpected{refTempStore.error()};
-  }
-  auto loadedTempStore = pragma_int (db, "PRAGMA temp_store;");
-  if (!loadedTempStore) {
-    return std::unexpected{loadedTempStore.error()};
-  }
-  if (*refTempStore != *loadedTempStore) {
-    return std::unexpected{make_internal_err (
-        "temp_store pragma does not match the expected value"
     )};
   }
 
@@ -315,7 +252,7 @@ VoidOrErr load_from_disk (PileupDB& db, std::string_view path)
   }
   o_fileDb = NULL;
 
-  if (auto r = verify_schema_and_pragmas (db); !r) {
+  if (auto r = verify_schema (db); !r) {
     Err err = r.error();
     err.msg = "loaded db from " + std::string{path} +
               " failed verification: " + err.msg;
@@ -404,59 +341,57 @@ PileupMetadata make_locus_data (
   };
 }
 
-VoidOrErr insert_pileup (
-    PileupDB& db, const AlnFile& aln, const PileupPosition& pos,
-    const std::optional<FastaFile>& ff
+// TODO: int err type not sufficent
+// Has several different failure causes, not just sql.
+// TODO hoist err type for insert_reads_internal to shared err type
+// specifcially for sqlite3/htslib interface.
+std::expected<void, int> insert_pileup (
+    PileupDB& db, const PreparedPileup& pileupIterator,
+    const PileupLocus& pos, const std::string& contigName,
+    const sam_hdr_t* alnHdr, const std::optional<FastaFile>& ff
 )
 {
-  auto ppRet = prepare_pileup (aln, pos);
-  if (!ppRet) {
-    return std::unexpected{ppRet.error()};
-  }
-  auto reads{std::move (*ppRet)};
-
-  const auto* contigName = sam_hdr_tid2name (aln.o_hdr, pos.tid);
-
-  // With no covering reads there's no meaningful span to fetch a
-  // reference slice for; fall back to a zero-width span at the pileup
-  // position itself rather than get_pileup_span's unpopulated sentinel
-  // (INT64_MAX/0), which would otherwise pass an inverted range to
-  // fetch_region and fail the whole insert.
-  GenomicSpan rSpan{pos.pos, pos.pos};
+  GenomicSpan pileupSpan;
   std::optional<std::string> refSlice;
-  if (reads.nPlp > 0) {
-    rSpan = get_pileup_span (reads);
+  if (pileupIterator.nPlp > 0) {
+    pileupSpan = get_pileup_span (pileupIterator);
     PLOGD << fmt::format (
-        "Pileup spans {}-{}", rSpan.start, rSpan.end
+        "Pileup spans {}-{}", pileupSpan.start, pileupSpan.end
     );
     if (ff) {
-      auto regRet =
-          fetch_region (*ff, contigName, rSpan.start, rSpan.end);
+      auto regRet = fetch_region (
+          *ff, contigName, pileupSpan.start, pileupSpan.end
+      );
       if (!regRet) {
         return std::unexpected (regRet.error());
       }
       refSlice = *regRet;
     }
   }
+  else {
+    PLOGD << "no reads cover pileup, reporting zero-width span";
+    pileupSpan = {pos.pos, pos.pos};
+  }
 
   // NOTE: if insert_reads_internal fails, insert_metadata not
   // rolled back.
   // NOTE: nreads not currently recorded in metadata table
   auto imRet = insert_metadata (
-      db, make_locus_data (contigName, pos.pos, rSpan, refSlice)
+      db,
+      make_locus_data (contigName, pos.pos, pileupSpan, refSlice)
   );
   if (!imRet) {
-    return std::unexpected{imRet.error()};
+    return std::unexpected (imRet.error());
   }
 
-  auto tid2str = [&aln] (int tid) {
-    return sam_hdr_tid2name (aln.o_hdr, tid);
+  auto tid2str = [&alnHdr] (int tid) {
+    return sam_hdr_tid2name (alnHdr, tid);
   };
   auto irRet = insert_reads_internal (
-      db, reads.br_plpArr, reads.nPlp, tid2str
+      db, pileupIterator.br_plpArr, pileupIterator.nPlp, tid2str
   );
   if (!irRet) {
-    return std::unexpected{irRet.error()};
+    return std::unexpected (irRet.error());
   }
   return {};
 };

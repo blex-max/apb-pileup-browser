@@ -14,7 +14,7 @@ struct GenomicSpan {
   hts_pos_t start;
   hts_pos_t end;
 };
-struct PileupPosition {
+struct PileupLocus {
   int32_t tid;
   hts_pos_t pos;
 };

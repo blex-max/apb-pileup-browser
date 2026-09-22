@@ -4,11 +4,6 @@
 
 namespace schema {
 
-inline constexpr std::string_view sqlPragmaForeignKeys =
-    R"sql(
-    PRAGMA foreign_keys = ON;
-)sql";
-
 // keep all data in working memory.
 inline constexpr std::string_view sqlSetTempStoreMemory =
     R"sql(
@@ -27,7 +22,7 @@ CREATE TABLE metadata (
 )
 )sql";
 
-// TIED TO SCHEMA CREATE ORDER
+// TIED TO READS TABLE SCHEMA CREATE ORDER
 struct FieldIndex {
   enum Idx : uint8_t {
     id,  // 0
@@ -97,7 +92,7 @@ CREATE TABLE reads (
 );
 )sql";
 
-// --- STATEMENTS ---
+// --- FIXED STATEMENTS ---
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
 INSERT INTO metadata (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
 )sql";

@@ -234,7 +234,7 @@ static VoidOrFailMsg populate_db_mode_locus (
   auto aln = std::move (*alnRet);
 
   PLOGD << "Parsing locus string";
-  PileupPosition pos{};
+  PileupLocus pos{};
   hts_pos_t _pend = 1;  // required by htslib, not used here
   if (hts_parse_region (
           std::string{locus}.c_str(), &pos.tid, &pos.pos, &_pend,

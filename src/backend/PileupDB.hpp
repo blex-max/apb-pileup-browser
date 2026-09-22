@@ -18,7 +18,7 @@ VoidOrErr init_db (PileupDB& db);
 
 // insert reads at pileup position into database
 [[nodiscard]] VoidOrErr insert_pileup (
-    PileupDB& db, const AlnFile& aln, const PileupPosition& pos,
+    PileupDB& db, const AlnFile& aln, const PileupLocus& pos,
     const std::optional<FastaFile>& ff
 );
 
