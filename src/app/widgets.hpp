@@ -20,6 +20,7 @@ struct BrowserWgt {
   e2::HLine ambientSep;
   e2::HLine ambientLine;
   uint16_t nReadOnscreen = 0;
+  int64_t userPanOffset = 0;
 };
 struct CmdWgt {
   e2::Box frame;

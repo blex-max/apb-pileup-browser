@@ -43,37 +43,6 @@ static bool ui_is_valid (const UIBundle& ui)
 
 }  // namespace validate
 
-
-// Project genomic coordinate onto Box X axis where box is centered
-// centered on `boxCenterGPos` in context of drawing sequence string.
-// XOR fields; only one of two is ever nonzero
-struct ScreenProjection {
-  size_t skipChars = 0;
-  int xOffset = 0;
-};
-
-static ScreenProjection align_seq_to_box (
-    int64_t boxCenterGPos, int boxWidth, int64_t seqGStart
-)
-{
-  // TODO: probably inline this and remove func
-  const int64_t leftmostVisibleGPos =
-      boxCenterGPos - (boxWidth / 2);
-  const int64_t distBoxEdgeToContentStart =
-      seqGStart - leftmostVisibleGPos;
-  if (distBoxEdgeToContentStart < 0) {
-    return {
-        .skipChars =
-            static_cast<size_t> (-distBoxEdgeToContentStart),
-        .xOffset = 0
-    };
-  }
-  return {
-      .skipChars = 0,
-      .xOffset = static_cast<int> (distBoxEdgeToContentStart)
-  };
-}
-
 // --- end helpers --- //
 
 // --- size calculation --- //
@@ -207,7 +176,7 @@ VoidOrErr size_widgets (UIBundle& ui)
 }
 // --- end sizing --- //
 
-// --- draw layout --- //
+// --- draw layout chrome --- //
 
 static void draw_browser_chrome (BrowserWgt& bWgt)
 {
@@ -264,24 +233,13 @@ static void draw_cmd_chrome (CmdWgt& cWgt)
   set (body (cWgt.sepLine), boxch::horzLine, TB_DIM);
 }
 
-static void draw_layout_chrome (BrowserWgt& bWgt, CmdWgt& cWgt)
-{
-  PLOGD << "Drawing layout";
-
-  // preconds
-  assert (last (bWgt.frame.yspan) <= first (cWgt.frame.yspan));
-
-  draw_browser_chrome (bWgt);
-  draw_cmd_chrome (cWgt);
-}
-
-// --- end draw shared layout --- //
+// --- end draw chrome --- //
 
 // --- draw browser pane --- //
 
-namespace data_table {
+namespace draw_table {
 
-static void draw_header (
+static void header (
     const e2::HLine& headerLine,
     const std::span<const ColMetadata*> cols
 )
@@ -325,23 +283,22 @@ static void draw_header (
   }
 }
 
-static void draw_row_separators (
+static void row_separators (
     e2::Box dataPane, const std::span<const ColMetadata*> cols
 )
 {
   auto writeHead = vertexA (dataPane);
   // exclusive limits
-  const auto writeLimits =
-      vertexC (dataPane) + e2::Delta{.dx = 1, .dy = 1};
+  const auto writeXLimit = last (dataPane.xspan);
+  const auto paneYLimit = last (dataPane.yspan);
   for (const auto* col : cols) {
     writeHead.x += static_cast<int> (col->displayWidth);
-    if (writeHead.x > writeLimits.x) {
+    if (writeHead.x > writeXLimit) {
       break;
     }
     set (
         e2::VLine{
-            .x = writeHead.x,
-            .yspan = {writeHead.y, writeLimits.y}
+            .x = writeHead.x, .yspan = {writeHead.y, paneYLimit}
         },
         boxch::vertLine
     );
@@ -349,15 +306,25 @@ static void draw_row_separators (
   }
 }
 
-static void draw_row (
-    e2::GlobalCell writeHead, int xLim, sqlite3_stmt* br_dbRow,
-    const std::span<const ColMetadata*> cols
+struct Row1FixedArgs {
+  int writeXStart;
+  int writeXLimit;
+  const std::span<const ColMetadata*> cols;
+
+  bool valid() const noexcept
+  {
+    // check before calling row1
+    return writeXStart <= writeXLimit;
+  }
+};
+static void row1 (
+    int writeY, sqlite3_stmt* br_dbRow, Row1FixedArgs fa
 )
 {
-  assert (writeHead.x < xLim);
+  auto writeX = fa.writeXStart;
 
   std::string cellText{};
-  for (const auto* col : cols) {
+  for (const auto* col : fa.cols) {
     cellText = col->fn_retrieve_from_db (br_dbRow);
     const auto fieldWidth = col->displayWidth;
     if (cellText.size() > fieldWidth) {
@@ -368,45 +335,21 @@ static void draw_row (
       // pad
       cellText.resize (fieldWidth, ' ');
     }
-    e2::write_string (writeHead, xLim, cellText);
-    writeHead.x += static_cast<int> (fieldWidth);
+    e2::write_string (
+        {writeX, writeY}, fa.writeXLimit, cellText
+    );
+    writeX += static_cast<int> (fieldWidth);
     // jump the field separator
-    writeHead.x++;
-    if (writeHead.x > xLim) {
+    writeX++;
+    if (writeX > fa.writeXLimit) {
       break;
     }
   }
 }
 
-}  // namespace data_table
+}  // namespace draw_table
 
-namespace draw_alignment {
-
-
-struct SharedArgs {
-  const int16_t writeStartX;
-  const int64_t writeStartXGPos;
-  const int64_t pileupSpanGStart;
-  const e2::GlobalCell writeLimits;
-};
-
-static SharedArgs prepare_shared (
-    int16_t writeStartX, int64_t writeStartXGPos,
-    int64_t pileupSpanGStart, const e2::GlobalCell& writeLimits
-)
-{
-  assert (pileupSpanGStart > 0);
-  assert (writeStartXGPos > 0);
-  assert (valid (writeLimits));
-
-  return SharedArgs{
-      .writeStartX = writeStartX,
-      .writeStartXGPos = writeStartXGPos,
-      .pileupSpanGStart = pileupSpanGStart,
-      .writeLimits = writeLimits
-  };
-}
-
+namespace draw_aln {
 
 namespace {
 // seq1 internals
@@ -469,46 +412,59 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
 
 }  // namespace
 
-struct Seq1Switches {
+struct Seq1FixedArgs {
+  const int16_t writeStartX;
+  const int64_t writeStartXGPos;
+  const int64_t pileupSpanGStart;
+  const e2::GlobalCell writeLimits;
   bool drawQualTrack;
   bool drawInsTrack;
+
+  bool valid() const noexcept
+  {
+    return writeStartX >= 0 && writeStartXGPos >= 0 &&
+           pileupSpanGStart >= 0 &&
+           writeStartXGPos >= pileupSpanGStart &&
+           e2::valid (writeLimits);
+  }
 };
-// draw aligned data to seq pane
 static e2::Delta seq1 (
     const int16_t yStart, sqlite3_stmt* br_dbRow,
-    const std::optional<std::string>& ref, const SharedArgs& sh,
-    const Seq1Switches& switches
+    const std::optional<std::string>& ref,
+    const Seq1FixedArgs& fa
 )
 {
+  /* draw aligned data to aln pane */
+
   constexpr uint8_t consumesNeitherQueryOrRef = 0b00;
   constexpr uint8_t consumesQueryOnly = 0b01;
   constexpr uint8_t consumesRefOnly = 0b10;
   constexpr uint8_t consumesQueryAndRef = 0b11;
 
-  if (sh.writeStartX >= sh.writeLimits.x ||
-      yStart >= sh.writeLimits.y) {
+  // preconditions
+  if (fa.writeStartX >= fa.writeLimits.x ||
+      yStart >= fa.writeLimits.y) {
     return {0, 0};  // no-op
   }
+  assert ((ref) ? !ref.value().empty() : true);
 
-  e2::GlobalCell writeHead{{.x = sh.writeStartX, .y = yStart}};
+  e2::GlobalCell writeHead{{.x = fa.writeStartX, .y = yStart}};
 
   // ordered offsets for optional tracks
   constexpr int trackYOffsetBase = 1;
   const int trackYOffsetIns = trackYOffsetBase;  // first
   const int trackYOffsetQual =
-      trackYOffsetBase +
-      static_cast<int> (switches.drawInsTrack);
+      trackYOffsetBase + static_cast<int> (fa.drawInsTrack);
   const int trackYOffsetInsQual =
-      trackYOffsetBase +
-      static_cast<int> (switches.drawInsTrack) +
-      static_cast<int> (switches.drawQualTrack);
+      trackYOffsetBase + static_cast<int> (fa.drawInsTrack) +
+      static_cast<int> (fa.drawQualTrack);
 
   bool enableInsTrack =
-      switches.drawInsTrack &&
-      (writeHead.y + trackYOffsetIns) < sh.writeLimits.y;
+      fa.drawInsTrack &&
+      (writeHead.y + trackYOffsetIns) < fa.writeLimits.y;
   bool enableQualTrack =
-      switches.drawQualTrack &&
-      (writeHead.y + trackYOffsetQual) < sh.writeLimits.y;
+      fa.drawQualTrack &&
+      (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
 
   const auto readFields = get_seq1_read_fields (br_dbRow);
 
@@ -516,7 +472,7 @@ static e2::Delta seq1 (
   // all reads should always be at least partially in view
   // (unless pane is folded)
   const int startToLEdge =
-      static_cast<int> (readFields.rStart - sh.writeStartXGPos);
+      static_cast<int> (readFields.rStart - fa.writeStartXGPos);
   if (startToLEdge > 0) {
     writeHead.x += startToLEdge;
   }
@@ -525,14 +481,14 @@ static e2::Delta seq1 (
   size_t iQuery = 0;
   // locus start always <= readFields.rStart
   size_t iRef = ref ? static_cast<size_t> (
-                          readFields.rStart - sh.pileupSpanGStart
+                          readFields.rStart - fa.pileupSpanGStart
                       )
                     : 0;
   // track any insertion displayed on screen
   bool readInsDrawn = false;
   // buffer for subsequently writing quality string
   std::string qualDisplayBuf (
-      static_cast<size_t> (sh.writeLimits.x - sh.writeStartX),
+      static_cast<size_t> (fa.writeLimits.x - fa.writeStartX),
       ' '
   );
   // FOR EACH OP
@@ -546,7 +502,7 @@ static e2::Delta seq1 (
     }
 
     const auto opSz = bam_cigar_oplen (op);
-    const auto opOnScreen = (iGc + opSz) >= sh.writeStartXGPos;
+    const auto opOnScreen = (iGc + opSz) >= fa.writeStartXGPos;
 
     if (!opOnScreen) {
       // skip op, incrementing indexes
@@ -570,14 +526,14 @@ static e2::Delta seq1 (
 
     // At least partially on screen, to be processed
     const auto skipOffscreenBases =
-        (iGc < sh.writeStartXGPos)
-            ? static_cast<size_t> (sh.writeStartXGPos - iGc)
+        (iGc < fa.writeStartXGPos)
+            ? static_cast<size_t> (fa.writeStartXGPos - iGc)
             : 0;
 
     if (opConsumeType == consumesQueryOnly) {
       const auto opType = bam_cigar_op (op);
 
-      if (opType == BAM_CINS && iGc > sh.writeStartXGPos) {
+      if (opType == BAM_CINS && iGc > fa.writeStartXGPos) {
         // insertion
         // where at least one base PRIOR
         // to the insertion is visible
@@ -590,12 +546,12 @@ static e2::Delta seq1 (
         if (enableInsTrack) {
           auto opInsWriteHead =
               anchorCell + e2::dY (trackYOffsetIns);
-          if (opInsWriteHead.x < sh.writeLimits.x) {
+          if (opInsWriteHead.x < fa.writeLimits.x) {
             e2::set (opInsWriteHead, '^', TB_DIM);
             opInsWriteHead.x++;
           }
           for (size_t i = 0;
-               i < opSz && opInsWriteHead.x < sh.writeLimits.x;
+               i < opSz && opInsWriteHead.x < fa.writeLimits.x;
                ++i, ++opInsWriteHead.x) {
             set (
                 opInsWriteHead, static_cast<uint32_t> (
@@ -613,12 +569,12 @@ static e2::Delta seq1 (
         if (enableQualTrack) {
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
-          if (opInsQualWriteHead.x < sh.writeLimits.x) {
+          if (opInsQualWriteHead.x < fa.writeLimits.x) {
             e2::set (opInsQualWriteHead, '^', TB_DIM);
             opInsQualWriteHead.x++;
           }
           for (size_t i = 0; i < opSz && opInsQualWriteHead.x <
-                                             sh.writeLimits.x;
+                                             fa.writeLimits.x;
                ++i, ++opInsQualWriteHead.x) {
             set (
                 opInsQualWriteHead,
@@ -646,7 +602,7 @@ static e2::Delta seq1 (
         }
         const auto drawnSz = static_cast<int> (clipLabel.size());
         e2::write_string (
-            writeHead - e2::dX (drawnSz), sh.writeLimits.x,
+            writeHead - e2::dX (drawnSz), fa.writeLimits.x,
             clipLabel, TB_DIM
         );
       }
@@ -658,7 +614,7 @@ static e2::Delta seq1 (
             "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
         e2::write_string (
-            writeHead, sh.writeLimits.x, clipLabel, TB_DIM
+            writeHead, fa.writeLimits.x, clipLabel, TB_DIM
         );
       }
 
@@ -670,7 +626,7 @@ static e2::Delta seq1 (
       // don't advance query tracker
 
       for (size_t i = skipOffscreenBases;
-           i < opSz && writeHead.x < sh.writeLimits.x;
+           i < opSz && writeHead.x < fa.writeLimits.x;
            ++i, ++writeHead.x) {
         set (writeHead, 'x', TB_UNDERLINE);
       }
@@ -685,7 +641,7 @@ static e2::Delta seq1 (
 
       // draw tracks
       for (size_t i = 0;
-           i < opLenRemain && writeHead.x < sh.writeLimits.x;
+           i < opLenRemain && writeHead.x < fa.writeLimits.x;
            ++i, ++writeHead.x) {
         uintattr_t dispAttr = 0;
         auto dispChar = readFields.seq[iQuery + i];
@@ -705,7 +661,7 @@ static e2::Delta seq1 (
         );
         if (enableQualTrack) {
           qualDisplayBuf[static_cast<uint16_t> (
-              static_cast<int16_t> (writeHead.x) - sh.writeStartX
+              static_cast<int16_t> (writeHead.x) - fa.writeStartX
           )] = readFields.qual[iQuery + i];
         }
       }
@@ -715,7 +671,7 @@ static e2::Delta seq1 (
       iGc += opSz;
     }
 
-    if (writeHead.x >= sh.writeLimits.x) {
+    if (writeHead.x >= fa.writeLimits.x) {
       // early exit if row exhausted
       break;
     }
@@ -734,8 +690,8 @@ static e2::Delta seq1 (
     // Probably less performant but potenially useful
     // for correctness and readability in some cases.
     e2::write_string (
-        e2::GlobalCell{{.x = sh.writeStartX, .y = writeHead.y}},
-        sh.writeLimits.x, qualDisplayBuf, TB_DIM
+        e2::GlobalCell{{.x = fa.writeStartX, .y = writeHead.y}},
+        fa.writeLimits.x, qualDisplayBuf, TB_DIM
     );
     writeHead.y++;
   }
@@ -744,12 +700,12 @@ static e2::Delta seq1 (
   }
 
   return {
-      .dx = writeHead.x - sh.writeStartX,
+      .dx = writeHead.x - fa.writeStartX,
       .dy = writeHead.y - yStart
   };
 }
 
-}  // namespace draw_alignment
+}  // namespace draw_aln
 
 namespace draw_query_data {
 
@@ -770,18 +726,21 @@ static ReturnCodes::Codes draw_query_data (
 
   if (!valid (bWgt.frame) || size (bWgt.frame.xspan) < 4 ||
       size (bWgt.frame.yspan) < 8) {
+    // bounds slightly approximate
     return ReturnCodes::insufficientSize;
   }
+  assert (db.locus.valid());
 
   sqlite3_reset (db.stmt);
 
+  /* size widgets */
   uint16_t tableWidth = 0;
   std::vector<const ColMetadata*> activeCols;
   for (const auto& col : conf.displayTableCols) {
     if (col.visible) {
       activeCols.emplace_back (&col);
       // +1 per column for the field separator drawn after it
-      // (see data_table::draw_header/draw_row_separators/draw_row)
+      // (see draw_table::)
       tableWidth += col.displayWidth + 1;
     }
   }
@@ -831,37 +790,88 @@ static ReturnCodes::Codes draw_query_data (
   assert (valid (bWgt.alnPaneDataBox));
   assert (height (bWgt.alnPaneDataBox) > 0);
   assert (width (bWgt.alnPaneDataBox) > 0);
+  /* end size widgets */
+
+  /* configure/validate draw coordinates */
+  const auto alnPaneHalfWidth = width (bWgt.alnPaneDataBox) / 2;
+  assert (db.locus.pos >= alnPaneHalfWidth);
+  const auto marginToPileupStart = std::min (
+      -(db.locus.pos - alnPaneHalfWidth - db.locus.start), 0LL
+  );
+  const auto marginToPileupEnd = std::max (
+      db.locus.end - alnPaneHalfWidth - db.locus.pos, 0LL
+  );
+  bWgt.userPanOffset = std::clamp (
+      bWgt.userPanOffset, marginToPileupStart, marginToPileupEnd
+  );
+  const auto alnPaneLeftmostGPos =
+      db.locus.pos - alnPaneHalfWidth + bWgt.userPanOffset;
+  assert (alnPaneLeftmostGPos >= 0);
+  /* end coordinates */
+
+  if (db.locus.refSlice) {
+    /* draw reference */
+    const int64_t offsetToLocusStart =
+        db.locus.start - alnPaneLeftmostGPos;
+
+    int64_t skipRefBases;
+    int64_t startDrawX;
+    if (offsetToLocusStart < 0) {
+      skipRefBases = -offsetToLocusStart;
+      startDrawX = 0;
+    }
+    else {
+      skipRefBases = 0;
+      startDrawX = offsetToLocusStart;
+    }
+
+    e2::write_string (
+        {first (bWgt.alnPaneRefLine.xspan) +
+             static_cast<int> (startDrawX),
+         bWgt.alnPaneRefLine.y},
+        last (bWgt.alnPaneRefLine.xspan),
+        db.locus.refSlice->substr (
+            static_cast<size_t> (skipRefBases)
+        )
+    );
+  }
 
   if (conf.drawPaneSwitches.table) {
-    data_table::draw_header (
-        bWgt.tablePaneHeaderLine, activeCols
-    );
-    data_table::draw_row_separators (
+    draw_table::header (bWgt.tablePaneHeaderLine, activeCols);
+    draw_table::row_separators (
         bWgt.tablePaneDataBox, activeCols
     );
+    /* draw pane separator */
     set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
     set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
     set (last (bWgt.vSep), boxch::upTConnect, TB_DIM);
   }
 
+  /* iteratively draw query data */
   auto seqWriteHead = vertexA (bWgt.alnPaneDataBox);
   auto seqWriteLim = vertexC (bWgt.alnPaneDataBox) +
                      e2::dXY (1, 1);  // exclusive limit
-
-  const auto drawAlignmentShared =
-      draw_alignment::prepare_shared (
-          static_cast<int16_t> (seqWriteHead.x),
-          db.locus.pos - (width (bWgt.alnPaneDataBox) / 2),
-          db.locus.start, seqWriteLim
-      );
-
+  const draw_aln::Seq1FixedArgs seq1Fixed{
+      .writeStartX = static_cast<int16_t> (seqWriteHead.x),
+      .writeStartXGPos = alnPaneLeftmostGPos,
+      .pileupSpanGStart = db.locus.start,
+      .writeLimits = seqWriteLim,
+      .drawInsTrack = conf.drawTrackSwitches.ins,
+      .drawQualTrack = conf.drawTrackSwitches.qual,
+  };
+  assert (seq1Fixed.valid());
+  const draw_table::Row1FixedArgs row1Fixed{
+      .writeXStart = first (bWgt.tablePaneDataBox.xspan),
+      .writeXLimit = last (bWgt.tablePaneDataBox.xspan),
+      .cols = activeCols,
+  };
+  assert (row1Fixed.valid());
   if (db.nStmtRows > 0) {
     uint16_t nReadDrawn = 0;
     for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
          ++iRead) {
       auto nrRet = next_read (db.stmt, db.db);
       if (!nrRet) {
-        // poor error handling policy
         return ReturnCodes::sqlFail;
       }
       if (!(*nrRet)) {
@@ -872,47 +882,39 @@ static ReturnCodes::Codes draw_query_data (
         // reads hidden by scrolling
         continue;
       }
-      const auto dHead = draw_alignment::seq1 (
+      const auto dHead = draw_aln::seq1 (
           static_cast<int16_t> (seqWriteHead.y), db.stmt,
-          db.locus.refSlice, drawAlignmentShared,
-          draw_alignment::Seq1Switches{
-              conf.drawTrackSwitches.qual,
-              conf.drawTrackSwitches.ins
-          }
+          db.locus.refSlice, seq1Fixed
       );
       if (conf.drawPaneSwitches.table) {
-        data_table::draw_row (
-            e2::GlobalCell{
-                {.x = first (bWgt.tablePaneDataBox.xspan),
-                 .y = seqWriteHead.y}
-            },
-            last (bWgt.tablePaneDataBox.xspan), db.stmt,
-            activeCols
-        );
+        draw_table::row1 (seqWriteHead.y, db.stmt, row1Fixed);
       }
       seqWriteHead.y += dHead.dy;
       ++nReadDrawn;
     }
     bWgt.nReadOnscreen = nReadDrawn;
-    auto pileupXPos = first (bWgt.alnPaneDataBox.xspan) +
-                      (width (bWgt.alnPaneDataBox) / 2);
 
-    e2::VLine pileupCrosshair{
-        pileupXPos, bWgt.alnPaneDataBox.yspan
-    };
-    // At some point I thought it was necessary to
-    // rm the DIM attribute under the crosshair because
-    // something looked bad. I can't reproduce that
-    // now so leaving the attr.
-    // rm_attr (pileupCrosshair, TB_DIM);
-    add_attr (pileupCrosshair, TB_REVERSE);
-    // connect to ref base
-    set (
-        e2::GlobalCell{
-            pileupXPos, first (bWgt.alnPaneDataBox.yspan) - 1
-        },
-        '|', TB_DIM
-    );
+    /* draw crosshair */
+    if (const auto pileupScreenXPos = static_cast<int16_t> (
+            first (bWgt.alnPaneDataBox.xspan) +
+            alnPaneHalfWidth - bWgt.userPanOffset
+        );
+        pileupScreenXPos < last (bWgt.alnPaneDataBox.xspan)) {
+      // if user has not scrolled crosshair offscreen:
+      e2::VLine pileupCrosshair{
+          pileupScreenXPos, bWgt.alnPaneDataBox.yspan
+      };
+      add_attr (pileupCrosshair, TB_REVERSE);
+      // draw marker linking reference base and query position of pileup
+      set (
+          e2::GlobalCell{
+              pileupScreenXPos,
+              first (bWgt.alnPaneDataBox.yspan) - 1
+          },
+          '|', TB_DIM
+      );
+    }
+    /* end draw crosshair */
   }
   else {
     e2::write_string (
@@ -920,7 +922,7 @@ static ReturnCodes::Codes draw_query_data (
         "no reads at locus for current query", TB_DIM
     );
   }
-
+  /* end draw query data */
 
   return ReturnCodes::success;
 }
@@ -934,21 +936,6 @@ static void draw_pileup_ambient (
 {
   assert (validate::widget_is_valid (bWgt));
   assert (locusData.valid());
-
-  // TODO: get rid of projection function
-  if (locusData.refSlice) {
-    auto proj = align_seq_to_box (
-        locusData.pos, size (bWgt.alnPaneRefLine),
-        locusData.start
-    );
-
-    e2::write_string (
-        {first (bWgt.alnPaneRefLine.xspan) + proj.xOffset,
-         bWgt.alnPaneRefLine.y},
-        last (bWgt.alnPaneRefLine.xspan),
-        locusData.refSlice->substr (proj.skipChars)
-    );
-  }
 
   // locus info
   {
@@ -1032,7 +1019,8 @@ VoidOrErr draw_main_ui (
   PLOGD << "Drawing widgets";
   assert (validate::ui_is_valid (ui));
 
-  draw_layout_chrome (ui.browsr, ui.cmd);
+  draw_browser_chrome (ui.browsr);
+  draw_cmd_chrome (ui.cmd);
 
   auto dqRc =
       draw_query_data::draw_query_data (ui.browsr, db, conf);

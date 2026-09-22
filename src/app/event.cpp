@@ -4,6 +4,7 @@
 
 #include "app/cmd.hpp"
 #include "app/widgets.hpp"
+#include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
 
 static VoidOrErr handle_resize (UIBundle& ui)
@@ -25,6 +26,8 @@ static void handle_character_entry (
 
 static bool handle_nav (AppState& state, const tb_event& ev)
 {
+  constexpr auto sideScrollIncrement = 3;
+
   auto& bWgt = state.ui.browsr;
   auto& cWgt = state.ui.cmd;
   const auto& db = state.db;
@@ -52,11 +55,22 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_ARROW_LEFT:
-      move_left (cWgt.inputBuf);
+      if ((ev.mod & TB_MOD_SHIFT) != 0) {
+        // side scroll aln pane
+        state.ui.browsr.userPanOffset -= sideScrollIncrement;
+      }
+      else {
+        move_left (cWgt.inputBuf);
+      }
       break;
 
     case TB_KEY_ARROW_RIGHT:
-      move_right (cWgt.inputBuf);
+      if ((ev.mod & TB_MOD_SHIFT) != 0) {
+        state.ui.browsr.userPanOffset += sideScrollIncrement;
+      }
+      else {
+        move_right (cWgt.inputBuf);
+      }
       break;
 
     case TB_KEY_CTRL_A:
