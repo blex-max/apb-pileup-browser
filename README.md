@@ -86,8 +86,9 @@ and the representation of loci in VCF.**
 
 ## Install
 
-You will need a terminal emulator with basic unicode support. I expect the TUI should render successfully on almost any modern-ish emulator.
-If you have issues with rendering please report them. `apb` has been confirmed to work in iTerm2, ghostty, vscode, and tmux.
+You will need a terminal emulator with basic unicode support. I expect the TUI should display successfully on almost any modern-ish emulator.
+`apb` has been confirmed to work in iTerm2, ghostty, vscode, Terminal.app (the macOS default), and from within tmux.
+If you have issues with rendering please report them.
 
 Docker images are provided via the repo GitHub; check the `packages` tab to pull the latest release with docker, singularity, etc. This is
 the easiest way to get `apb`.
