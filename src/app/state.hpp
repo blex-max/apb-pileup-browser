@@ -4,7 +4,7 @@
 #include "app/widgets.hpp"
 
 struct AppState {
-  UIBundle ui;
-  AppConfig conf;
-  DBBundle db;
+  UIBundle ui{};
+  AppConfig conf{};
+  DBBundle db{};
 };

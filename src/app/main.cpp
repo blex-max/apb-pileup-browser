@@ -198,7 +198,9 @@ static constexpr std::string_view msg{
 
 using VoidOrFailMsg = std::expected<void, std::string>;
 
-static VoidOrFailMsg populate_db_mode_demo (PileupDB& db)
+[[nodiscard]] static VoidOrFailMsg populate_db_mode_demo (
+    PileupDB& db
+)
 {
   PLOGD << "Inserting demo data into pileup db";
   constexpr hts_pos_t demoGOffset = 10'000'000;
@@ -219,7 +221,7 @@ static VoidOrFailMsg populate_db_mode_demo (PileupDB& db)
   return {};
 }
 
-static VoidOrFailMsg populate_db_mode_db (
+[[nodiscard]] static VoidOrFailMsg populate_db_mode_db (
     PileupDB& db, std::string_view dbPath
 )
 {
@@ -232,7 +234,7 @@ static VoidOrFailMsg populate_db_mode_db (
   return {};
 }
 
-static VoidOrFailMsg populate_db_mode_locus (
+[[nodiscard]] static VoidOrFailMsg populate_db_mode_locus (
     PileupDB& db, std::string_view alnPath,
     std::string_view locus,
     std::optional<std::string_view> refPath
@@ -299,14 +301,16 @@ static VoidOrFailMsg populate_db_mode_locus (
   std::optional<FastaFile> ff;
   if (refPath) {
     PLOGD << "Opening reference fasta file";
-    ff = FastaFile::load_fasta (std::string{*refPath}.c_str());
-    if (!ff) {
+    auto ffResult =
+        FastaFile::load_fasta (std::string{*refPath}.c_str());
+    if (!ffResult) {
       return std::unexpected (
           fmt::format (
               "Failed to open reference fasta at {}", *refPath
           )
       );
     }
+    ff = std::move (*ffResult);
   }
 
   PLOGD << "Inserting pileup";
@@ -372,29 +376,6 @@ static VoidOrFailMsg populate_db_mode_locus (
   return {};
 }
 
-static VoidOrFailMsg run_frontend (
-    PileupDB& db, std::string_view welcome_msg
-)
-{
-  // load frontend
-  auto stateRet = init (db, welcome_msg);
-  if (!stateRet) {
-    shutdown();  // would be nice if shutdown was run on state going out of scope...
-    return std::unexpected (stateRet.error().msg);
-  }
-  AppState state = std::move (*stateRet);
-
-  auto loopRet = loop (state);
-  if (!loopRet) {
-    shutdown();
-    return std::unexpected (loopRet.error().msg);
-  }
-
-  shutdown();
-  return {};
-}
-
-
 int main (int argc, char** argv)
 {
   auto argRet = setup_cli (argc, argv);
@@ -436,7 +417,7 @@ int main (int argc, char** argv)
   }
 
   if (!popRet) {
-    std::cerr << popRet.error() << std::endl;
+    std::cerr << "Error: " << popRet.error() << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -452,10 +433,27 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
-  auto runRet = run_frontend (db, welcome::msg);
-  if (!runRet) {
-    std::cerr << "Error: failed to load frontend. Reporting: "
-              << runRet.error() << std::endl;
+  auto stateRet = init_tui_state (db, welcome::msg);
+  if (!stateRet) {
+    std::cerr << fmt::format (
+                     "Error: sqlite3 operation failed during "
+                     "initalisation of TUI, reporting code {} "
+                     "and messages {} and {} - please report "
+                     "this failure to the maintainer",
+                     stateRet.error(),
+                     sqlite3_errstr (stateRet.error()),
+                     sqlite3_errmsg (db)
+                 )
+              << std::endl;
+  }
+  // NOTE: state object has taken ownership of db.
+  // db object is now nulled.
+  AppState state = std::move (*stateRet);
+
+  // TODO: Error handling in loop fn
+  auto loopRet = run_tui_loop (state);
+  if (!loopRet) {
+    return std::unexpected (loopRet.error().msg);
   }
 
   std::cerr << "Bye!" << std::endl;

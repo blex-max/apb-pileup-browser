@@ -28,7 +28,8 @@ std::expected<AlnFile, AlnFile::LoadErrCodes> AlnFile::load_aln (
   return aln;
 }
 
-std::optional<FastaFile> FastaFile::load_fasta (const char* path)
+std::expected<FastaFile, FastaFile::LoadErrCodes>
+FastaFile::load_fasta (const char* path)
 {
   FastaFile ff;
 
@@ -37,7 +38,7 @@ std::optional<FastaFile> FastaFile::load_fasta (const char* path)
   );
 
   if (ff.o_fai == nullptr) {
-    return std::nullopt;
+    return std::unexpected (FastaFile::LoadErrCodes::openFail);
   }
 
   return ff;

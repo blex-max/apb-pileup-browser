@@ -26,15 +26,15 @@ struct DynamicFragments {
   std::string orderBy;
 };
 
-using SelectStmtOrErr =
-    std::expected<DynamicSelectReadsStmt, Err>;
-SelectStmtOrErr prepare_select_reads (
+std::expected<DynamicSelectReadsStmt, int> prepare_select_reads (
     const PileupDB& db, const DynamicFragments& frags
 );
 
-// Steps statement forward by one row. Returns true if a row is available.
-[[nodiscard]] BoolOrErr next_read (
-    sqlite3_stmt* stmt, const PileupDB& db
+// Steps statement forward by one row.
+// returns status code, or sql return code in on failure
+enum class RowIterStatus : uint8_t { rowAvail, exhausted };
+[[nodiscard]] std::expected<RowIterStatus, int> next_read (
+    sqlite3_stmt* stmt
 );
 
 struct DynamicCountReadsStmt : public SqliteStmt {
@@ -62,7 +62,8 @@ struct PileupMetadata {
   }
 };
 // get locus data from pileup db.
-std::expected<PileupMetadata, Err> get_locus_data (
+// Returns PileupMetadata on success, or sqlite3 return code on failure.
+std::expected<PileupMetadata, int> get_locus_data (
     const PileupDB& db
 );
 
@@ -165,9 +166,14 @@ std::string stringify_cigar (
     const uint32_t* br_cig, size_t nCig
 );
 
+struct Aux1ToJsonErr {
+  enum Codes : uint8_t {
+    parseFail,
+  };
+};
 // converts single aux tag to a json entry
-// returns nullopt on failure to parse aux tag.
-std::optional<std::string> aux1_to_json (
+// returns unexpected on failure to parse aux tag.
+std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
     const uint8_t* aux1Start, const uint8_t* aux1End
 );
 

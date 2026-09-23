@@ -55,19 +55,17 @@ VoidOrErr init_db (PileupDB& db)
 
 namespace query {
 
+// -- forward declarations -- //
 namespace {
-// Concatenate every table/index definition in db schema into one
-// string in a deterministic order.
 std::expected<std::string, Err> schema_fingerprint (
     PileupDB& db
 );
-// Confirm db follows expected apb schema
 VoidOrErr verify_schema (PileupDB& db);
 }  // namespace
+// --- //
 
-// -- primary: the dynamic query workflow --
-
-SelectStmtOrErr prepare_select_reads (
+// -- query API -- //
+std::expected<DynamicSelectReadsStmt, int> prepare_select_reads (
     const PileupDB& db, const DynamicFragments& frags
 )
 {
@@ -106,35 +104,29 @@ SelectStmtOrErr prepare_select_reads (
           NULL
       );
       rc != SQLITE_OK) {
-    return std::unexpected{make_sqlite3_err (
-        rc, fmt::format (
-                "Could not compile statement: {} - {}",
-                rsql_builtStmt, sqlite3_errmsg (db)
-            )
-    )};
+    return std::unexpected (rc);
   }
 
   if (sqlite3_stmt_readonly (stmt) == 0) {
-    return std::unexpected{
-        make_internal_err ("Statement would modify database.")
-    };
+    // hacky at best...
+    return std::unexpected (SQLITE_MISUSE);
   }
 
   return stmt;
 }
 
-BoolOrErr next_read (sqlite3_stmt* br_stmt, const PileupDB& db)
+std::expected<RowIterStatus, int> next_read (
+    sqlite3_stmt* br_stmt
+)
 {
   const int rc = sqlite3_step (br_stmt);
   if (rc == SQLITE_DONE) {
-    return false;
+    return RowIterStatus::exhausted;
   }
   if (rc != SQLITE_ROW) {
-    return std::unexpected{
-        make_sqlite3_err (rc, sqlite3_errmsg (db))
-    };
+    return std::unexpected (rc);
   }
-  return true;
+  return RowIterStatus::rowAvail;
 }
 
 CountStmtOrErr prepare_count_reads (
@@ -188,30 +180,25 @@ CountStmtOrErr prepare_count_reads (
   return stmt;
 }
 
-// -- supporting: metadata access and whole-db persistence --
-
-std::expected<PileupMetadata, Err> get_locus_data (
+std::expected<PileupMetadata, int> get_locus_data (
     const PileupDB& db
 )
 {
   PileupMetadata out;
 
   sqlite3_stmt* o_stmt = NULL;
-  int sqlRc = sqlite3_prepare_v2 (
-      db, schema::sqlSelectMetadata.data(),
-      static_cast<int> (schema::sqlSelectMetadata.size()),
-      &o_stmt, NULL
-  );
-  if (sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
+  if (const auto rc = sqlite3_prepare_v2 (
+          db, schema::sqlSelectMetadata.data(),
+          static_cast<int> (schema::sqlSelectMetadata.size()),
+          &o_stmt, NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
   }
 
-  if (sqlRc = sqlite3_step (o_stmt); sqlRc != SQLITE_ROW) {
-    const std::string errMsg = sqlite3_errmsg (db);
+  if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
     sqlite3_finalize (o_stmt);
-    return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
+    return std::unexpected (rc);
   }
 
   out.contig = {
@@ -947,8 +934,8 @@ std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
 /* TAG CONVERSION */
 
 // converts single aux tag to json entry
-// returns nullopt on failure to parse aux tag.
-std::optional<std::string> aux1_to_json (
+// returns unexpected on failure to parse aux tag.
+std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
     const uint8_t* aux1Start, const uint8_t* aux1End
 )
 {
@@ -958,7 +945,7 @@ std::optional<std::string> aux1_to_json (
           aux1Start - 2, *aux1Start, aux1Start + 1, aux1End,
           &o_kstr
       ) == NULL) {
-    return std::nullopt;
+    return std::unexpected (Aux1ToJsonErr::Codes::parseFail);
   }
   const char* br_str = ks_str (&o_kstr);
 

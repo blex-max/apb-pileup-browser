@@ -12,6 +12,7 @@
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
 #include "frontend/extb/extb.hpp"
+#include "shared/cleanup.hpp"
 #include "shared/err.hpp"
 
 
@@ -57,63 +58,72 @@ static VoidOrErr draw_screen (AppState& state)
   return {};
 }
 
-AppStateOrErr init (
-    PileupDB& db, std::optional<std::string_view> startupMsg
+std::expected<AppState, int> init_tui_state (
+    PileupDB& db_sink, std::optional<std::string_view> startupMsg
 )
 {
-  PLOGD << "Initialising TUI";
+  PLOGD << "Initialising TUI state";
 
-  AppState state{.db = {.db = std::move (db)}};
+  auto locusResult = query::get_locus_data (db_sink);
+  if (!locusResult) {
+    return std::unexpected (locusResult.error());
+  }
 
+  auto prepResult = query::prepare_select_reads (db_sink, {});
+  if (!prepResult) {
+    return std::unexpected (prepResult.error());
+  }
+  auto startupStmt = std::move (*prepResult);
+  uint32_t nRow = 0;
+  // check no error on iteration,
+  // get nrows (nreads).
+  for (;; ++nRow) {
+    const auto iterStatus = next_read (startupStmt);
+    if (!iterStatus) {
+      return std::unexpected (iterStatus.error());
+    }
+    switch (*iterStatus) {
+      case query::RowIterStatus::rowAvail:
+        continue;
+      case query::RowIterStatus::exhausted:
+        break;
+    }
+  }
+
+  AppState state{
+      .db = {
+          .db = std::move (db_sink),
+          .stmt = std::move (startupStmt),
+          .nStmtRows = nRow,
+          .userClause = {},
+          .locusInfo = *locusResult
+      }
+  };
   if (startupMsg) {
     state.ui.cmd.msgBuf = *startupMsg;
-  }
-
-  auto locusRet = query::get_locus_data (state.db.db);
-  if (!locusRet) {
-    return std::unexpected{locusRet.error()};
-  }
-  state.db.locusInfo = std::move (*locusRet);
-
-  auto prepRet =
-      prepare_select_reads (state.db.db, state.db.userClause);
-  if (!prepRet) {
-    return std::unexpected{prepRet.error()};
-  }
-  auto newStmt = std::move (*prepRet);
-  uint32_t nRow = 0;
-  // check no error
-  for (;; ++nRow) {
-    const auto nrRet = next_read (newStmt, state.db.db);
-    if (!nrRet) {
-      // poor error handling policy
-      return std::unexpected (nrRet.error());
-    }
-    if (!(*nrRet)) {
-      break;  // reads exhausted
-    }
-  }
-  state.db.stmt = std::move (newStmt);
-  state.db.nStmtRows = nRow;
-
-  init_tb2();
-  auto calcRet = size_widgets (state.ui);
-  if (!calcRet) {
-    return std::unexpected{calcRet.error()};
-  }
-  auto drawRet = draw_screen (state);
-  if (!drawRet) {
-    return std::unexpected{drawRet.error()};
   }
 
   return state;
 }
 
-// TODO: err strat?
-VoidOrErr loop (AppState& state)
+VoidOrErr run_tui_loop (AppState& state)
 {
-  tb_event ev{};
+  init_tb2();
+  Cleanup shutdown ([]() { tb_shutdown(); });
 
+  {
+    // render first frame
+    auto calcRet = size_widgets (state.ui);
+    if (!calcRet) {
+      return std::unexpected{calcRet.error()};
+    }
+    auto drawRet = draw_screen (state);
+    if (!drawRet) {
+      return std::unexpected{drawRet.error()};
+    }
+  }
+
+  tb_event ev{};
   while (state.conf.run) {
     tb_poll_event (&ev);
     // these two should return an error
@@ -136,5 +146,3 @@ VoidOrErr loop (AppState& state)
 
   return {};
 }
-
-void shutdown() { tb_shutdown(); }

@@ -115,7 +115,12 @@ struct FastaFile {
     }
   }
 
-  static std::optional<FastaFile> load_fasta (const char* path);
+  enum LoadErrCodes : uint8_t {
+    openFail,
+  };
+  static std::expected<FastaFile, LoadErrCodes> load_fasta (
+      const char* path
+  );
 };
 
 // TODO review pileup machinery
