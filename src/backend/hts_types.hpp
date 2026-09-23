@@ -6,17 +6,15 @@
 
 #include <expected>
 #include <functional>
-#include <string>
-
-#include "shared/err.hpp"
 
 struct GenomicSpan {
   hts_pos_t start;
   hts_pos_t end;
-};
-struct PileupLocus {
-  int32_t tid;
-  hts_pos_t pos;
+
+  bool valid() const noexcept
+  {
+    return start >= 0 && end >= 0 && end >= start;
+  }
 };
 
 // resolve tid to name
@@ -73,10 +71,16 @@ struct AlnFile {
     }
     return *this;
   }
-};
 
-using AlnOrErr = std::expected<AlnFile, Err>;
-[[nodiscard]] AlnOrErr load_aln (const char* br_fn);
+  enum LoadErrCodes : uint8_t {
+    openFail,
+    hdrReadFail,
+    indexLoadFail,
+  };
+  static std::expected<AlnFile, LoadErrCodes> load_aln (
+      const std::string& path
+  );
+};
 
 struct FastaFile {
   faidx_t* o_fai;
@@ -110,13 +114,59 @@ struct FastaFile {
       fai_destroy (o_fai);
     }
   }
+
+  static std::optional<FastaFile> load_fasta (const char* path);
 };
 
-using FastaOrErr = std::expected<FastaFile, Err>;
-[[nodiscard]] FastaOrErr load_fasta (const char* br_fn);
+// TODO review pileup machinery
+struct PileupCapture {
+  htsFile* br_fh = nullptr;  // borrowed
+  hts_itr_t* o_it = nullptr;
+};
+struct PileupIterator {
+  PileupCapture* o_cap = nullptr;
+  bam_plp_t o_plp = nullptr;
+  const bam_pileup1_t* br_plpArr = nullptr;
+  size_t nPlp = 0;
+  int32_t tid = -1;
+  hts_pos_t pos = -1;
+  GenomicSpan span{-1, -1};
 
-using RefSliceOrErr = std::expected<std::string, Err>;
-[[nodiscard]] RefSliceOrErr fetch_region (
-    const FastaFile& ff, const std::string_view contigName,
-    hts_pos_t regStart, hts_pos_t regEnd
-);
+  ~PileupIterator()
+  {
+    if (o_cap != nullptr) {
+      hts_itr_destroy (o_cap->o_it);
+      delete o_cap;
+    }
+    if (o_plp != nullptr) {
+      bam_plp_destroy (o_plp);
+    }
+    br_plpArr = nullptr;
+  }
+  PileupIterator() = default;
+  PileupIterator (PileupIterator&) = delete;
+  PileupIterator& operator= (PileupIterator&) = delete;
+  PileupIterator (PileupIterator&& o) noexcept
+      : o_cap (o.o_cap),
+        o_plp (o.o_plp),
+        br_plpArr (o.br_plpArr),
+        nPlp (o.nPlp)
+  {
+    o.o_cap = nullptr;
+    o.o_plp = nullptr;
+    o.br_plpArr = nullptr;
+    o.nPlp = 0;
+  };
+  PileupIterator& operator= (PileupIterator&&) = delete;
+
+  enum ConstructErrCodes : uint8_t {
+    samItrFail,
+    pileupInitFail,
+    pileupIterateFail,
+    locusNotCovered
+  };
+  static std::expected<PileupIterator, ConstructErrCodes>
+  prepare_pileup_iter (
+      const AlnFile& aln, int32_t tid, hts_pos_t pos
+  );
+};

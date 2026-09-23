@@ -3,7 +3,7 @@
 #include <expected>
 
 #include "app/state.hpp"
-#include "backend/PileupDB.hpp"
+#include "backend/hts_sql.hpp"
 #include "shared/err.hpp"
 
 using AppStateOrErr = std::expected<AppState, Err>;

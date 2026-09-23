@@ -14,7 +14,7 @@
 #include "app/helpblocks.hpp"
 #include "app/state.hpp"
 #include "app/widgets.hpp"
-#include "backend/PileupDB.hpp"
+#include "backend/hts_sql.hpp"
 
 
 // --- HELPERS --- //
@@ -233,7 +233,7 @@ struct ShowTableColCmd {
 };
 
 static CmdResult try_apply_query_clause (
-    AppState& state, DynamicFragments newClause,
+    AppState& state, query::DynamicFragments newClause,
     std::string_view successMsg
 )
 {
@@ -529,7 +529,8 @@ struct CountCmd {
       }
     }
 
-    auto stmtRet = prepare_count_reads (state.db.db, where);
+    auto stmtRet =
+        query::prepare_count_reads (state.db.db, where);
     if (!stmtRet) {
       return {false, stmtRet.error().msg};
     }
@@ -786,7 +787,7 @@ struct DumpCmd {
     }
 
     const std::string path{tokens[0]};
-    auto dumpRet = dump_to_disk (state.db.db, path);
+    auto dumpRet = query::dump_to_disk (state.db.db, path);
     if (!dumpRet) {
       return {false, dumpRet.error().msg};
     }

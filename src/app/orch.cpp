@@ -10,7 +10,7 @@
 #include "app/event.hpp"
 #include "app/state.hpp"
 #include "app/widgets.hpp"
-#include "backend/PileupDB.hpp"
+#include "backend/hts_sql.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/err.hpp"
 
@@ -69,11 +69,11 @@ AppStateOrErr init (
     state.ui.cmd.msgBuf = *startupMsg;
   }
 
-  auto locusRet = get_locus_data (state.db.db);
+  auto locusRet = query::get_locus_data (state.db.db);
   if (!locusRet) {
     return std::unexpected{locusRet.error()};
   }
-  state.db.locus = std::move (*locusRet);
+  state.db.locusInfo = std::move (*locusRet);
 
   auto prepRet =
       prepare_select_reads (state.db.db, state.db.userClause);

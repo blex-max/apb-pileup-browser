@@ -1,6 +1,6 @@
 #pragma once
 
-#include "backend/PileupDB.hpp"
+#include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 
 struct ColMetadata {
@@ -123,10 +123,10 @@ struct AppConfig {
 
 struct DBBundle {
   PileupDB db;
-  DynamicSelectReadsStmt stmt;
-  DynamicFragments userClause{};
+  query::DynamicSelectReadsStmt stmt;
+  query::DynamicFragments userClause{};
   uint32_t nStmtRows = 0;  // rows in current stmt
   int32_t stmtRowScrollOffset = 0;
-  PileupMetadata
-      locus;  // cached metadata-table row; queried once at init(),
+  query::PileupMetadata
+      locusInfo;  // cached metadata-table row; queried once at init(),
 };

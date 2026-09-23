@@ -86,8 +86,7 @@ add_executable(apb
   src/app/cmd.cpp
   src/app/manual.cpp
   src/app/event.cpp
-  src/backend/PileupDB.cpp
-  src/backend/pileup_ingest.cpp
+  src/backend/hts_sql.cpp
   src/backend/hts_types.cpp
   src/frontend/tb2_impl.cpp
   src/frontend/input.cpp

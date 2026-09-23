@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "app/state_components.hpp"
-#include "backend/PileupDB.hpp"
+#include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
@@ -733,7 +733,7 @@ static ReturnCodes::Codes draw_query_data (
     // bounds slightly approximate
     return ReturnCodes::insufficientSize;
   }
-  assert (db.locus.valid());
+  assert (db.locusInfo.valid());
 
   sqlite3_reset (db.stmt);
 
@@ -798,25 +798,27 @@ static ReturnCodes::Codes draw_query_data (
 
   /* configure/validate draw coordinates */
   const auto alnPaneHalfWidth = width (bWgt.alnPaneDataBox) / 2;
-  assert (db.locus.pos >= alnPaneHalfWidth);
+  assert (db.locusInfo.pos >= alnPaneHalfWidth);
   const auto marginToPileupStart = std::min (
-      -(db.locus.pos - alnPaneHalfWidth - db.locus.start), 0LL
+      -(db.locusInfo.pos - alnPaneHalfWidth -
+        db.locusInfo.start),
+      0LL
   );
   const auto marginToPileupEnd = std::max (
-      db.locus.end - alnPaneHalfWidth - db.locus.pos, 0LL
+      db.locusInfo.end - alnPaneHalfWidth - db.locusInfo.pos, 0LL
   );
   bWgt.userPanOffset = std::clamp (
       bWgt.userPanOffset, marginToPileupStart, marginToPileupEnd
   );
   const auto alnPaneLeftmostGPos =
-      db.locus.pos - alnPaneHalfWidth + bWgt.userPanOffset;
+      db.locusInfo.pos - alnPaneHalfWidth + bWgt.userPanOffset;
   assert (alnPaneLeftmostGPos >= 0);
   /* end coordinates */
 
-  if (db.locus.refSlice) {
+  if (db.locusInfo.refSlice) {
     /* draw reference */
     const int64_t offsetToLocusStart =
-        db.locus.start - alnPaneLeftmostGPos;
+        db.locusInfo.start - alnPaneLeftmostGPos;
 
     int64_t skipRefBases;
     int64_t startDrawX;
@@ -834,7 +836,7 @@ static ReturnCodes::Codes draw_query_data (
              static_cast<int> (startDrawX),
          bWgt.alnPaneRefLine.y},
         last (bWgt.alnPaneRefLine.xspan),
-        db.locus.refSlice->substr (
+        db.locusInfo.refSlice->substr (
             static_cast<size_t> (skipRefBases)
         )
     );
@@ -858,7 +860,7 @@ static ReturnCodes::Codes draw_query_data (
   const draw_aln::Seq1FixedArgs seq1Fixed{
       .writeStartX = static_cast<int16_t> (seqWriteHead.x),
       .writeStartXGPos = alnPaneLeftmostGPos,
-      .pileupSpanGStart = db.locus.start,
+      .pileupSpanGStart = db.locusInfo.start,
       .writeLimits = seqWriteLim,
       .drawInsTrack = conf.drawTrackSwitches.ins,
       .drawQualTrack = conf.drawTrackSwitches.qual,
@@ -888,7 +890,7 @@ static ReturnCodes::Codes draw_query_data (
       }
       const auto dHead = draw_aln::seq1 (
           static_cast<int16_t> (seqWriteHead.y), db.stmt,
-          db.locus.refSlice, seq1Fixed
+          db.locusInfo.refSlice, seq1Fixed
       );
       if (conf.drawPaneSwitches.table) {
         draw_table::row1 (seqWriteHead.y, db.stmt, row1Fixed);
@@ -935,7 +937,7 @@ static ReturnCodes::Codes draw_query_data (
 
 
 static void draw_pileup_ambient (
-    BrowserWgt& bWgt, const PileupMetadata& locusData
+    BrowserWgt& bWgt, const query::PileupMetadata& locusData
 )
 {
   assert (validate::widget_is_valid (bWgt));
@@ -972,7 +974,7 @@ static void draw_pileup_ambient (
 
 
 static void draw_cmd (
-    CmdWgt& cWgt, const DynamicFragments& userQuery
+    CmdWgt& cWgt, const query::DynamicFragments& userQuery
 )
 {
   e2::write_string (
@@ -1043,7 +1045,7 @@ VoidOrErr draw_main_ui (
       ));
   }
 
-  draw_pileup_ambient (ui.browsr, db.locus);
+  draw_pileup_ambient (ui.browsr, db.locusInfo);
 
   draw_cmd (ui.cmd, db.userClause);
 
