@@ -31,7 +31,7 @@ std::expected<std::string, int> schema_fingerprint (sqlite3* db)
       rc != SQLITE_OK) {
     return std::unexpected (rc);
   }
-  Cleanup stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
   std::string fingerprint;
   int rc;
@@ -121,6 +121,10 @@ PileupDB::load_from_disk (std::string_view path)
   int sqlRc = SQLITE_OK;
   sqlite3* o_fileDb = NULL;
   sqlite3_backup* o_backup = NULL;
+  Defer cleanup ([&]() {
+    sqlite3_backup_finish (o_backup);
+    sqlite3_close_v2 (o_fileDb);
+  });
 
   if (sqlRc = sqlite3_open_v2 (
           std::string{path}.c_str(), &o_fileDb,
@@ -130,7 +134,6 @@ PileupDB::load_from_disk (std::string_view path)
     // NOTE: the error here belongs to o_fileDb (the handle
     // that failed to open), not db.
     const std::string errMsg = sqlite3_errmsg (o_fileDb);
-    sqlite3_close_v2 (o_fileDb);
     return std::unexpected (
         LoadError{
             .code = PileupDB::LoadError::openFail,
@@ -139,7 +142,6 @@ PileupDB::load_from_disk (std::string_view path)
         }
     );
   }
-  Cleanup fileDbCleanup ([&]() { sqlite3_close_v2 (o_fileDb); });
 
   if (o_backup =
           sqlite3_backup_init (db, "main", o_fileDb, "main");
@@ -148,25 +150,17 @@ PileupDB::load_from_disk (std::string_view path)
     goto err_sql;
   }
 
-  // -1: copy all remaining pages in a single step.
   if (sqlRc = sqlite3_backup_step (o_backup, -1);
       sqlRc != SQLITE_DONE) {
-    sqlite3_backup_finish (o_backup);
     goto err_sql;
   }
-
-  if (sqlRc = sqlite3_backup_finish (o_backup);
-      sqlRc != SQLITE_OK) {
-    goto err_sql;
-  }
-  o_backup = NULL;  // fin
 
   {
     const auto verifyResult = verify_schema (db);
     if (!verifyResult) {
       // idk what to do here
       return std::unexpected{LoadError{
-          .code = LoadError::verificationError,
+          .code = LoadError::verifyError,
           .sqlRc = verifyResult.error(),
           .sqlMsg = std::nullopt
       }};
@@ -371,14 +365,17 @@ std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt)
   }
 }
 
-
-std::expected<void, std::string> dump_to_disk (
+DiskDumpStatus dump_to_disk (
     const PileupDB& db, std::string_view path
 )
 {
   int rc = SQLITE_OK;
   sqlite3* o_dumpConn = NULL;
   sqlite3_backup* o_backupConn = NULL;
+  Defer dumpCleanup ([&]() {
+    sqlite3_backup_finish (o_backupConn);
+    sqlite3_close_v2 (o_dumpConn);
+  });
 
   if (rc = sqlite3_open (std::string{path}.c_str(), &o_dumpConn);
       rc != SQLITE_OK) {
@@ -392,48 +389,31 @@ std::expected<void, std::string> dump_to_disk (
     goto err_sql;
   }
 
-  // -1: copy all remaining pages in a single step.
-  if (rc = sqlite3_backup_step (o_backupConn, -1);
+  if (rc = sqlite3_backup_step (
+          o_backupConn, -1 /* copy all pages */
+      );
       rc != SQLITE_DONE) {
-    sqlite3_backup_finish (o_backupConn);
     goto err_sql;
   }
 
-  if (rc = sqlite3_backup_finish (o_backupConn);
-      rc != SQLITE_OK) {
-    goto err_sql;
-  }
-  o_backupConn = NULL;  // fin
-
-  if (rc = sqlite3_close_v2 (o_dumpConn); rc != SQLITE_OK) {
-    goto err_sql;
-  }
-  o_dumpConn = NULL;
-
-  return {};
+  return {.code = DiskDumpStatus::success};
 
 err_sql: {
-  const std::string errMsg = sqlite3_errmsg (o_dumpConn);
-  sqlite3_close_v2 (
-      o_dumpConn
-  );  // doesn't matter if we try again.
-  return std::unexpected (
-      fmt::format (
-          "Failed to close dumped database connection, "
-          "reporting error {} and status {}",
-          sqlite3_errstr (rc), errMsg
-      )
-  );
+  return {
+      .code = DiskDumpStatus::fail,
+      rc,
+      sqlite3_errmsg (o_dumpConn)
+  };
 }
 }
 
-DumpStatus dump_to_stdout (const PileupDB& db)
+StdoutDumpStatus dump_to_stdout (const PileupDB& db)
 {
   sqlite3_int64 size = 0;
   unsigned char* o_buf =
       sqlite3_serialize (db, "main", &size, 0);
   if (o_buf == NULL) {
-    return {DumpStatus::sqliteSerialiseFail};
+    return {StdoutDumpStatus::sqliteSerialiseFail};
   }
 
   const size_t written =
@@ -441,11 +421,11 @@ DumpStatus dump_to_stdout (const PileupDB& db)
   sqlite3_free (o_buf);
 
   if (written != static_cast<size_t> (size)) {
-    return {DumpStatus::writeFail};
+    return {StdoutDumpStatus::writeFail};
   }
 
   std::fflush (stdout);
-  return {DumpStatus::success};
+  return {StdoutDumpStatus::success};
 }
 
 }  // namespace query

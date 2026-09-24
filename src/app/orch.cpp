@@ -102,7 +102,7 @@ std::expected<AppState, int> init_tui_state (
 TuiStatus run_tui_loop (AppState& state)
 {
   init_tb2();
-  Cleanup shutdown ([]() { tb_shutdown(); });
+  Defer shutdown ([]() { tb_shutdown(); });
 
   {
     // render first frame

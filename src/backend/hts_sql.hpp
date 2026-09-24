@@ -19,7 +19,7 @@ struct PileupDB : public SqliteConn {
     enum Code : uint8_t {
       openFail,
       copyFail,
-      verificationError,
+      verifyError,  // should be unreachable
       schemaMismatch
     };
     Code code;
@@ -96,19 +96,24 @@ std::expected<PileupMetadata, int> get_locus_data (
     const PileupDB& db
 );
 
+struct DiskDumpStatus {
+  enum Code : uint8_t {
+    success,
+    fail,
+  };
+  Code code;
+  std::optional<int> sqlRc = std::nullopt;
+  std::optional<std::string> dumpDbMsg = std::nullopt;
+};
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
-//   per sqlite3 docs, errors from backup_init/backup_step
-//   are stored on the destination handle, hence this function
-//   returns a string msg as the error detail cannot be evaluated
-//   from the input `db`.
-[[nodiscard]] std::expected<void, std::string> dump_to_disk (
+[[nodiscard]] DiskDumpStatus dump_to_disk (
     const PileupDB& db, std::string_view path
 );
 
 // Serialize the in-memory database and write the raw bytes to
 // stdout, for `--dump -`.
-struct DumpStatus {
+struct StdoutDumpStatus {
   enum Code : uint8_t {
     success,
     sqliteSerialiseFail,
@@ -116,7 +121,9 @@ struct DumpStatus {
   };
   Code code;
 };
-[[nodiscard]] DumpStatus dump_to_stdout (const PileupDB& db);
+[[nodiscard]] StdoutDumpStatus dump_to_stdout (
+    const PileupDB& db
+);
 
 
 }  // namespace query

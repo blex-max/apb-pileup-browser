@@ -6,14 +6,14 @@
 // abseil style scope guard. runs `callback` on scope exit,
 // unless cancelled or already invoked early.
 template <std::invocable Callback>
-class [[nodiscard]] Cleanup {
+class [[nodiscard]] Defer {
  public:
-  explicit Cleanup (Callback fn) : callback (std::move (fn)) {}
+  explicit Defer (Callback fn) : callback (std::move (fn)) {}
 
-  Cleanup (const Cleanup&) = delete;
-  Cleanup (Cleanup&&) = delete;
-  Cleanup& operator= (const Cleanup&) = delete;
-  Cleanup& operator= (Cleanup&&) = delete;
+  Defer (const Defer&) = delete;
+  Defer (Defer&&) = delete;
+  Defer& operator= (const Defer&) = delete;
+  Defer& operator= (Defer&&) = delete;
 
   // Disarm without running the callback.
   void cancel() { armed = false; }
@@ -27,7 +27,7 @@ class [[nodiscard]] Cleanup {
     }
   }
 
-  ~Cleanup() { invoke(); }
+  ~Defer() { invoke(); }
 
  private:
   Callback callback;
@@ -35,4 +35,4 @@ class [[nodiscard]] Cleanup {
 };
 
 template <typename Callback>
-Cleanup (Callback) -> Cleanup<Callback>;
+Defer (Callback) -> Defer<Callback>;
