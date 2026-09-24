@@ -3,8 +3,8 @@
 #include <expected>
 
 #include "app/state.hpp"
+#include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
-#include "shared/err.hpp"
 
 // Takes ownership of db, moves into output
 // Returns initialised AppState on success,
@@ -13,4 +13,4 @@ std::expected<AppState, int> init_tui_state (
     PileupDB& db,
     std::optional<std::string_view> startupMsg = std::nullopt
 );
-VoidOrErr run_tui_loop (AppState& state);
+TuiStatus run_tui_loop (AppState& state);

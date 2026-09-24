@@ -10,62 +10,200 @@
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
 #include "plog/Log.h"
+#include "shared/cleanup.hpp"
 #include "shared/err.hpp"
 
-VoidOrErr init_db (PileupDB& db)
-{
-  int sqlRc = 0;
+namespace {
+// -- internal helpers --
 
-  if (sqlRc = sqlite3_open (":memory:", &db.o_conn);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
+// returns a fingerprint of the schema of the input database,
+// or an integer sqlite3 return code on error
+std::expected<std::string, int> schema_fingerprint (sqlite3* db)
+{
+  sqlite3_stmt* o_stmt = NULL;
+  if (const auto rc = sqlite3_prepare_v2 (
+          db,
+          "SELECT type || ':' || name || ':' || sql FROM "
+          "sqlite_master "
+          "WHERE sql IS NOT NULL ORDER BY type, name;",
+          -1, &o_stmt, NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  Cleanup stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+  std::string fingerprint;
+  int rc;
+  while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+    fingerprint += reinterpret_cast<const char*> (
+        sqlite3_column_text (o_stmt, 0)
+    );
+    fingerprint += '\n';
+  }
+  if (rc != SQLITE_DONE) {
+    return std::unexpected (rc);
+  }
+  return fingerprint;
+}
+
+// returns true if the schema of the db matches the expectation,
+// otherwise false. If there is an sql error, returns the
+// integer sqlite3 return code.
+std::expected<bool, int> verify_schema (sqlite3* db)
+{
+  auto initResult = PileupDB::init();
+  if (!initResult) {
+    return std::unexpected (initResult.error());
+  };
+  const auto refDB{std::move (*initResult)};
+
+  auto refSchema = schema_fingerprint (refDB);
+  if (!refSchema) {
+    return std::unexpected (refSchema.error());
+  }
+  auto loadedSchema = schema_fingerprint (db);
+  if (!loadedSchema) {
+    return std::unexpected (loadedSchema.error());
+  }
+  if (*refSchema != *loadedSchema) {
+    return false;
   }
 
-  auto excFn = [&db] (const std::string_view stmt) -> int {
+  return true;
+}
+
+}  // namespace
+
+
+std::expected<PileupDB, int> PileupDB::init()
+{
+  PileupDB db;
+  if (const auto rc = sqlite3_open (":memory:", &db.o_conn);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+
+  auto sqlite_exec = [&db] (const std::string_view stmt) -> int {
     return sqlite3_exec (
         db, std::string{stmt}.c_str(), NULL, NULL, NULL
     );
   };
 
-  if (sqlRc = excFn (schema::sqlSetTempStoreMemory);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
+  if (const auto rc =
+          sqlite_exec (schema::sqlSetTempStoreMemory);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
   }
 
-  if (sqlRc = excFn (schema::sqlCreateMetaDataTable);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
+  if (const auto rc =
+          sqlite_exec (schema::sqlCreateMetaDataTable);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
   }
 
-  if (sqlRc = excFn (schema::sqlCreateReadsTable);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
+  if (const auto rc = sqlite_exec (schema::sqlCreateReadsTable);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
   }
 
-  return {};
+  return db;
 }
+
+std::expected<PileupDB, PileupDB::LoadError>
+PileupDB::load_from_disk (std::string_view path)
+{
+  /*
+    Copy a database file on disk into an in-memory PileupDB,
+    via sqlite3's online backup API.
+  */
+  PileupDB db;
+  int sqlRc = SQLITE_OK;
+  sqlite3* o_fileDb = NULL;
+  sqlite3_backup* o_backup = NULL;
+
+  if (sqlRc = sqlite3_open_v2 (
+          std::string{path}.c_str(), &o_fileDb,
+          SQLITE_OPEN_READONLY, NULL
+      );
+      sqlRc != SQLITE_OK) {
+    // NOTE: the error here belongs to o_fileDb (the handle
+    // that failed to open), not db.
+    const std::string errMsg = sqlite3_errmsg (o_fileDb);
+    sqlite3_close_v2 (o_fileDb);
+    return std::unexpected (
+        LoadError{
+            .code = PileupDB::LoadError::openFail,
+            .sqlRc = sqlRc,
+            .sqlMsg = errMsg
+        }
+    );
+  }
+  Cleanup fileDbCleanup ([&]() { sqlite3_close_v2 (o_fileDb); });
+
+  if (o_backup =
+          sqlite3_backup_init (db, "main", o_fileDb, "main");
+      o_backup == NULL) {
+    sqlRc = sqlite3_errcode (db);
+    goto err_sql;
+  }
+
+  // -1: copy all remaining pages in a single step.
+  if (sqlRc = sqlite3_backup_step (o_backup, -1);
+      sqlRc != SQLITE_DONE) {
+    sqlite3_backup_finish (o_backup);
+    goto err_sql;
+  }
+
+  if (sqlRc = sqlite3_backup_finish (o_backup);
+      sqlRc != SQLITE_OK) {
+    goto err_sql;
+  }
+  o_backup = NULL;  // fin
+
+  {
+    const auto verifyResult = verify_schema (db);
+    if (!verifyResult) {
+      // idk what to do here
+      return std::unexpected{LoadError{
+          .code = LoadError::verificationError,
+          .sqlRc = verifyResult.error(),
+          .sqlMsg = std::nullopt
+      }};
+    }
+    if (!*verifyResult) {
+      // ditto
+      return std::unexpected{LoadError{
+          .code = LoadError::schemaMismatch,
+          .sqlRc = std::nullopt,
+          .sqlMsg = std::nullopt
+      }};
+    }
+  }
+
+  return db;
+
+err_sql: {
+  // NOTE: per sqlite3 docs, errors from backup_init/backup_step
+  // are stored on the destination handle, so db (the in-memory
+  // connection being loaded into) is the right handle to query
+  // here in every failure case above.
+  const std::string errMsg = sqlite3_errmsg (db);
+  return std::unexpected (
+      LoadError{
+          .code = LoadError::copyFail,
+          .sqlRc = sqlRc,
+          .sqlMsg = errMsg
+      }
+  );
+}
+}
+
 
 namespace query {
 
-// -- forward declarations -- //
-namespace {
-std::expected<std::string, Err> schema_fingerprint (
-    PileupDB& db
-);
-VoidOrErr verify_schema (PileupDB& db);
-}  // namespace
-// --- //
-
-// -- query API -- //
-std::expected<DynamicSelectReadsStmt, int> prepare_select_reads (
+std::expected<DynamicSelectReadsStmt, int>
+DynamicSelectReadsStmt::prepare_select_reads (
     const PileupDB& db, const DynamicFragments& frags
 )
 {
@@ -108,73 +246,50 @@ std::expected<DynamicSelectReadsStmt, int> prepare_select_reads (
   }
 
   if (sqlite3_stmt_readonly (stmt) == 0) {
-    // hacky at best...
-    return std::unexpected (SQLITE_MISUSE);
+    return std::unexpected (SQLITE_READONLY);
   }
 
   return stmt;
 }
 
-std::expected<RowIterStatus, int> next_read (
-    sqlite3_stmt* br_stmt
-)
-{
-  const int rc = sqlite3_step (br_stmt);
-  if (rc == SQLITE_DONE) {
-    return RowIterStatus::exhausted;
-  }
-  if (rc != SQLITE_ROW) {
-    return std::unexpected (rc);
-  }
-  return RowIterStatus::rowAvail;
-}
-
-CountStmtOrErr prepare_count_reads (
+std::expected<DynamicCountReadsStmt, int>
+DynamicCountReadsStmt::prepare_count_reads (
     const PileupDB& db, const std::vector<std::string>& where
 )
 {
   DynamicCountReadsStmt stmt;
 
-  std::string rsql_builtStmt{
-      DynamicCountReadsStmt::sqlStmtPrefix
-  };
+  std::string stmtSqlStr{DynamicCountReadsStmt::sqlStmtPrefix};
 
   // build WHERE
   if (!where.empty()) {
-    rsql_builtStmt.append (" WHERE ");
+    stmtSqlStr.append (" WHERE ");
     for (size_t i = 0; i < where.size(); ++i) {
-      rsql_builtStmt.append (where[i]);
+      stmtSqlStr.append (where[i]);
       if (i != (where.size() - 1)) {
-        rsql_builtStmt.append (" ");
+        stmtSqlStr.append (" ");
       }
     }
   }
 
-  rsql_builtStmt.append (";");  // end stmt
+  stmtSqlStr.append (";");  // end stmt
 
-  PLOGD << "Compiling user query: " + rsql_builtStmt;
+  PLOGD << "Compiling user query: " + stmtSqlStr;
 
   // Either of the following cases should be surfaced to the user
 
   int rc;
   if (rc = sqlite3_prepare_v2 (
-          db, rsql_builtStmt.c_str(),
-          static_cast<int> (rsql_builtStmt.size()), &stmt.o_stmt,
+          db, stmtSqlStr.c_str(),
+          static_cast<int> (stmtSqlStr.size()), &stmt.o_stmt,
           NULL
       );
       rc != SQLITE_OK) {
-    return std::unexpected{make_sqlite3_err (
-        rc, fmt::format (
-                "Could not compile statement: {} - {}",
-                rsql_builtStmt, sqlite3_errmsg (db)
-            )
-    )};
+    return std::unexpected (rc);
   }
 
   if (sqlite3_stmt_readonly (stmt) == 0) {
-    return std::unexpected{
-        make_internal_err ("Statement would modify database.")
-    };
+    return std::unexpected (SQLITE_READONLY);
   }
 
   return stmt;
@@ -228,75 +343,97 @@ std::expected<PileupMetadata, int> get_locus_data (
   return out;
 }
 
-VoidOrErr dump_to_disk (
+std::expected<RowIterStatus, int> next_read (
+    sqlite3_stmt* br_stmt
+)
+{
+  const int rc = sqlite3_step (br_stmt);
+  if (rc == SQLITE_DONE) {
+    return RowIterStatus::exhausted;
+  }
+  if (rc != SQLITE_ROW) {
+    return std::unexpected (rc);
+  }
+  return RowIterStatus::rowAvail;
+}
+
+std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt)
+{
+  uint32_t nRow = 0;
+  for (;; ++nRow) {
+    const auto iterStatus = next_read (stmt);
+    if (!iterStatus) {
+      return std::unexpected (iterStatus.error());
+    }
+    if (*iterStatus == RowIterStatus::exhausted) {
+      return nRow;
+    }
+  }
+}
+
+
+std::expected<void, std::string> dump_to_disk (
     const PileupDB& db, std::string_view path
 )
 {
-  /*
-    Copy the in-memory database out to a file on disk,
-    via sqlite3's online backup API.
-  */
-  int sqlRc = SQLITE_OK;
+  int rc = SQLITE_OK;
   sqlite3* o_dumpConn = NULL;
   sqlite3_backup* o_backupConn = NULL;
 
-  if (sqlRc =
-          sqlite3_open (std::string{path}.c_str(), &o_dumpConn);
-      sqlRc != SQLITE_OK) {
+  if (rc = sqlite3_open (std::string{path}.c_str(), &o_dumpConn);
+      rc != SQLITE_OK) {
     goto err_sql;
   }
 
   if (o_backupConn =
           sqlite3_backup_init (o_dumpConn, "main", db, "main");
       o_backupConn == NULL) {
-    sqlRc = sqlite3_errcode (o_dumpConn);
+    rc = sqlite3_errcode (o_dumpConn);
     goto err_sql;
   }
 
   // -1: copy all remaining pages in a single step.
-  // ASSUMPTION: db is quiescent (no concurrent writer holding
-  // a lock) for the duration of the copy.
-  if (sqlRc = sqlite3_backup_step (o_backupConn, -1);
-      sqlRc != SQLITE_DONE) {
+  if (rc = sqlite3_backup_step (o_backupConn, -1);
+      rc != SQLITE_DONE) {
     sqlite3_backup_finish (o_backupConn);
     goto err_sql;
   }
 
-  if (sqlRc = sqlite3_backup_finish (o_backupConn);
-      sqlRc != SQLITE_OK) {
+  if (rc = sqlite3_backup_finish (o_backupConn);
+      rc != SQLITE_OK) {
     goto err_sql;
   }
   o_backupConn = NULL;  // fin
 
-  if (sqlRc = sqlite3_close_v2 (o_dumpConn);
-      sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))
-    };
+  if (rc = sqlite3_close_v2 (o_dumpConn); rc != SQLITE_OK) {
+    goto err_sql;
   }
   o_dumpConn = NULL;
 
   return {};
 
 err_sql: {
-  // NOTE: per sqlite3 docs, errors from backup_init/backup_step
-  // are stored on the *destination* handle, so o_dumpConn is the
-  // right handle to query here in every failure case above.
   const std::string errMsg = sqlite3_errmsg (o_dumpConn);
-  sqlite3_close_v2 (o_dumpConn);
-  return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
+  sqlite3_close_v2 (
+      o_dumpConn
+  );  // doesn't matter if we try again.
+  return std::unexpected (
+      fmt::format (
+          "Failed to close dumped database connection, "
+          "reporting error {} and status {}",
+          sqlite3_errstr (rc), errMsg
+      )
+  );
 }
 }
 
-VoidOrErr dump_to_stdout (const PileupDB& db)
+DumpStatus dump_to_stdout (const PileupDB& db)
 {
   sqlite3_int64 size = 0;
   unsigned char* o_buf =
       sqlite3_serialize (db, "main", &size, 0);
   if (o_buf == NULL) {
-    return std::unexpected{
-        make_internal_err ("Failed to serialize database")
-    };
+    return {DumpStatus::sqliteSerialiseFail};
   }
 
   const size_t written =
@@ -304,152 +441,12 @@ VoidOrErr dump_to_stdout (const PileupDB& db)
   sqlite3_free (o_buf);
 
   if (written != static_cast<size_t> (size)) {
-    return std::unexpected{
-        make_internal_err ("Failed to write database to stdout")
-    };
+    return {DumpStatus::writeFail};
   }
 
   std::fflush (stdout);
-  return {};
+  return {DumpStatus::success};
 }
-
-VoidOrErr load_from_disk (PileupDB& db, std::string_view path)
-{
-  /*
-    Copy a database file on disk into an in-memory PileupDB,
-    via sqlite3's online backup API.
-  */
-  int sqlRc = SQLITE_OK;
-  sqlite3* o_fileDb = NULL;
-  sqlite3_backup* o_backup = NULL;
-
-  if (sqlRc = sqlite3_open_v2 (
-          std::string{path}.c_str(), &o_fileDb,
-          SQLITE_OPEN_READONLY, NULL
-      );
-      sqlRc != SQLITE_OK) {
-    // NOTE: the error here belongs to o_fileDb (the handle
-    // that failed to open), not db.
-    goto err_open;
-  }
-
-  if (o_backup =
-          sqlite3_backup_init (db, "main", o_fileDb, "main");
-      o_backup == NULL) {
-    sqlRc = sqlite3_errcode (db);
-    goto err_sql;
-  }
-
-  // -1: copy all remaining pages in a single step.
-  // ASSUMPTION: o_fileDb is quiescent (no concurrent writer
-  // holding a lock) for the duration of the copy.
-  if (sqlRc = sqlite3_backup_step (o_backup, -1);
-      sqlRc != SQLITE_DONE) {
-    sqlite3_backup_finish (o_backup);
-    goto err_sql;
-  }
-
-  if (sqlRc = sqlite3_backup_finish (o_backup);
-      sqlRc != SQLITE_OK) {
-    goto err_sql;
-  }
-  o_backup = NULL;  // fin
-
-  if (sqlRc = sqlite3_close_v2 (o_fileDb); sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errstr (sqlRc))
-    };
-  }
-  o_fileDb = NULL;
-
-  if (auto r = verify_schema (db); !r) {
-    Err err = r.error();
-    err.msg = "loaded db from " + std::string{path} +
-              " failed verification: " + err.msg;
-    return std::unexpected{err};
-  }
-
-  return {};
-
-err_open: {
-  const std::string errMsg = sqlite3_errmsg (o_fileDb);
-  sqlite3_close_v2 (o_fileDb);
-  return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
-}
-
-err_sql: {
-  // NOTE: per sqlite3 docs, errors from backup_init/backup_step
-  // are stored on the *destination* handle, so db (the in-memory
-  // connection being loaded into) is the right handle to query
-  // here in every failure case above.
-  const std::string errMsg = sqlite3_errmsg (db);
-  sqlite3_close_v2 (o_fileDb);
-  return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
-}
-}
-
-// -- internal helpers --
-
-namespace {
-
-std::expected<std::string, Err> schema_fingerprint (PileupDB& db)
-{
-  sqlite3_stmt* o_stmt = NULL;
-  int sqlRc = sqlite3_prepare_v2 (
-      db,
-      "SELECT type || ':' || name || ':' || sql FROM "
-      "sqlite_master "
-      "WHERE sql IS NOT NULL ORDER BY type, name;",
-      -1, &o_stmt, NULL
-  );
-  if (sqlRc != SQLITE_OK) {
-    return std::unexpected{
-        make_sqlite3_err (sqlRc, sqlite3_errmsg (db))
-    };
-  }
-
-  std::string out;
-  while ((sqlRc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
-    out += reinterpret_cast<const char*> (
-        sqlite3_column_text (o_stmt, 0)
-    );
-    out += '\n';
-  }
-  if (sqlRc != SQLITE_DONE) {
-    const std::string errMsg = sqlite3_errmsg (db);
-    sqlite3_finalize (o_stmt);
-    return std::unexpected{make_sqlite3_err (sqlRc, errMsg)};
-  }
-  sqlite3_finalize (o_stmt);
-  return out;
-}
-
-VoidOrErr verify_schema (PileupDB& db)
-{
-  PileupDB refDb;
-  if (auto r = init_db (refDb); !r) {
-    return std::unexpected{r.error()};
-  }
-
-  auto refSchema = schema_fingerprint (refDb);
-  if (!refSchema) {
-    return std::unexpected{refSchema.error()};
-  }
-  auto loadedSchema = schema_fingerprint (db);
-  if (!loadedSchema) {
-    return std::unexpected{loadedSchema.error()};
-  }
-  if (*refSchema != *loadedSchema) {
-    return std::unexpected{make_internal_err (
-        "schema does not match the expected pileup-browser "
-        "schema"
-    )};
-  }
-
-  return {};
-}
-
-}  // namespace
 
 }  // namespace query
 

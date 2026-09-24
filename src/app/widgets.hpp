@@ -5,7 +5,6 @@
 #include "frontend/extb/box/box.hpp"
 #include "frontend/history.hpp"
 #include "frontend/input.hpp"
-#include "shared/err.hpp"
 
 namespace e2 = extb;
 
@@ -47,19 +46,45 @@ struct OverlayWgt {
 struct UIBundle {
   BrowserWgt browsr;
   CmdWgt cmd;
-  OverlayWgt help;
+  OverlayWgt overlay;
   int screenH = -1;
   int screenW = -1;
   // TODO: add individual dirty flags
   // for each widget
 };
 
-VoidOrErr size_widgets (UIBundle& ui);
-void size_and_set_overlay_widget (
-    UIBundle& ui, helpblocks::TextBlockRef content
+// Calculates and sets sizes on statically-sized UI elements.
+// Returns true on success, false on failure due
+// to insufficient space available.
+[[nodiscard]] bool size_widgets (UIBundle& ui);
+// Calculates and sets sizes on dynamically-sized overlay widget.
+// Returns true on success, false on failure due
+// to insufficient space available.
+[[nodiscard]] bool size_and_set_overlay_widget (
+    OverlayWgt& oWgt, helpblocks::TextBlockRef content,
+    int screenW, int screenH
 );
 
-VoidOrErr draw_main_ui (
+// NOTE: this reasonably well scoped shared err type is working
+// quite well so far
+// NOTE: also starting to think (optional) output fill err parameters
+// are a good idea...
+// NOTE: A Zig-like extensible global error union thing might be nice.
+// Maybe a shared err namespace with a success state in it? but then I doubt
+// you can extend the enum in various parts of the codebase independently...
+struct TuiStatus {
+  enum Code : uint8_t {
+    success,
+    insufficientSz,
+    sqlFail,
+  };
+  Code code;
+  std::optional<int> sqlRc;
+};
+[[nodiscard]] TuiStatus draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf
 );
+// draw (sized and set) overlay widget.
+// asserts required preconditions, otherwise
+// should not fail, so void return.
 void draw_overlay (const OverlayWgt& oWgt);

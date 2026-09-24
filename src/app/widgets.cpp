@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
-#include <utility>
 
 #include "app/state_components.hpp"
 #include "backend/hts_sql.hpp"
@@ -16,12 +15,15 @@
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
-#include "shared/err.hpp"
 
 // --- helpers --- //
 
 namespace validate {
 
+// slightly pointless,
+// but I think it's more clear as to the
+// intention than raw calls to valid (wgt.frame),
+// and easier to add any future validation conditions.
 static bool widget_is_valid (const BrowserWgt& bWgt)
 {
   return valid (bWgt.frame);
@@ -38,7 +40,8 @@ static bool ui_is_valid (const UIBundle& ui)
 {
   return ui.screenW > 0 && ui.screenH > 0 &&
          widget_is_valid (ui.browsr) &&
-         widget_is_valid (ui.cmd) && widget_is_valid (ui.help);
+         widget_is_valid (ui.cmd) &&
+         widget_is_valid (ui.overlay);
 }
 
 }  // namespace validate
@@ -47,25 +50,15 @@ static bool ui_is_valid (const UIBundle& ui)
 
 // --- size calculation --- //
 
-static void set_screen_size (UIBundle& ui)
-{
-  ui.screenH = tb_height();
-  ui.screenW = tb_width();
-}
-static std::pair<int, int> get_screen_size (UIBundle& ui)
-{
-  return {ui.screenW, ui.screenH};
-}
-
-void size_and_set_overlay_widget (
-    UIBundle& ui, helpblocks::TextBlockRef content
+bool size_and_set_overlay_widget (
+    OverlayWgt& oWgt, helpblocks::TextBlockRef content,
+    int screenW, int screenH
 )
 {
-  // set overlay widget, dynamically sizing to content
+  /* set overlay widget, dynamically sizing to content */
+  assert (screenW > 0);
+  assert (screenH > 0);
   assert (!content.empty());
-
-  auto& oWgt = ui.help;
-  const auto [screenW, screenH] = get_screen_size (ui);
 
   // dynamically sized to content
   const auto framedContentH =
@@ -83,31 +76,37 @@ void size_and_set_overlay_widget (
   // +2 for the left/right border, +1 for a gap before the
   // right border
   const auto framedContentW = static_cast<int> (maxLineW + 3);
-  const auto helpW = std::min (
+  const auto wgtW = std::min (
       framedContentW, static_cast<int> (std::ceil (
                           static_cast<double> (screenW) * 0.6
                       ))
   );
+  if (wgtW < 5) {
+    // too small
+    return false;
+  }
 
   const auto xOff =
-      static_cast<int> (std::floor ((screenW - helpW) / 2));
+      static_cast<int> (std::floor ((screenW - wgtW) / 2));
   const auto yOff =
       static_cast<int> (std::floor ((screenH - helpH) / 2));
 
   e2::Span ySpan{yOff, yOff + helpH};
-  e2::Span xSpan{xOff, xOff + helpW};
+  e2::Span xSpan{xOff, xOff + wgtW};
 
   oWgt.frame = e2::Box{xSpan, ySpan};
   oWgt.contentBox = e2::Box{body (xSpan), body (ySpan)};
   oWgt.content = content;
+
+  return true;
 }
 
-VoidOrErr size_widgets (UIBundle& ui)
+bool size_widgets (UIBundle& ui)
 {
   PLOGD << "Calculating widget size";
 
-  set_screen_size (ui);
-  const auto [screenW, screenH] = get_screen_size (ui);
+  const auto screenW = ui.screenW = tb_width();
+  const auto screenH = ui.screenH = tb_height();
 
   const e2::Span screenX{0, screenW};
   const e2::Span screenY{0, screenH};
@@ -126,9 +125,7 @@ VoidOrErr size_widgets (UIBundle& ui)
 
   if (!e2::valid (screenY) || !e2::valid (screenX) ||
       !e2::valid (mainY) || !e2::valid (cmdY)) {
-    return std::unexpected (make_internal_err (
-        "Could not calculate widgets. Terminal likley too small!"
-    ));
+    return false;
   }
 
   {
@@ -173,10 +170,15 @@ VoidOrErr size_widgets (UIBundle& ui)
     cWgt.msgLine = e2::HLine{body (screenX), y};
   }
 
-  // dynamically sized to content
-  size_and_set_overlay_widget (ui, ui.help.content);
-
-  return {};
+  // dynamically sized to content and
+  // current screen size.
+  assert (!ui.overlay.content.empty());
+  if (!size_and_set_overlay_widget (
+          ui.overlay, ui.overlay.content, screenW, screenH
+      )) {
+    return false;
+  };
+  return true;
 }
 // --- end sizing --- //
 
@@ -713,15 +715,7 @@ static e2::Delta seq1 (
 
 namespace draw_query_data {
 
-struct ReturnCodes {
-  enum Codes : uint8_t {
-    success,
-    insufficientSize,
-    sqlFail,
-  };
-};
-
-static ReturnCodes::Codes draw_query_data (
+static TuiStatus draw_query_data (
     BrowserWgt& bWgt, DBBundle& db, const AppConfig& conf
 )
 {
@@ -731,7 +725,7 @@ static ReturnCodes::Codes draw_query_data (
   if (!valid (bWgt.frame) || size (bWgt.frame.xspan) < 4 ||
       size (bWgt.frame.yspan) < 8) {
     // bounds slightly approximate
-    return ReturnCodes::insufficientSize;
+    return {TuiStatus::insufficientSz, std::nullopt};
   }
   assert (db.locusInfo.valid());
 
@@ -876,27 +870,29 @@ static ReturnCodes::Codes draw_query_data (
     uint16_t nReadDrawn = 0;
     for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
          ++iRead) {
-      auto nrRet = next_read (db.stmt, db.db);
-      if (!nrRet) {
-        return ReturnCodes::sqlFail;
+      const auto iterStatus = next_read (db.stmt);
+      if (!iterStatus) {
+        return {TuiStatus::sqlFail, iterStatus.error()};
       }
-      if (!(*nrRet)) {
-        break;  // reads exhausted
+      if (*iterStatus == query::RowIterStatus::rowAvail) {
+        if (static_cast<int64_t> (iRead) <
+            db.stmtRowScrollOffset) {
+          // reads hidden by scrolling
+          continue;
+        }
+        const auto dHead = draw_aln::seq1 (
+            static_cast<int16_t> (seqWriteHead.y), db.stmt,
+            db.locusInfo.refSlice, seq1Fixed
+        );
+        if (conf.drawPaneSwitches.table) {
+          draw_table::row1 (seqWriteHead.y, db.stmt, row1Fixed);
+        }
+        seqWriteHead.y += dHead.dy;
+        ++nReadDrawn;
       }
-      if (static_cast<int64_t> (iRead) <
-          db.stmtRowScrollOffset) {
-        // reads hidden by scrolling
-        continue;
+      else {
+        break;
       }
-      const auto dHead = draw_aln::seq1 (
-          static_cast<int16_t> (seqWriteHead.y), db.stmt,
-          db.locusInfo.refSlice, seq1Fixed
-      );
-      if (conf.drawPaneSwitches.table) {
-        draw_table::row1 (seqWriteHead.y, db.stmt, row1Fixed);
-      }
-      seqWriteHead.y += dHead.dy;
-      ++nReadDrawn;
     }
     bWgt.nReadOnscreen = nReadDrawn;
 
@@ -930,7 +926,7 @@ static ReturnCodes::Codes draw_query_data (
   }
   /* end draw query data */
 
-  return ReturnCodes::success;
+  return {TuiStatus::success, std::nullopt};
 }
 
 }  // namespace draw_query_data
@@ -1015,7 +1011,7 @@ static void draw_cmd (
   );
 }
 
-VoidOrErr draw_main_ui (
+TuiStatus draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf
 )
 {
@@ -1028,21 +1024,17 @@ VoidOrErr draw_main_ui (
   draw_browser_chrome (ui.browsr);
   draw_cmd_chrome (ui.cmd);
 
-  auto dqRc =
-      draw_query_data::draw_query_data (ui.browsr, db, conf);
-  switch (dqRc) {
-    // NOTE: strictly speaking, BUG here.
-    case draw_query_data::ReturnCodes::success:
-    case draw_query_data::ReturnCodes::insufficientSize:
-      // TODO test behaviour in practice and decide
-      // on appropriate error strategy
+
+  switch (
+      const auto dqStatus =
+          draw_query_data::draw_query_data (ui.browsr, db, conf);
+      dqStatus.code
+  ) {
+    case TuiStatus::success:
       break;
-    case draw_query_data::ReturnCodes::sqlFail:
-      // TODO error strategy not properly considered;
-      // what actually happens upstream??
-      return std::unexpected (make_internal_err (
-          "SQL error; failed while iterating query rows."
-      ));
+    case TuiStatus::insufficientSz:
+    case TuiStatus::sqlFail:
+      return dqStatus;
   }
 
   draw_pileup_ambient (ui.browsr, db.locusInfo);
@@ -1055,6 +1047,7 @@ VoidOrErr draw_main_ui (
 void draw_overlay (const OverlayWgt& oWgt)
 {
   assert (validate::widget_is_valid (oWgt));
+  assert (!oWgt.content.empty());
 
   const auto& box = oWgt.contentBox;
   const auto& frame = oWgt.frame;

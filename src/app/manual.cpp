@@ -179,7 +179,7 @@ std::string_view get_manual()
       "{}{}{}{}{}{}{}", manualChunk1,
       fmt::join (helpblocks::navigation, "\n"), manualChunk2,
       fmt::join (build_cmd_ref_table(), "\n"), manualChunk3,
-      fmt::join (helpblocks::table, "\n"), manualChunk4
+      fmt::join (helpblocks::tableColumns, "\n"), manualChunk4
   );
   return manual;
 }

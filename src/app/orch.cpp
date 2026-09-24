@@ -13,8 +13,6 @@
 #include "backend/hts_sql.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/cleanup.hpp"
-#include "shared/err.hpp"
-
 
 static void init_tb2()
 {
@@ -29,8 +27,8 @@ static void init_tb2()
   tb_clear();
 };
 
-
-static VoidOrErr draw_screen (AppState& state)
+// TODO: maybe this should move into widgets idk
+static TuiStatus draw_screen (AppState& state)
 {
   PLOGD << "Drawing screen";
 
@@ -42,20 +40,24 @@ static VoidOrErr draw_screen (AppState& state)
   tb_clear();
 
   /* draw frame */
-  auto dwRet = draw_main_ui (state.ui, state.db, state.conf);
-  if (!dwRet) {
-    return std::unexpected{dwRet.error()};
+  const auto dmuStatus =
+      draw_main_ui (state.ui, state.db, state.conf);
+  switch (dmuStatus.code) {
+    case TuiStatus::success:
+      break;
+    case TuiStatus::insufficientSz:
+    case TuiStatus::sqlFail:
+      return dmuStatus;
   }
 
   if (state.conf.showOverlay) {
-    // For help overlay,
-    // and query columns overlay
-    draw_overlay (state.ui.help);
+    // For help overlays
+    draw_overlay (state.ui.overlay);
   }
 
   tb_present();
 
-  return {};
+  return {.code = TuiStatus::success, .sqlRc = std::nullopt};
 }
 
 std::expected<AppState, int> init_tui_state (
@@ -74,21 +76,12 @@ std::expected<AppState, int> init_tui_state (
     return std::unexpected (prepResult.error());
   }
   auto startupStmt = std::move (*prepResult);
-  uint32_t nRow = 0;
-  // check no error on iteration,
-  // get nrows (nreads).
-  for (;; ++nRow) {
-    const auto iterStatus = next_read (startupStmt);
-    if (!iterStatus) {
-      return std::unexpected (iterStatus.error());
-    }
-    switch (*iterStatus) {
-      case query::RowIterStatus::rowAvail:
-        continue;
-      case query::RowIterStatus::exhausted:
-        break;
-    }
+  // count, and as a consequence verify.
+  auto rowCountResult = query::count_rows (startupStmt);
+  if (!rowCountResult) {
+    return std::unexpected (rowCountResult.error());
   }
+  const uint32_t nRow = *rowCountResult;
 
   AppState state{
       .db = {
@@ -106,39 +99,53 @@ std::expected<AppState, int> init_tui_state (
   return state;
 }
 
-VoidOrErr run_tui_loop (AppState& state)
+TuiStatus run_tui_loop (AppState& state)
 {
   init_tb2();
   Cleanup shutdown ([]() { tb_shutdown(); });
 
   {
     // render first frame
-    auto calcRet = size_widgets (state.ui);
-    if (!calcRet) {
-      return std::unexpected{calcRet.error()};
+    if (!size_widgets (state.ui)) {
+      return {TuiStatus::insufficientSz, std::nullopt};
+    };
+    switch (const auto drawStatus = draw_screen (state);
+            drawStatus.code) {
+      case TuiStatus::success:
+        break;
+      case TuiStatus::insufficientSz:
+      case TuiStatus::sqlFail:
+        return drawStatus;
     }
-    auto drawRet = draw_screen (state);
-    if (!drawRet) {
-      return std::unexpected{drawRet.error()};
-    }
+    e2::write_string (
+        first (state.ui.cmd.inputLine),
+        last (state.ui.cmd.inputLine.xspan), "command [args...]",
+        TB_DIM
+    );
+    // show command line startup message
+    tb_present();
   }
 
   tb_event ev{};
   while (state.conf.run) {
     tb_poll_event (&ev);
-    // these two should return an error
-    // here ONLY if something occurs
-    // which means we should crash.
-    // Otherwise should be handled
-    // by telling the user.
-
-    auto evRet = handle_event (state, ev);
-    if (!evRet) {
-      return std::unexpected{evRet.error()};
+    switch (const auto evStatus = handle_event (state, ev);
+            evStatus.code) {
+      case TuiStatus::success:
+      case TuiStatus::insufficientSz:
+        // do nothing - allow user to resize terminal
+        // rather than crashing.
+        break;
+      case TuiStatus::sqlFail:
+        return evStatus;
     }
-    auto drawRet = draw_screen (state);
-    if (!drawRet) {
-      return std::unexpected{drawRet.error()};
+    switch (const auto drawStatus = draw_screen (state);
+            drawStatus.code) {
+      case TuiStatus::success:
+      case TuiStatus::insufficientSz:
+        break;
+      case TuiStatus::sqlFail:
+        return drawStatus;
     }
 
     PLOGD << "Processed frame";

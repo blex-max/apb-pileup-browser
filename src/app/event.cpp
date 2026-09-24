@@ -7,16 +7,6 @@
 #include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
 
-static VoidOrErr handle_resize (UIBundle& ui)
-{
-  auto calcRet = size_widgets (ui);
-  if (!calcRet) {
-    return std::unexpected (calcRet.error());
-  }
-
-  return {};
-}
-
 static void handle_character_entry (
     AppState& state, const tb_event& ev
 )
@@ -179,15 +169,15 @@ static void nav_overlay (AppState& state, const tb_event& ev)
   if (ev.ch != 0) {
     if (ev.ch == 'q') {
       state.conf.showOverlay = false;
-      state.ui.help.contentLnOffset = 0;
+      state.ui.overlay.contentLnOffset = 0;
     }
   }
   else if (ev.key != 0) {
-    auto& lnOff = state.ui.help.contentLnOffset;
+    auto& lnOff = state.ui.overlay.contentLnOffset;
     const auto contentLines =
-        static_cast<int> (state.ui.help.content.size());
+        static_cast<int> (state.ui.overlay.content.size());
     auto maxScroll = std::max (
-        0, contentLines - height (state.ui.help.contentBox)
+        0, contentLines - height (state.ui.overlay.contentBox)
     );
     switch (ev.key) {
       case TB_KEY_ARROW_DOWN:
@@ -202,12 +192,9 @@ static void nav_overlay (AppState& state, const tb_event& ev)
   }
 }
 
-// Does this need to access the
-// whole appstate struct?
-// (the only reason to care is sprawl
-// and maintainability)
-// TODO: probably not
-VoidOrErr handle_event (AppState& state, const tb_event& ev)
+// Probably doesn't need access to the whole of appstate,
+// if I was feeling rigid.
+TuiStatus handle_event (AppState& state, const tb_event& ev)
 {
   PLOGD << "Recieved event";
   if (ev.type == TB_EVENT_KEY) {
@@ -220,11 +207,10 @@ VoidOrErr handle_event (AppState& state, const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    auto rszRet = handle_resize (state.ui);
-    if (!rszRet) {
-      return std::unexpected (rszRet.error());
+    if (!size_widgets (state.ui)) {
+      return TuiStatus{TuiStatus::insufficientSz, std::nullopt};
     }
   }
 
-  return {};
+  return {.code = TuiStatus::success, .sqlRc = std::nullopt};
 }

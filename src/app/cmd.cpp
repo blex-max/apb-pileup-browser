@@ -237,22 +237,33 @@ static CmdResult try_apply_query_clause (
     std::string_view successMsg
 )
 {
-  auto prepRet = prepare_select_reads (state.db.db, newClause);
-  if (!prepRet) {
-    return {false, cmd_format_fail (prepRet.error().msg)};
+  auto prepResult =
+      prepare_select_reads (state.db.db, newClause);
+  if (!prepResult) {
+    return {
+        false, cmd_format_fail (
+                   fmt::format (
+                       "Could not compile statement - {}",
+                       sqlite3_errstr (prepResult.error())
+                   )
+               )
+    };
   }
-  auto newStmt = std::move (*prepRet);
-  uint32_t nRow = 0;
-  for (;; ++nRow) {
-    const auto nrRet = next_read (newStmt, state.db.db);
-    if (!nrRet) {
-      // poor error handling policy
-      return {false, cmd_format_fail (prepRet.error().msg)};
-    }
-    if (!(*nrRet)) {
-      break;  // reads exhausted
-    }
+  auto newStmt = std::move (*prepResult);
+  auto rowCountResult = query::count_rows (newStmt);
+  if (!rowCountResult) {
+    return {
+        false, cmd_format_fail (
+                   fmt::format (
+                       "Error during query: {}; {} - report "
+                       "to maintainer",
+                       rowCountResult.error(),
+                       sqlite3_errmsg (state.db.db)
+                   )
+               )
+    };
   }
+  const uint32_t nRow = *rowCountResult;
   state.db.stmt = std::move (newStmt);
   state.db.userClause = std::move (newClause);
   state.db.stmtRowScrollOffset = 0;  // reset row view
@@ -868,12 +879,12 @@ struct HelpCmd {
       "h", "?"
   };
 
-  enum Topic : uint8_t { nav, cmd, table, COUNT };
+  enum Topic : uint8_t { nav, cmd, tableColumns, COUNT };
   constexpr static std::array<std::string_view, Topic::COUNT>
       topicNames{{
           [Topic::nav] = "nav",
           [Topic::cmd] = "cmd",
-          [Topic::table] = "table",
+          [Topic::tableColumns] = "table",
       }};
 
   inline static const std::string usage = fmt::format (
@@ -893,47 +904,53 @@ struct HelpCmd {
       return nargRet.error();
     }
 
-    CmdResult out;
+    helpblocks::TextBlockRef content;
     if (tokens.empty()) {
+      content = helpblocks::app;
       state.conf.showOverlay = true;
-      size_and_set_overlay_widget (state.ui, helpblocks::app);
-      out.success = true;
     }
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
       if (topic == topicNames[Topic::nav]) {
+        content = helpblocks::navigation;
         state.conf.showOverlay = true;
-        size_and_set_overlay_widget (
-            state.ui, helpblocks::navigation
-        );
-        out.success = true;
       }
       else if (topic == topicNames[Topic::cmd]) {
-        static std::vector<std::string> cmdTable;
-        static std::vector<std::string_view> tableView;
-        cmdTable = build_cmd_ref_table();
-        tableView.assign (cmdTable.begin(), cmdTable.end());
-
+        static std::vector<std::string> cmdBlock;
+        static std::vector<std::string_view> cmdBlockView;
+        cmdBlock = build_cmd_ref_table();
+        cmdBlockView.assign (cmdBlock.begin(), cmdBlock.end());
+        content = cmdBlockView;
         state.conf.showOverlay = true;
-        size_and_set_overlay_widget (state.ui, tableView);
-        out.success = true;
       }
-      else if (topic == topicNames[Topic::table]) {
+      else if (topic == topicNames[Topic::tableColumns]) {
+        content = helpblocks::tableColumns;
         state.conf.showOverlay = true;
-        size_and_set_overlay_widget (
-            state.ui, helpblocks::table
-        );
-        out.success = true;
       }
       else {
         std::unreachable();
       }
     }
     else {
-      out.msg = cmd_format_misuse (
-          fmt::format ("unknown topic {}", tokens[0]), usage
-      );
+      return {
+          false,
+          cmd_format_misuse (
+              fmt::format ("unknown topic {}", tokens[0]), usage
+          )
+      };
+    }
+    CmdResult out;
+    if (size_and_set_overlay_widget (
+            state.ui.overlay, content, state.ui.screenW,
+            state.ui.screenH
+        )) {
+      out.success = true;
+    }
+    else {
       out.success = false;
+      out.msg = cmd_format_fail (
+          "terminal too small to display help pane"
+      );
     }
     return out;
   }

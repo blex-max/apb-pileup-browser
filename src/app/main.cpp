@@ -20,7 +20,6 @@
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
 #include "demo/demo.hpp"
-#include "shared/err.hpp"
 
 // Defined in CMakeLists.txt
 #ifndef APB_VERSION
@@ -346,8 +345,9 @@ using VoidOrFailMsg = std::expected<void, std::string>;
         return std::unexpected (
             fmt::format (
                 "Failed to transform/insert data to internal "
-                "database, reporting code {} and messages {} "
-                "and {} - please report this failure to the "
+                "database, reporting code {} - {} "
+                "and status {} - please report this failure to "
+                "the "
                 "maintainer",
                 err.sqlRc.value(),
                 sqlite3_errstr (err.sqlRc.value()),
@@ -438,22 +438,40 @@ int main (int argc, char** argv)
     std::cerr << fmt::format (
                      "Error: sqlite3 operation failed during "
                      "initalisation of TUI, reporting code {} "
-                     "and messages {} and {} - please report "
+                     "- {} and status {} - please report "
                      "this failure to the maintainer",
                      stateRet.error(),
                      sqlite3_errstr (stateRet.error()),
                      sqlite3_errmsg (db)
                  )
               << std::endl;
+    return EXIT_FAILURE;
   }
   // NOTE: state object has taken ownership of db.
   // db object is now nulled.
   AppState state = std::move (*stateRet);
 
-  // TODO: Error handling in loop fn
-  auto loopRet = run_tui_loop (state);
-  if (!loopRet) {
-    return std::unexpected (loopRet.error().msg);
+  switch (const auto loopExitStatus = run_tui_loop (state);
+          loopExitStatus.code) {
+    case TuiStatus::success:
+      break;
+    case TuiStatus::insufficientSz:
+      std::cerr
+          << "Terminal too small to display TUI! Try resizing?"
+          << std::endl;
+      return EXIT_FAILURE;
+    case TuiStatus::sqlFail:
+      std::cerr << fmt::format (
+                       "Error: sqlite3 operation failed during "
+                       "TUI main loop, reporting code {} "
+                       "- {} and status {} - please report "
+                       "this failure to the maintainer",
+                       stateRet.error(),
+                       sqlite3_errstr (stateRet.error()),
+                       sqlite3_errmsg (db)
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
   }
 
   std::cerr << "Bye!" << std::endl;

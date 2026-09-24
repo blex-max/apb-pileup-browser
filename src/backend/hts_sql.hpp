@@ -11,41 +11,70 @@
 #include "backend/sql_types.hpp"
 #include "shared/err.hpp"
 
-struct PileupDB : public SqliteConn {};
-VoidOrErr init_db (PileupDB& db);
+struct PileupDB : public SqliteConn {
+  // returns db or sqlite3 integer error code.
+  static std::expected<PileupDB, int> init();
+
+  struct LoadError {
+    enum Code : uint8_t {
+      openFail,
+      copyFail,
+      verificationError,
+      schemaMismatch
+    };
+    Code code;
+    std::optional<int> sqlRc;
+    std::optional<std::string> sqlMsg;
+  };
+  // Copy a database file on disk into an in-memory PileupDB,
+  // using sqlite3's online backup API.
+  static std::expected<PileupDB, LoadError> load_from_disk (
+      std::string_view path
+  );
+};
 
 namespace query {
-// TODO: review error handling in this namespace
 
 struct DynamicSelectReadsStmt : public SqliteStmt {
   static inline const std::string_view sqlStmtPrefix =
       "SELECT * FROM reads";
-};
-struct DynamicFragments {
-  std::vector<std::string> where;
-  std::string orderBy;
+
+  struct DynamicFragments {
+    std::vector<std::string> where;
+    std::string orderBy;
+  };
+
+  // returns compiled sql statement object, or sqlite3 integer
+  // return code on failure
+  static std::expected<DynamicSelectReadsStmt, int>
+  prepare_select_reads (
+      const PileupDB& db, const DynamicFragments& frags
+  );
 };
 
-std::expected<DynamicSelectReadsStmt, int> prepare_select_reads (
-    const PileupDB& db, const DynamicFragments& frags
-);
+struct DynamicCountReadsStmt : public SqliteStmt {
+  static inline const std::string_view sqlStmtPrefix =
+      "SELECT COUNT(*) FROM reads";
 
-// Steps statement forward by one row.
-// returns status code, or sql return code in on failure
+  // returns compiled sql statement object, or sqlite3 integer
+  // return code on failure
+  static std::expected<DynamicCountReadsStmt, int>
+  prepare_count_reads (
+      const PileupDB& db, const std::vector<std::string>& where
+  );
+};
+
+// Step `stmt` forward by one row.
+// returns status code, or sqlite3 integer return code in on failure.
 enum class RowIterStatus : uint8_t { rowAvail, exhausted };
 [[nodiscard]] std::expected<RowIterStatus, int> next_read (
     sqlite3_stmt* stmt
 );
 
-struct DynamicCountReadsStmt : public SqliteStmt {
-  static inline const std::string_view sqlStmtPrefix =
-      "SELECT COUNT(*) FROM reads";
-};
-
-using CountStmtOrErr = std::expected<DynamicCountReadsStmt, Err>;
-CountStmtOrErr prepare_count_reads (
-    const PileupDB& db, const std::vector<std::string>& where
-);
+// Steps `stmt` to exhaustion, counting rows.
+// Returns the row count, or the sqlite3 return code of the
+// first failing step.
+std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt);
 
 // locus metadata as extracted from db.
 struct PileupMetadata {
@@ -69,19 +98,26 @@ std::expected<PileupMetadata, int> get_locus_data (
 
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
-[[nodiscard]] VoidOrErr dump_to_disk (
+//   per sqlite3 docs, errors from backup_init/backup_step
+//   are stored on the destination handle, hence this function
+//   returns a string msg as the error detail cannot be evaluated
+//   from the input `db`.
+[[nodiscard]] std::expected<void, std::string> dump_to_disk (
     const PileupDB& db, std::string_view path
 );
 
 // Serialize the in-memory database and write the raw bytes to
 // stdout, for `--dump -`.
-[[nodiscard]] VoidOrErr dump_to_stdout (const PileupDB& db);
+struct DumpStatus {
+  enum Code : uint8_t {
+    success,
+    sqliteSerialiseFail,
+    writeFail,
+  };
+  Code code;
+};
+[[nodiscard]] DumpStatus dump_to_stdout (const PileupDB& db);
 
-// Copy a database file on disk into an in-memory PileupDB,
-// using sqlite3's online backup API.
-[[nodiscard]] VoidOrErr load_from_disk (
-    PileupDB& db, std::string_view path
-);
 
 }  // namespace query
 
