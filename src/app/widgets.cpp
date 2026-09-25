@@ -182,65 +182,6 @@ bool size_widgets (UIBundle& ui)
 }
 // --- end sizing --- //
 
-// --- draw layout chrome --- //
-
-static void draw_browser_chrome (BrowserWgt& bWgt)
-{
-  // preconds
-  assert (valid (bWgt.frame));
-  assert (width (bWgt.frame) > 1);
-  assert (height (bWgt.frame) > 1);
-
-  auto& bFrame = bWgt.frame;
-  set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
-  set (vertexB (bFrame), boxch::topRightRoundCorner, TB_DIM);
-
-  set (body (edgeAB (bFrame)), boxch::horzLine, TB_DIM);
-  // main frame is open at the bottom (the cmd frame closes it), so the
-  // side edges skip only the top corner and run to the last row.
-  set (
-      construct_relative (edgeDA (bFrame), 1, height (bFrame)),
-      boxch::vertLine, TB_DIM
-  );
-  set (
-      construct_relative (edgeBC (bFrame), 1, height (bFrame)),
-      boxch::vertLine, TB_DIM
-  );
-
-  set (body (bWgt.headerSep), boxch::horzLine, TB_DIM);
-  set (first (bWgt.headerSep), boxch::rightTConnect, TB_DIM);
-
-  set (body (bWgt.ambientSep), boxch::horzLine, TB_DIM);
-  set (first (bWgt.ambientSep), boxch::rightTConnect, TB_DIM);
-  set (last (bWgt.ambientSep), boxch::leftTConnect, TB_DIM);
-
-  set (last (bWgt.headerSep), boxch::leftTConnect, TB_DIM);
-}
-
-static void draw_cmd_chrome (CmdWgt& cWgt)
-{
-  // preconds
-  assert (valid (cWgt.frame));
-  assert (width (cWgt.frame) > 1);
-  assert (height (cWgt.frame) > 1);
-
-  auto& cFrame = cWgt.frame;
-  set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
-  set (vertexB (cFrame), boxch::topRightRoundCorner, TB_DIM);
-  set (vertexD (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
-  set (vertexC (cFrame), boxch::bottomRightRoundCorner, TB_DIM);
-
-  set (body (edgeAB (cFrame)), boxch::horzHeavy, TB_DIM);
-  set (body (edgeDA (cFrame)), boxch::vertLine, TB_DIM);
-  set (body (edgeBC (cFrame)), boxch::vertLine, TB_DIM);
-  set (body (cWgt.statusSep), boxch::horzLine, TB_DIM);
-
-  set (cWgt.inputCaret, ':');
-  set (body (cWgt.sepLine), boxch::horzLine, TB_DIM);
-}
-
-// --- end draw chrome --- //
-
 // --- draw browser pane --- //
 
 namespace draw_table {
@@ -792,14 +733,15 @@ static TuiStatus draw_query_data (
 
   /* configure/validate draw coordinates */
   const auto alnPaneHalfWidth = width (bWgt.alnPaneDataBox) / 2;
-  assert (db.locusInfo.pos >= alnPaneHalfWidth);
-  const auto marginToPileupStart = std::min (
-      -(db.locusInfo.pos - alnPaneHalfWidth -
-        db.locusInfo.start),
-      0LL
-  );
+  // Offset needed for the pane's left edge to reach
+  // db.locusInfo.start. Can be positive when there isn't room
+  // to center on pos, e.g. a locus near the start of its contig, or reads
+  // that don't extend a full half-pane-width left of pos.
+  const auto marginToPileupStart =
+      db.locusInfo.start - db.locusInfo.pos + alnPaneHalfWidth;
   const auto marginToPileupEnd = std::max (
-      db.locusInfo.end - alnPaneHalfWidth - db.locusInfo.pos, 0LL
+      db.locusInfo.end - alnPaneHalfWidth - db.locusInfo.pos,
+      marginToPileupStart  // keep clamp's [lo, hi] non-empty
   );
   bWgt.userPanOffset = std::clamp (
       bWgt.userPanOffset, marginToPileupStart, marginToPileupEnd
@@ -856,8 +798,8 @@ static TuiStatus draw_query_data (
       .writeStartXGPos = alnPaneLeftmostGPos,
       .pileupSpanGStart = db.locusInfo.start,
       .writeLimits = seqWriteLim,
-      .drawInsTrack = conf.drawTrackSwitches.ins,
       .drawQualTrack = conf.drawTrackSwitches.qual,
+      .drawInsTrack = conf.drawTrackSwitches.ins,
   };
   assert (seq1Fixed.valid());
   const draw_table::Row1FixedArgs row1Fixed{
@@ -994,12 +936,7 @@ static void draw_cmd (
   std::string userClauseString;
   if (!userQuery.where.empty()) {
     userClauseString.append ("WHERE ");
-    for (size_t i = 0; i < userQuery.where.size(); ++i) {
-      userClauseString.append (userQuery.where[i]);
-      if (i != (userQuery.where.size() - 1)) {
-        userClauseString.append (" ");
-      }
-    }
+    userClauseString.append (query::build_where_clause (userQuery.where));
   }
 
   if (!userQuery.orderBy.empty()) {
@@ -1023,9 +960,61 @@ TuiStatus draw_main_ui (
   PLOGD << "Drawing widgets";
   assert (validate::ui_is_valid (ui));
 
-  draw_browser_chrome (ui.browsr);
-  draw_cmd_chrome (ui.cmd);
+  {
+    // draw browser chrome
+    const auto& bWgt = ui.browsr;
+    // preconds
+    assert (valid (bWgt.frame));
+    assert (width (bWgt.frame) > 1);
+    assert (height (bWgt.frame) > 1);
 
+    const auto& bFrame = bWgt.frame;
+    set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
+    set (vertexB (bFrame), boxch::topRightRoundCorner, TB_DIM);
+
+    set (body (edgeAB (bFrame)), boxch::horzLine, TB_DIM);
+    // main frame is open at the bottom (the cmd frame closes it), so the
+    // side edges skip only the top corner and run to the last row.
+    set (
+        construct_relative (edgeDA (bFrame), 1, height (bFrame)),
+        boxch::vertLine, TB_DIM
+    );
+    set (
+        construct_relative (edgeBC (bFrame), 1, height (bFrame)),
+        boxch::vertLine, TB_DIM
+    );
+
+    set (body (bWgt.headerSep), boxch::horzLine, TB_DIM);
+    set (first (bWgt.headerSep), boxch::rightTConnect, TB_DIM);
+
+    set (body (bWgt.ambientSep), boxch::horzLine, TB_DIM);
+    set (first (bWgt.ambientSep), boxch::rightTConnect, TB_DIM);
+    set (last (bWgt.ambientSep), boxch::leftTConnect, TB_DIM);
+
+    set (last (bWgt.headerSep), boxch::leftTConnect, TB_DIM);
+  }
+  {
+    // draw cmd chrome
+    const auto& cWgt = ui.cmd;
+    // preconds
+    assert (valid (cWgt.frame));
+    assert (width (cWgt.frame) > 1);
+    assert (height (cWgt.frame) > 1);
+
+    const auto& cFrame = cWgt.frame;
+    set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
+    set (vertexB (cFrame), boxch::topRightRoundCorner, TB_DIM);
+    set (vertexD (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
+    set (vertexC (cFrame), boxch::bottomRightRoundCorner, TB_DIM);
+
+    set (body (edgeAB (cFrame)), boxch::horzHeavy, TB_DIM);
+    set (body (edgeDA (cFrame)), boxch::vertLine, TB_DIM);
+    set (body (edgeBC (cFrame)), boxch::vertLine, TB_DIM);
+    set (body (cWgt.statusSep), boxch::horzLine, TB_DIM);
+
+    set (cWgt.inputCaret, ':');
+    set (body (cWgt.sepLine), boxch::horzLine, TB_DIM);
+  }
 
   switch (
       const auto dqStatus =
@@ -1087,7 +1076,10 @@ void draw_overlay (const OverlayWgt& oWgt)
     );
   }
 
-  const auto lnOff = static_cast<size_t> (oWgt.contentLnOffset);
+  const auto maxLnOff =
+      std::max (0, static_cast<int> (std::ssize (content)) - lnN);
+  const auto lnOff =
+      static_cast<size_t> (std::clamp (oWgt.contentLnOffset, 0, maxLnOff));
   auto lnY = extb::vertexA (box);
   for (int i = 0; i < lnN && i < std::ssize (content); ++i) {
     e2::write_string (

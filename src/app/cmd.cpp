@@ -38,9 +38,11 @@ static std::string cmd_format_fail (std::string_view failMsg)
 static std::pair<std::string_view, std::string_view>
 split_first_space (std::string_view s)
 {
-  if (s.empty()) {
+  const auto start = s.find_first_not_of (' ');
+  if (start == std::string_view::npos) {
     return {};
   }
+  s.remove_prefix (start);
   auto pos = s.find (' ');
   if (pos == std::string_view::npos) {
     return {s, {}};  // no args
@@ -580,14 +582,7 @@ struct CountCmd {
       const std::vector<std::string>& where
   )
   {
-    std::string out;
-    for (size_t i = 0; i < where.size(); ++i) {
-      out.append (where[i]);
-      if (i != (where.size() - 1)) {
-        out.append (" ");
-      }
-    }
-    return out;
+    return query::build_where_clause (where);
   }
 
   inline static const CmdView view{

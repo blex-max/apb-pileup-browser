@@ -108,6 +108,7 @@ PileupIterator::prepare_pileup_iter (
     out.tid = tid;
     out.pos = pos;
     // fill span member
+    out.span = GenomicSpan{INT64_MAX, 0};
     for (int i = 0; i < nPlp; i++) {
       auto* const b1 = br_plpArr[i].b;
       const auto rStart = b1->core.pos;

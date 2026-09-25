@@ -10,6 +10,7 @@
 
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
+#include "shared/cleanup.hpp"
 
 static const char kBaseArray[] = "ACGT";
 
@@ -334,6 +335,9 @@ int insert_demo_data (PileupDB& db, const DemoDataPack& data)
       rc != SQLITE_OK) {
     return rc;
   }
+  Defer rollbackOnErr ([&]() {
+    sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
+  });
 
   for (const auto& readI : data.reads) {
     if (const auto rc = bind_pileup_fields (stmt, readI);
@@ -357,6 +361,7 @@ int insert_demo_data (PileupDB& db, const DemoDataPack& data)
       rc != SQLITE_OK) {
     return rc;
   }
+  rollbackOnErr.cancel();  // committed; nothing left to roll back
 
   return {};
 }

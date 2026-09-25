@@ -90,8 +90,8 @@ std::expected<AppState, int> init_tui_state (
       .db = {
           .db = std::move (db_sink),
           .stmt = std::move (startupStmt),
-          .nStmtRows = nRow,
           .userClause = {},
+          .nStmtRows = nRow,
           .locusInfo = *locusResult
       }
   };

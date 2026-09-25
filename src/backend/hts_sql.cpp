@@ -158,6 +158,12 @@ PileupDB::LoadStatus PileupDB::load_from_disk (
     goto err_sql;
   }
 
+  // Per sqlite3 docs ("Concurrent Usage of Database Handles"), db
+  // (the backup destination) must not be passed to any other API
+  // between sqlite3_backup_init() and sqlite3_backup_finish().
+  sqlite3_backup_finish (o_backup);
+  o_backup = NULL;
+
   {
     const auto verifyResult = verify_schema (db);
     if (!verifyResult) {
@@ -181,6 +187,8 @@ PileupDB::LoadStatus PileupDB::load_from_disk (
   return {.code = LoadStatus::success};
 
 err_sql: {
+  sqlite3_backup_finish (o_backup);
+  o_backup = NULL;
   // NOTE: per sqlite3 docs, errors from backup_init/backup_step
   // are stored on the destination handle, so db (the in-memory
   // connection being loaded into) is the right handle to query
@@ -197,6 +205,20 @@ err_sql: {
 
 namespace query {
 
+std::string build_where_clause (const std::vector<std::string>& fragments)
+{
+  if (fragments.empty()) {
+    return {};
+  }
+  std::string out = fragments[0];
+  for (size_t i = 1; i < fragments.size(); ++i) {
+    out.insert (0, "(");
+    out += ") ";
+    out += fragments[i];
+  }
+  return out;
+}
+
 std::expected<DynamicSelectReadsStmt, int>
 DynamicSelectReadsStmt::prepare_select_reads (
     const PileupDB& db, const DynamicFragments& frags
@@ -211,12 +233,7 @@ DynamicSelectReadsStmt::prepare_select_reads (
   // build WHERE
   if (!frags.where.empty()) {
     rsql_builtStmt.append (" WHERE ");
-    for (size_t i = 0; i < frags.where.size(); ++i) {
-      rsql_builtStmt.append (frags.where[i]);
-      if (i != (frags.where.size() - 1)) {
-        rsql_builtStmt.append (" ");
-      }
-    }
+    rsql_builtStmt.append (build_where_clause (frags.where));
   }
 
   if (!frags.orderBy.empty()) {
@@ -259,12 +276,7 @@ DynamicCountReadsStmt::prepare_count_reads (
   // build WHERE
   if (!where.empty()) {
     stmtSqlStr.append (" WHERE ");
-    for (size_t i = 0; i < where.size(); ++i) {
-      stmtSqlStr.append (where[i]);
-      if (i != (where.size() - 1)) {
-        stmtSqlStr.append (" ");
-      }
-    }
+    stmtSqlStr.append (build_where_clause (where));
   }
 
   stmtSqlStr.append (";");  // end stmt
@@ -402,8 +414,8 @@ DiskDumpStatus dump_to_disk (
 err_sql: {
   return {
       .code = DiskDumpStatus::fail,
-      rc,
-      sqlite3_errmsg (o_dumpConn)
+      .sqlRc = rc,
+      .dumpDbMsg = sqlite3_errmsg (o_dumpConn)
   };
 }
 }
@@ -501,6 +513,9 @@ std::expected<void, InsertPileupErr> insert_pileup (
         }
     );
   }
+  Defer rollbackOnErr ([&]() {
+    sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
+  });
 
   PLOGD << "Inserting reads";
 
@@ -564,9 +579,10 @@ std::expected<void, InsertPileupErr> insert_pileup (
           sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     return std::unexpected (
-        InsertPileupErr{InsertPileupErr::sqlFail, .sqlRc = rc}
+        InsertPileupErr{.code = InsertPileupErr::sqlFail, .sqlRc = rc}
     );
   }
+  rollbackOnErr.cancel();  // committed; nothing left to roll back
   return {};
 };
 
@@ -919,6 +935,7 @@ std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
 {
   kstring_t o_kstr;
   ks_initialize (&o_kstr);
+  Defer kstrCleanup ([&]() { ks_free (&o_kstr); });
   if (sam_format_aux1 (
           aux1Start - 2, *aux1Start, aux1Start + 1, aux1End,
           &o_kstr
@@ -981,8 +998,7 @@ std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
     }
   }
 
-  ks_free (&o_kstr);
-  return {};
+  return out;
 }
 
 // Escape a raw aux string value for embedding in a JSON string literal.

@@ -4,8 +4,10 @@
 
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "backend/hts_types.hpp"
 #include "backend/sql_types.hpp"
@@ -56,6 +58,12 @@ struct PileupDB {
 };
 
 namespace query {
+
+// Joins WHERE fragments (the first is a bare condition, each
+// subsequent one is prefixed "AND "/"OR ") left-associatively, so
+// mixed AND/OR combine in the order the user added them instead of
+// SQL's AND-over-OR precedence.
+std::string build_where_clause (const std::vector<std::string>& fragments);
 
 struct DynamicSelectReadsStmt : public SqliteStmt {
   static inline const std::string_view sqlStmtPrefix =

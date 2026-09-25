@@ -196,17 +196,14 @@ int main (int argc, char** argv)
               << std::endl;
           return EXIT_FAILURE;
         case PileupDB::LoadStatus::verifyError:
-          std::cerr
-              << fmt::format (
-                     "Error: sqlite3 operation failed during "
-                     "verification of database, reporting "
-                     "code {} "
-                     "and status {} - please report "
-                     "this failure to the maintainer",
-                     loadStatus.sqlRc.value(),
-                     loadStatus.sqlMsg.value()
-                 )
-              << std::endl;
+          std::cerr << fmt::format (
+                           "Error: sqlite3 operation failed during "
+                           "verification of database, reporting "
+                           "code {} - please report "
+                           "this failure to the maintainer",
+                           loadStatus.sqlRc.value()
+                       )
+                    << std::endl;
           return EXIT_FAILURE;
         case PileupDB::LoadStatus::schemaMismatch:
           std::cerr
@@ -302,9 +299,9 @@ int main (int argc, char** argv)
                        "TUI main loop, reporting code {} "
                        "- {} and status {} - please report "
                        "this failure to the maintainer",
-                       stateRet.error(),
-                       sqlite3_errstr (stateRet.error()),
-                       sqlite3_errmsg (db)
+                       loopExitStatus.sqlRc.value(),
+                       sqlite3_errstr (loopExitStatus.sqlRc.value()),
+                       sqlite3_errmsg (state.db.db)
                    )
                 << std::endl;
       return EXIT_FAILURE;
@@ -399,6 +396,9 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
       return std::unexpected ("demo mode takes no arguments");
     }
     parsedArgs.mode = ApbMode::demo;
+    if (const auto& dumpPath = cli.present<std::string> ("--dump")) {
+      parsedArgs.dumpPath = *dumpPath;
+    }
   }
   else if (mode == "db") {
     if (argPack.size() != 1) {
@@ -480,6 +480,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
           )
       );
     }
+    contigName = contigNameCStr;
   }
 
   std::optional<FastaFile> ff;

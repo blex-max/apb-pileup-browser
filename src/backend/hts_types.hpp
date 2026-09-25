@@ -6,6 +6,7 @@
 
 #include <expected>
 #include <functional>
+#include <string>
 
 struct GenomicSpan {
   hts_pos_t start;
@@ -155,7 +156,10 @@ struct PileupIterator {
       : o_cap (o.o_cap),
         o_plp (o.o_plp),
         br_plpArr (o.br_plpArr),
-        nPlp (o.nPlp)
+        nPlp (o.nPlp),
+        tid (o.tid),
+        pos (o.pos),
+        span (o.span)
   {
     o.o_cap = nullptr;
     o.o_plp = nullptr;
