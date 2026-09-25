@@ -15,6 +15,7 @@
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
+#include "shared/apb_assert.hpp"
 
 // --- helpers --- //
 
@@ -56,9 +57,9 @@ bool size_and_set_overlay_widget (
 )
 {
   /* set overlay widget, dynamically sizing to content */
-  assert (screenW > 0);
-  assert (screenH > 0);
-  assert (!content.empty());
+  APB_ASSERT (screenW > 0);
+  APB_ASSERT (screenH > 0);
+  APB_ASSERT (!content.empty());
 
   // dynamically sized to content
   const auto framedContentH =
@@ -172,7 +173,7 @@ bool size_widgets (UIBundle& ui)
 
   // dynamically sized to content and
   // current screen size.
-  assert (!ui.overlay.content.empty());
+  APB_ASSERT (!ui.overlay.content.empty());
   if (!size_and_set_overlay_widget (
           ui.overlay, ui.overlay.content, screenW, screenH
       )) {
@@ -193,7 +194,7 @@ static void header (
 {
   PLOGD << "Drawing table header";
 
-  assert (valid (headerLine));
+  APB_ASSERT (valid (headerLine));
 
   const int xLim = last (headerLine.xspan);
   e2::GlobalCell writeHead{
@@ -393,7 +394,7 @@ static e2::Delta seq1 (
       yStart >= fa.writeLimits.y) {
     return {0, 0};  // no-op
   }
-  assert ((ref) ? !ref.value().empty() : true);
+  APB_ASSERT ((ref) ? !ref.value().empty() : true);
 
   e2::GlobalCell writeHead{{.x = fa.writeStartX, .y = yStart}};
 
@@ -656,7 +657,7 @@ static e2::Delta seq1 (
 
 namespace draw_query_data {
 
-static TuiStatus draw_query_data (
+static WidgetStatus draw_query_data (
     BrowserWgt& bWgt, DBBundle& db, const AppConfig& conf
 )
 {
@@ -666,9 +667,9 @@ static TuiStatus draw_query_data (
   if (!valid (bWgt.frame) || size (bWgt.frame.xspan) < 4 ||
       size (bWgt.frame.yspan) < 8) {
     // bounds slightly approximate
-    return {TuiStatus::insufficientSz, std::nullopt};
+    return {WidgetStatus::insufficientSz};
   }
-  assert (db.locusInfo.valid());
+  APB_ASSERT (db.locusInfo.valid());
 
   sqlite3_reset (db.stmt);
 
@@ -712,11 +713,11 @@ static TuiStatus draw_query_data (
         construct_relative (frameY, 0, size (frameY) - 1)
     };
 
-    assert (valid (bWgt.tablePaneHeaderLine));
-    assert (size (bWgt.tablePaneHeaderLine) > 0);
-    assert (valid (bWgt.tablePaneDataBox));
-    assert (height (bWgt.tablePaneDataBox) > 0);
-    assert (width (bWgt.tablePaneDataBox) > 0);
+    APB_ASSERT (valid (bWgt.tablePaneHeaderLine));
+    APB_ASSERT (size (bWgt.tablePaneHeaderLine) > 0);
+    APB_ASSERT (valid (bWgt.tablePaneDataBox));
+    APB_ASSERT (height (bWgt.tablePaneDataBox) > 0);
+    APB_ASSERT (width (bWgt.tablePaneDataBox) > 0);
   }
   else {
     bWgt.tablePaneHeaderLine = {};  // invalid
@@ -726,9 +727,9 @@ static TuiStatus draw_query_data (
     bWgt.alnPaneRefLine = {contentX, first (contentY)};
     bWgt.alnPaneDataBox = {contentX, dataY};
   }
-  assert (valid (bWgt.alnPaneDataBox));
-  assert (height (bWgt.alnPaneDataBox) > 0);
-  assert (width (bWgt.alnPaneDataBox) > 0);
+  APB_ASSERT (valid (bWgt.alnPaneDataBox));
+  APB_ASSERT (height (bWgt.alnPaneDataBox) > 0);
+  APB_ASSERT (width (bWgt.alnPaneDataBox) > 0);
   /* end size widgets */
 
   /* configure/validate draw coordinates */
@@ -748,7 +749,7 @@ static TuiStatus draw_query_data (
   );
   const auto alnPaneLeftmostGPos =
       db.locusInfo.pos - alnPaneHalfWidth + bWgt.userPanOffset;
-  assert (alnPaneLeftmostGPos >= 0);
+  APB_ASSERT (alnPaneLeftmostGPos >= 0);
   /* end coordinates */
 
   if (db.locusInfo.refSlice) {
@@ -801,20 +802,31 @@ static TuiStatus draw_query_data (
       .drawQualTrack = conf.drawTrackSwitches.qual,
       .drawInsTrack = conf.drawTrackSwitches.ins,
   };
-  assert (seq1Fixed.valid());
+  APB_ASSERT (seq1Fixed.valid());
   const draw_table::Row1FixedArgs row1Fixed{
       .writeXStart = first (bWgt.tablePaneDataBox.xspan),
       .writeXLimit = last (bWgt.tablePaneDataBox.xspan),
       .cols = activeCols,
   };
-  assert (row1Fixed.valid());
+  APB_ASSERT (row1Fixed.valid());
   if (db.nStmtRows > 0) {
     uint16_t nReadDrawn = 0;
     for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
          ++iRead) {
       const auto iterStatus = next_read (db.stmt);
       if (!iterStatus) {
-        return {TuiStatus::sqlFail, iterStatus.error()};
+        // db.stmt is only ever installed after a full count_rows
+        // pass already succeeded against this exact data (see
+        // main()'s startup query / try_apply_query_clause), and
+        // nothing writes to db afterwards - so a failure
+        // re-stepping it here is a genuine internal invariant
+        // violation.
+        APB_UNREACHABLE (
+            fmt::format (
+                "failed to step query during render: {}",
+                sqlite3_errstr (iterStatus.error())
+            )
+        );
       }
       if (*iterStatus == query::RowIterStatus::rowAvail) {
         if (static_cast<int64_t> (iRead) <
@@ -868,89 +880,15 @@ static TuiStatus draw_query_data (
   }
   /* end draw query data */
 
-  return {TuiStatus::success, std::nullopt};
+  return {WidgetStatus::success};
 }
 
 }  // namespace draw_query_data
 
 
-static void draw_pileup_ambient (
-    BrowserWgt& bWgt, const query::PileupMetadata& locusData
-)
-{
-  assert (validate::widget_is_valid (bWgt));
-  assert (locusData.valid());
-
-  // locus info
-  {
-    auto writeHead = first (bWgt.ambientLine);
-    const auto lineEnd = last (bWgt.ambientLine.xspan);
-    writeHead.x++;  // initial space
-    writeHead.x +=
-        e2::write_string (writeHead, lineEnd, "LOCUS:", TB_DIM);
-    writeHead.x++;  // space
-    writeHead.x += e2::write_string (
-        writeHead, lineEnd,
-        fmt::format ("{}:{}", locusData.contig, locusData.pos)
-    );
-    writeHead.x++;  // space
-    set (writeHead, boxch::vertLine, TB_DIM);
-    writeHead.x += 2;  // past bar, then space
-    writeHead.x +=
-        e2::write_string (writeHead, lineEnd, "SPAN:", TB_DIM);
-    writeHead.x++;  // space
-    writeHead.x += e2::write_string (
-        writeHead, lineEnd,
-        fmt::format ("{}-{}", locusData.start, locusData.end)
-    );
-    writeHead.x++;  // space
-    set (writeHead, boxch::vertLine, TB_DIM);
-  }
-}
-
 // --- end draw browser pane --- //
 
-
-static void draw_cmd (
-    CmdWgt& cWgt,
-    const query::DynamicSelectReadsStmt::DynamicFragments&
-        userQuery
-)
-{
-  e2::write_string (
-      first (cWgt.inputLine), last (cWgt.inputLine).x,
-      cWgt.inputBuf.text
-  );
-  auto cursorCell =
-      first (cWgt.inputLine) +
-      e2::dX (static_cast<int> (cWgt.inputBuf.curs));
-  if (cursorCell.x < last (cWgt.inputLine).x) {
-    e2::add_attr (cursorCell, TB_REVERSE);
-  }
-  e2::write_string (
-      first (cWgt.msgLine), last (cWgt.msgLine).x, cWgt.msgBuf,
-      TB_DIM
-  );
-
-  // stringify query
-  std::string userClauseString;
-  if (!userQuery.where.empty()) {
-    userClauseString.append ("WHERE ");
-    userClauseString.append (query::build_where_clause (userQuery.where));
-  }
-
-  if (!userQuery.orderBy.empty()) {
-    userClauseString.append (" ORDER BY ");
-    userClauseString.append (userQuery.orderBy);
-  }
-
-  e2::write_string (
-      first (cWgt.queryStatusLine),
-      last (cWgt.queryStatusLine).x, userClauseString, TB_DIM
-  );
-}
-
-TuiStatus draw_main_ui (
+WidgetStatus draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf
 )
 {
@@ -958,15 +896,15 @@ TuiStatus draw_main_ui (
   // since some places just overwrite
   // previous draw calls
   PLOGD << "Drawing widgets";
-  assert (validate::ui_is_valid (ui));
+  APB_ASSERT (validate::ui_is_valid (ui));
 
   {
     // draw browser chrome
     const auto& bWgt = ui.browsr;
     // preconds
-    assert (valid (bWgt.frame));
-    assert (width (bWgt.frame) > 1);
-    assert (height (bWgt.frame) > 1);
+    APB_ASSERT (valid (bWgt.frame));
+    APB_ASSERT (width (bWgt.frame) > 1);
+    APB_ASSERT (height (bWgt.frame) > 1);
 
     const auto& bFrame = bWgt.frame;
     set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
@@ -997,9 +935,9 @@ TuiStatus draw_main_ui (
     // draw cmd chrome
     const auto& cWgt = ui.cmd;
     // preconds
-    assert (valid (cWgt.frame));
-    assert (width (cWgt.frame) > 1);
-    assert (height (cWgt.frame) > 1);
+    APB_ASSERT (valid (cWgt.frame));
+    APB_ASSERT (width (cWgt.frame) > 1);
+    APB_ASSERT (height (cWgt.frame) > 1);
 
     const auto& cFrame = cWgt.frame;
     set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
@@ -1021,24 +959,85 @@ TuiStatus draw_main_ui (
           draw_query_data::draw_query_data (ui.browsr, db, conf);
       dqStatus.code
   ) {
-    case TuiStatus::success:
+    case WidgetStatus::success:
       break;
-    case TuiStatus::insufficientSz:
-    case TuiStatus::sqlFail:
+    case WidgetStatus::insufficientSz:
       return dqStatus;
   }
 
-  draw_pileup_ambient (ui.browsr, db.locusInfo);
+  {
+    // draw pileup ambient
+    const auto& bWgt = ui.browsr;
+    const auto& locusData = db.locusInfo;
+    // preconds
+    APB_ASSERT (validate::widget_is_valid (bWgt));
+    APB_ASSERT (locusData.valid());
 
-  draw_cmd (ui.cmd, db.userClause);
+    auto writeHead = first (bWgt.ambientLine);
+    const auto lineEnd = last (bWgt.ambientLine.xspan);
+    writeHead.x++;  // initial space
+    writeHead.x += e2::write_string (writeHead, lineEnd, "LOCUS:", TB_DIM);
+    writeHead.x++;  // space
+    writeHead.x += e2::write_string (
+        writeHead, lineEnd,
+        fmt::format ("{}:{}", locusData.contig, locusData.pos)
+    );
+    writeHead.x++;  // space
+    set (writeHead, boxch::vertLine, TB_DIM);
+    writeHead.x += 2;  // past bar, then space
+    writeHead.x += e2::write_string (writeHead, lineEnd, "SPAN:", TB_DIM);
+    writeHead.x++;  // space
+    writeHead.x += e2::write_string (
+        writeHead, lineEnd,
+        fmt::format ("{}-{}", locusData.start, locusData.end)
+    );
+    writeHead.x++;  // space
+    set (writeHead, boxch::vertLine, TB_DIM);
+  }
+  {
+    // draw cmd
+    const auto& cWgt = ui.cmd;
+    const auto& userQuery = db.userClause;
+
+    e2::write_string (
+        first (cWgt.inputLine), last (cWgt.inputLine).x, cWgt.inputBuf.text
+    );
+    auto cursorCell = first (cWgt.inputLine) +
+                      e2::dX (static_cast<int> (cWgt.inputBuf.curs));
+    if (cursorCell.x < last (cWgt.inputLine).x) {
+      e2::add_attr (cursorCell, TB_REVERSE);
+    }
+    e2::write_string (
+        first (cWgt.msgLine), last (cWgt.msgLine).x, cWgt.msgBuf, TB_DIM
+    );
+
+    // stringify query
+    std::string userClauseString;
+    if (!userQuery.where.empty()) {
+      userClauseString.append ("WHERE ");
+      userClauseString.append (
+          query::build_where_clause (userQuery.where)
+      );
+    }
+
+    if (!userQuery.orderBy.empty()) {
+      userClauseString.append (" ORDER BY ");
+      userClauseString.append (userQuery.orderBy);
+    }
+
+    e2::write_string (
+        first (cWgt.queryStatusLine), last (cWgt.queryStatusLine).x,
+        userClauseString, TB_DIM
+    );
+  }
 
   return {};
 }
 
 void draw_overlay (const OverlayWgt& oWgt)
 {
-  assert (validate::widget_is_valid (oWgt));
-  assert (!oWgt.content.empty());
+  APB_ASSERT (validate::widget_is_valid (oWgt));
+  APB_ASSERT (!oWgt.content.empty());
 
   const auto& box = oWgt.contentBox;
   const auto& frame = oWgt.frame;

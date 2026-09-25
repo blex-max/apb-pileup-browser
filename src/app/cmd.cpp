@@ -15,6 +15,7 @@
 #include "app/state.hpp"
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
+#include "shared/apb_assert.hpp"
 
 
 // --- HELPERS --- //
@@ -83,8 +84,8 @@ static std::expected<void, CmdResult> cmd_validate_ntok (
     const std::string_view usage
 )
 {
-  assert (maxNTok >= minNTok);
-  assert (!usage.empty());
+  APB_ASSERT (maxNTok >= minNTok);
+  APB_ASSERT (!usage.empty());
 
   if (maxNTok == 0 && !argTok.empty()) {
     return std::unexpected<CmdResult> (
@@ -154,8 +155,7 @@ struct ShowTableColCmd {
   )
   {
     const auto tokens = split_whitespace (args);
-    const auto nargRet =
-        cmd_validate_ntok (tokens, 0, UINT8_MAX, usage);
+    const auto nargRet = cmd_validate_ntok (tokens, 1, UINT8_MAX, usage);
     if (!nargRet) {
       return nargRet.error();
     }
@@ -260,9 +260,7 @@ static CmdResult try_apply_query_clause (
     return {
         false, cmd_format_fail (
                    fmt::format (
-                       "Error during query: {}; {} - report "
-                       "to maintainer",
-                       rowCountResult.error(),
+                       "Could not execute query - {}",
                        sqlite3_errmsg (state.db.db)
                    )
                )
@@ -756,7 +754,7 @@ struct ShowTrackCmd {
       }
       else {
         // we have already verified the tokens,
-        std::unreachable();
+        APB_UNREACHABLE ("unrecognised track name in toggle list");
       }
     }
 
@@ -926,13 +924,11 @@ struct HelpCmd {
     helpblocks::TextBlockRef content;
     if (tokens.empty()) {
       content = helpblocks::app;
-      state.conf.showOverlay = true;
     }
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
       if (topic == topicNames[Topic::nav]) {
         content = helpblocks::navigation;
-        state.conf.showOverlay = true;
       }
       else if (topic == topicNames[Topic::cmd]) {
         static std::vector<std::string> cmdBlock;
@@ -940,14 +936,12 @@ struct HelpCmd {
         cmdBlock = build_cmd_ref_table();
         cmdBlockView.assign (cmdBlock.begin(), cmdBlock.end());
         content = cmdBlockView;
-        state.conf.showOverlay = true;
       }
       else if (topic == topicNames[Topic::tableColumns]) {
         content = helpblocks::tableColumns;
-        state.conf.showOverlay = true;
       }
       else {
-        std::unreachable();
+        APB_UNREACHABLE ("unrecognised help topic");
       }
     }
     else {
@@ -964,6 +958,7 @@ struct HelpCmd {
             state.ui.screenH
         )) {
       out.success = true;
+      state.conf.showOverlay = true;
     }
     else {
       out.success = false;

@@ -7,13 +7,6 @@
 #include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
 
-static void handle_character_entry (
-    AppState& state, const tb_event& ev
-)
-{
-  insert (state.ui.cmd.inputBuf, static_cast<char> (ev.ch));
-}
-
 static bool handle_nav (AppState& state, const tb_event& ev)
 {
   constexpr auto sideScrollIncrement = 3;
@@ -153,7 +146,7 @@ static void handle_key_event (
       PLOGD << fmt::format (
           "Recieved character input event: {}", ev.ch
       );
-      handle_character_entry (state, ev);
+      insert (state.ui.cmd.inputBuf, static_cast<char> (ev.ch));
     }
   }
   else {
@@ -194,7 +187,7 @@ static void nav_overlay (AppState& state, const tb_event& ev)
 
 // Probably doesn't need access to the whole of appstate,
 // if I was feeling rigid.
-TuiStatus handle_event (AppState& state, const tb_event& ev)
+WidgetStatus handle_event (AppState& state, const tb_event& ev)
 {
   PLOGD << "Recieved event";
   if (ev.type == TB_EVENT_KEY) {
@@ -208,9 +201,9 @@ TuiStatus handle_event (AppState& state, const tb_event& ev)
   }
   else if (ev.type == TB_EVENT_RESIZE) {
     if (!size_widgets (state.ui)) {
-      return TuiStatus{TuiStatus::insufficientSz, std::nullopt};
+      return WidgetStatus{WidgetStatus::insufficientSz};
     }
   }
 
-  return {.code = TuiStatus::success, .sqlRc = std::nullopt};
+  return {.code = WidgetStatus::success};
 }

@@ -72,16 +72,14 @@ struct UIBundle {
 // NOTE: A Zig-like extensible global error union thing might be nice.
 // Maybe a shared err namespace with a success state in it? but then I doubt
 // you can extend the enum in various parts of the codebase independently...
-struct TuiStatus {
+struct WidgetStatus {
   enum Code : uint8_t {
     success,
     insufficientSz,
-    sqlFail,
   };
   Code code;
-  std::optional<int> sqlRc;
 };
-[[nodiscard]] TuiStatus draw_main_ui (
+[[nodiscard]] WidgetStatus draw_main_ui (
     UIBundle& ui, DBBundle& db, const AppConfig& conf
 );
 // draw (sized and set) overlay widget.

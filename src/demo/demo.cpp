@@ -1,5 +1,6 @@
 #include "demo.hpp"
 
+#include <fmt/format.h>
 #include <htslib/sam.h>
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
+#include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 
 static const char kBaseArray[] = "ACGT";
@@ -47,8 +49,7 @@ void generate_demo_data (
     DemoDataPack& out
 )
 {
-  const hts_pos_t pileupPos =
-      static_cast<hts_pos_t> ((regWidth / 2) - 1);
+  const hts_pos_t pileupPos = static_cast<hts_pos_t> ((regWidth / 2) - 1);
   const auto qLen = static_cast<size_t> (pileupPos);
   auto refSeq = fixed_ref_seq (regWidth);
   refSeq[static_cast<size_t> (pileupPos)] =
@@ -60,9 +61,7 @@ void generate_demo_data (
   // can never exceed regWidth, whether or not a given read ends up with
   // a deletion.
   // Reserving start >= 1 keeps qPos in [0, qLen-1] for every read.
-  std::uniform_int_distribution<size_t> gstartGen (
-      1, qLen - maxDelLen
-  );
+  std::uniform_int_distribution<size_t> gstartGen (1, qLen - maxDelLen);
   constexpr double mismatchRate = 0.01;
   std::bernoulli_distribution mismatchDist (mismatchRate);
   constexpr double pileupVaf = 0.30;
@@ -99,15 +98,14 @@ void generate_demo_data (
     elemBuf.qName = "read" + std::to_string (i);
 
     elemBuf.start = static_cast<hts_pos_t> (gstartGen (rng));
-    const auto qPos =
-        static_cast<int32_t> (pileupPos - elemBuf.start);
+    const auto qPos = static_cast<int32_t> (pileupPos - elemBuf.start);
 
     // Every variant below needs at least one base past the
     // pileup column to split/shrink the aligned run into.
     const bool hasRoom = qPos <= static_cast<int32_t> (qLen) - 2;
-    const auto variant =
-        hasRoom ? static_cast<ReadVariant> (variantDist (rng))
-                : ReadVariant::None;
+    const auto variant = hasRoom
+                             ? static_cast<ReadVariant> (variantDist (rng))
+                             : ReadVariant::None;
 
     size_t delLen = 0;
     size_t insLen = 0;
@@ -133,12 +131,9 @@ void generate_demo_data (
       case ReadVariant::LeadClip:
       case ReadVariant::TailClip: {
         constexpr size_t maxClipLen = 20;
-        const size_t maxClip = std::min (
-            maxClipLen, qLen - 1 - static_cast<size_t> (qPos)
-        );
-        std::uniform_int_distribution<size_t> clipGen (
-            1, maxClip
-        );
+        const size_t maxClip =
+            std::min (maxClipLen, qLen - 1 - static_cast<size_t> (qPos));
+        std::uniform_int_distribution<size_t> clipGen (1, maxClip);
         clipLen = clipGen (rng);
         break;
       }
@@ -146,8 +141,7 @@ void generate_demo_data (
         break;
     }
 
-    const bool indelAtPileup =
-        mSplit == static_cast<size_t> (qPos) + 1;
+    const bool indelAtPileup = mSplit == static_cast<size_t> (qPos) + 1;
     elemBuf.indel = indelAtPileup ? static_cast<int> (insLen) -
                                         static_cast<int> (delLen)
                                   : 0;
@@ -161,9 +155,7 @@ void generate_demo_data (
     std::string seq (seqLen, ' ');
     std::string qual (seqLen, ' ');
     std::array<char, 3> qualChars{'F', 'E', 'D'};
-    std::discrete_distribution<uint8_t> qualCharPicker (
-        {100, 20, 10}
-    );
+    std::discrete_distribution<uint8_t> qualCharPicker ({100, 20, 10});
     for (size_t j = 0; j < seqLen; ++j) {
       qual[j] = qualChars[qualCharPicker (rng)];
 
@@ -178,8 +170,7 @@ void generate_demo_data (
       }
 
       const bool inClip =
-          leadClip ? j < clipLen
-                   : (clipLen > 0 && j >= qLen - clipLen);
+          leadClip ? j < clipLen : (clipLen > 0 && j >= qLen - clipLen);
       if (inClip) {
         seq[j] = random_base (rng);
         continue;
@@ -199,12 +190,11 @@ void generate_demo_data (
       else if (insLen > 0 && j >= mSplit + insLen) {
         alignedIdx = j - insLen;
       }
-      const size_t refOffset =
-          static_cast<size_t> (elemBuf.start) + alignedIdx +
-          (alignedIdx < mSplit ? 0 : delLen);
+      const size_t refOffset = static_cast<size_t> (elemBuf.start) +
+                               alignedIdx +
+                               (alignedIdx < mSplit ? 0 : delLen);
       const char refBase = refSeq[refOffset];
-      seq[j] = mismatchDist (rng) ? mutate_base (refBase, rng)
-                                  : refBase;
+      seq[j] = mismatchDist (rng) ? mutate_base (refBase, rng) : refBase;
     }
     elemBuf.seqBases = std::move (seq);
     elemBuf.qualAscii = std::move (qual);
@@ -212,43 +202,29 @@ void generate_demo_data (
     std::vector<uint32_t> cigOps;
     if (leadClip) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (clipLen, BAM_CSOFT_CLIP)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (clipLen, BAM_CSOFT_CLIP))
       );
     }
     if (delLen > 0) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (mSplit, BAM_CMATCH))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (delLen, BAM_CDEL)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (delLen, BAM_CDEL))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (qLen - mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (qLen - mSplit, BAM_CMATCH))
       );
     }
     else if (insLen > 0) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (mSplit, BAM_CMATCH))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (insLen, BAM_CINS)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (insLen, BAM_CINS))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (qLen - mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (qLen - mSplit, BAM_CMATCH))
       );
     }
     else {
@@ -260,31 +236,25 @@ void generate_demo_data (
     }
     if (!leadClip && clipLen > 0) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (clipLen, BAM_CSOFT_CLIP)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (clipLen, BAM_CSOFT_CLIP))
       );
     }
     elemBuf.nCig = cigOps.size();
     elemBuf.rawCig = std::move (cigOps);
-    elemBuf.cig = hts2sql::stringify_cigar (
-        elemBuf.rawCig.data(), elemBuf.nCig
-    );
+    elemBuf.cig =
+        hts2sql::stringify_cigar (elemBuf.rawCig.data(), elemBuf.nCig);
 
-    elemBuf.end =
-        elemBuf.start +
-        (delLen > 0 ? static_cast<hts_pos_t> (qLen + delLen)
-                    : static_cast<hts_pos_t> (qLen - clipLen));
+    elemBuf.end = elemBuf.start +
+                  (delLen > 0 ? static_cast<hts_pos_t> (qLen + delLen)
+                              : static_cast<hts_pos_t> (qLen - clipLen));
 
     elemBuf.qPos = finalQPos;
-    elemBuf.base =
-        elemBuf.seqBases[static_cast<size_t> (finalQPos)];
+    elemBuf.base = elemBuf.seqBases[static_cast<size_t> (finalQPos)];
     elemBuf.baseQual = static_cast<uint8_t> (
         elemBuf.qualAscii[static_cast<size_t> (finalQPos)] - 33
     );
     elemBuf.isHead = (finalQPos == 0);
-    elemBuf.isTail =
-        (finalQPos == static_cast<int32_t> (qLen - 1));
+    elemBuf.isTail = (finalQPos == static_cast<int32_t> (qLen - 1));
 
     span.start = std::min (elemBuf.start, span.start);
     span.end = std::max (elemBuf.end, span.end);
@@ -294,8 +264,7 @@ void generate_demo_data (
 
   std::sort (
       out.reads.begin(), out.reads.end(),
-      [] (const hts2sql::PileupFields& a,
-          const hts2sql::PileupFields& b) {
+      [] (const hts2sql::PileupFields& a, const hts2sql::PileupFields& b) {
         return a.start < b.start;
       }
   );
@@ -313,55 +282,57 @@ void generate_demo_data (
   );
 }
 
-int insert_demo_data (PileupDB& db, const DemoDataPack& data)
+void insert_demo_data (PileupDB& db, const DemoDataPack& data)
 {
+  // all demo data is synthetic and apb-generated, so any failure below should be unreachable.
   if (const auto rc = hts2sql::insert_metadata (
-          db, "demo-contig", data.pileupPos, data.pileupSpan,
-          data.refSlice
+          db, "demo-contig", data.pileupPos, data.pileupSpan, data.refSlice
       );
       rc != SQLITE_OK) {
-    return rc;
-  };
-
-  auto stmtRet = hts2sql::prepare_insert_reads_stmt (db);
-  if (!stmtRet) {
-    return stmtRet.error();
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to insert demo metadata: {}", sqlite3_errstr (rc)
+        )
+    );
   }
-  auto stmt{std::move (*stmtRet)};
 
+  auto stmt = hts2sql::prepare_insert_reads_stmt (db);
 
-  if (const auto rc =
-          sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
+  if (const auto rc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
-    return rc;
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to begin transaction: {}", sqlite3_errstr (rc)
+        )
+    );
   }
   Defer rollbackOnErr ([&]() {
     sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
   });
 
   for (const auto& readI : data.reads) {
-    if (const auto rc = bind_pileup_fields (stmt, readI);
-        rc != SQLITE_OK) {
-      return rc;
-    }
+    bind_pileup_fields (stmt, readI);
 
     if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
-      return rc;
+      // generate_demo_data never sets auxJson, so tags is always
+      // NULL here and the json_valid(tags) CHECK can't fire.
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to insert demo read: {}", sqlite3_errstr (rc)
+          )
+      );
     }
-    sqlite3_reset (
-        stmt
-    );  // rc mirrors the step already checked above
-    sqlite3_clear_bindings (
-        stmt
-    );  // cannot fail per sqlite3 docs
+    sqlite3_reset (stmt);  // rc mirrors the step already checked above
+    sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs
   }
 
-  if (const auto rc =
-          sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
+  if (const auto rc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
-    return rc;
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to commit transaction: {}", sqlite3_errstr (rc)
+        )
+    );
   }
   rollbackOnErr.cancel();  // committed; nothing left to roll back
-
-  return {};
 }

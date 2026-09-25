@@ -34,16 +34,15 @@ struct PileupDB {
     }
   }
 
-  // Initialise db with pileup schema (see schema.hpp)
-  // returns db on success, else sqlite3 error code
-  static std::expected<PileupDB, int> init();
+  // Initialise db with pileup schema (see schema.hpp).
+  static PileupDB init();
 
   struct LoadStatus {
     enum Code : uint8_t {
       success,
       openFail,
       copyFail,
-      verifyError,  // should be unreachable
+      contentCorrupt,
       schemaMismatch
     };
     Code code;
@@ -59,10 +58,6 @@ struct PileupDB {
 
 namespace query {
 
-// Joins WHERE fragments (the first is a bare condition, each
-// subsequent one is prefixed "AND "/"OR ") left-associatively, so
-// mixed AND/OR combine in the order the user added them instead of
-// SQL's AND-over-OR precedence.
 std::string build_where_clause (const std::vector<std::string>& fragments);
 
 struct DynamicSelectReadsStmt : public SqliteStmt {
@@ -121,9 +116,13 @@ struct PileupMetadata {
            pos >= start && pos <= end;
   }
 };
-// get locus data from pileup db.
-// Returns PileupMetadata on success, or sqlite3 return code on failure.
-std::expected<PileupMetadata, int> get_locus_data (
+
+struct LocusDataErr {
+  enum Code : uint8_t { notFound, invalidContent };
+  Code code;
+};
+// Get locus metadata from db.
+std::expected<PileupMetadata, LocusDataErr> get_locus_data (
     const PileupDB& db
 );
 
@@ -185,14 +184,12 @@ insert_pileup (
 );
 
 // Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
-// with bind_pileup_fields below.
-// Returns statment or int sqlite3 error code
-std::expected<SqliteStmt, int> prepare_insert_reads_stmt (
-    PileupDB& db
-);
+// with bind_pileup_fields.
+// exposed for demo.cpp
+SqliteStmt prepare_insert_reads_stmt (PileupDB& db);
 
 // flat layout of htslib data to be entered
-// into the database for a single record
+// into the database for a single read.
 struct PileupFields {
   // NOTE: layout as table schema
   std::string qName;
@@ -222,18 +219,15 @@ struct PileupFields {
 
 // convert to database-facing interface type
 // returns true on success, false on failure
-// to parse an aux tag in br_p1->b1
+// to parse an aux tag in br_p1->b1.
 [[nodiscard]] bool fill_fields (
     PileupFields& pf, const bam_pileup1_t* br_p1,
     const char* mTidName
 );
 
 // Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads. Returns the sqlite3 result code of the first
-// failing bind call, or SQLITE_OK if all columns bound successfully.
-[[nodiscard]] int bind_pileup_fields (
-    SqliteStmt& stmt, const PileupFields& pf
-);
+// stmt_str_InsertReads.
+void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf);
 
 // Render a CIGAR array as text (e.g. "151M").
 std::string stringify_cigar (

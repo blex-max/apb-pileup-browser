@@ -7,8 +7,6 @@ struct EditBuf {
   size_t curs = 0;
 };
 
-// TODO: consider error strategy,
-// if any really needed
 bool valid (const EditBuf& b);
 void insert (EditBuf& b, char c);
 void del_back (EditBuf& b);

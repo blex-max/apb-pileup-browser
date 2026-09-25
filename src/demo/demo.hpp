@@ -13,6 +13,5 @@ void generate_demo_data (
     DemoDataPack& out
 );
 
-// Insert demo data into db.
-// Returns SQLITE_OK on success, sqlite3 int err code on failure
-int insert_demo_data (PileupDB& db, const DemoDataPack& data);
+// Insert synthetically-generated demo data into db.
+void insert_demo_data (PileupDB& db, const DemoDataPack& data);
