@@ -233,12 +233,15 @@ struct ShowTableColCmd {
 };
 
 static CmdResult try_apply_query_clause (
-    AppState& state, query::DynamicFragments newClause,
+    AppState& state,
+    query::DynamicSelectReadsStmt::DynamicFragments newClause,
     std::string_view successMsg
 )
 {
   auto prepResult =
-      prepare_select_reads (state.db.db, newClause);
+      query::DynamicSelectReadsStmt::prepare_select_reads (
+          state.db.db, newClause
+      );
   if (!prepResult) {
     return {
         false, cmd_format_fail (
@@ -540,17 +543,26 @@ struct CountCmd {
       }
     }
 
-    auto stmtRet =
-        query::prepare_count_reads (state.db.db, where);
-    if (!stmtRet) {
-      return {false, stmtRet.error().msg};
+    auto stmtResult =
+        query::DynamicCountReadsStmt::prepare_count_reads (
+            state.db.db, where
+        );
+    if (!stmtResult) {
+      return {
+          false, cmd_format_fail (
+                     fmt::format (
+                         "Could not compile statement - {}",
+                         sqlite3_errstr (stmtResult.error())
+                     )
+                 )
+      };
     }
 
-    auto& stmt = *stmtRet;
+    auto& stmt = *stmtResult;
     if (const int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
       return {
           false, fmt::format (
-                     "Could not execute count: {}",
+                     "Could not execute count - {}",
                      sqlite3_errmsg (state.db.db)
                  )
       };
@@ -798,12 +810,24 @@ struct DumpCmd {
     }
 
     const std::string path{tokens[0]};
-    auto dumpRet = query::dump_to_disk (state.db.db, path);
-    if (!dumpRet) {
-      return {false, dumpRet.error().msg};
+    switch (const auto dumpStatus =
+                query::dump_to_disk (state.db.db, path);
+            dumpStatus.code) {
+      case query::DiskDumpStatus::success:
+        return {
+            true, fmt::format ("Dumped database to {}", path)
+        };
+      case query::DiskDumpStatus::fail:
+        return {
+            false, fmt::format (
+                       "Error: failed to dump database to "
+                       "disk, reporting code {} and status "
+                       "{} - please report to maintainer.",
+                       dumpStatus.sqlRc.value(),
+                       dumpStatus.dumpDbMsg.value()
+                   )
+        };
     }
-
-    return {true, fmt::format ("Dumped database to {}", path)};
   }
 
   inline static const CmdView view{

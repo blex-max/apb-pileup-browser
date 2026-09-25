@@ -122,7 +122,10 @@ General suggestions regarding improvements to commands and navigation are also a
 
 - Multiple alignment pileups.
 - More stats in the status bar; allele counts, VAF (when in variant driven mode), reference span complexity assessment (useful when
-assessing artefactual variants).
+  assessing artefactual variants).
+- query syntax shorthand for referencing bases or CIGAR operations at loci in the pileup span other than the pileup locus itself,
+  e.g. `where @at(+3, cigar, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
+  This is not plausible in direct SQL. Exact syntax TBD!
 
 ### Speculative Features
 
@@ -140,9 +143,7 @@ These are items that I think might be useful and could implement, but am unlikel
 
 ### Non-feature Work
 
-- Consistently assert invariants and preconditions in all frontend functions
-- Still some work to be done on a consistent/better error handling policy; particularly on when to crash and how to gracefully do so.
-- Backend code needs a cleanup pass in general and is overengineered around failure cases.
+- Consistently assert invariants and preconditions in all functions
 - Currently the demo mode database is fixed at compile time, meaning different builds will have different demo data.
   The demo data is generated in a parameterised manner so this isn't a big problem but it would be nice if a single
   demo database could be distributed within the src.

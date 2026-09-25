@@ -71,7 +71,10 @@ std::expected<AppState, int> init_tui_state (
     return std::unexpected (locusResult.error());
   }
 
-  auto prepResult = query::prepare_select_reads (db_sink, {});
+  auto prepResult =
+      query::DynamicSelectReadsStmt::prepare_select_reads (
+          db_sink, {}
+      );
   if (!prepResult) {
     return std::unexpected (prepResult.error());
   }
@@ -119,8 +122,8 @@ TuiStatus run_tui_loop (AppState& state)
     }
     e2::write_string (
         first (state.ui.cmd.inputLine),
-        last (state.ui.cmd.inputLine.xspan), "command [args...]",
-        TB_DIM
+        last (state.ui.cmd.inputLine.xspan),
+        "type here - try `help`", TB_DIM
     );
     // show command line startup message
     tb_present();

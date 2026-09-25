@@ -11,25 +11,47 @@
 #include "backend/sql_types.hpp"
 #include "shared/err.hpp"
 
-struct PileupDB : public SqliteConn {
-  // returns db or sqlite3 integer error code.
+struct PileupDB {
+  sqlite3* o_conn = nullptr;
+  operator sqlite3*() const { return o_conn; }
+
+  PileupDB() = default;
+  PileupDB (const PileupDB&) = delete;
+  PileupDB& operator= (const PileupDB&) = delete;
+
+  PileupDB (PileupDB&& other) noexcept : o_conn (other.o_conn)
+  {
+    other.o_conn = nullptr;
+  }
+  PileupDB& operator= (PileupDB&&) = delete;
+
+  ~PileupDB()
+  {
+    if (o_conn != nullptr) {
+      sqlite3_close_v2 (o_conn);
+    }
+  }
+
+  // Initialise db with pileup schema (see schema.hpp)
+  // returns db on success, else sqlite3 error code
   static std::expected<PileupDB, int> init();
 
-  struct LoadError {
+  struct LoadStatus {
     enum Code : uint8_t {
+      success,
       openFail,
       copyFail,
       verifyError,  // should be unreachable
       schemaMismatch
     };
     Code code;
-    std::optional<int> sqlRc;
-    std::optional<std::string> sqlMsg;
+    std::optional<int> sqlRc = std::nullopt;
+    std::optional<std::string> sqlMsg = std::nullopt;
   };
   // Copy a database file on disk into an in-memory PileupDB,
   // using sqlite3's online backup API.
-  static std::expected<PileupDB, LoadError> load_from_disk (
-      std::string_view path
+  static LoadStatus load_from_disk (
+      PileupDB& db, std::string_view path
   );
 };
 
@@ -39,6 +61,7 @@ struct DynamicSelectReadsStmt : public SqliteStmt {
   static inline const std::string_view sqlStmtPrefix =
       "SELECT * FROM reads";
 
+  // could be a member. Oh well, TODO
   struct DynamicFragments {
     std::vector<std::string> where;
     std::string orderBy;

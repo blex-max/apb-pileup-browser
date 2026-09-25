@@ -50,15 +50,17 @@ std::expected<std::string, int> schema_fingerprint (sqlite3* db)
 // returns true if the schema of the db matches the expectation,
 // otherwise false. If there is an sql error, returns the
 // integer sqlite3 return code.
+// TODO error surface is wrong - error could be on
+// reference database or target database...
 std::expected<bool, int> verify_schema (sqlite3* db)
 {
   auto initResult = PileupDB::init();
   if (!initResult) {
     return std::unexpected (initResult.error());
   };
-  const auto refDB{std::move (*initResult)};
+  const auto refdb{std::move (*initResult)};
 
-  auto refSchema = schema_fingerprint (refDB);
+  auto refSchema = schema_fingerprint (refdb);
   if (!refSchema) {
     return std::unexpected (refSchema.error());
   }
@@ -79,6 +81,7 @@ std::expected<bool, int> verify_schema (sqlite3* db)
 std::expected<PileupDB, int> PileupDB::init()
 {
   PileupDB db;
+
   if (const auto rc = sqlite3_open (":memory:", &db.o_conn);
       rc != SQLITE_OK) {
     return std::unexpected (rc);
@@ -110,14 +113,16 @@ std::expected<PileupDB, int> PileupDB::init()
   return db;
 }
 
-std::expected<PileupDB, PileupDB::LoadError>
-PileupDB::load_from_disk (std::string_view path)
+PileupDB::LoadStatus PileupDB::load_from_disk (
+    PileupDB& db, std::string_view path
+)
 {
   /*
     Copy a database file on disk into an in-memory PileupDB,
     via sqlite3's online backup API.
   */
-  PileupDB db;
+  assert (db.o_conn != nullptr);
+
   int sqlRc = SQLITE_OK;
   sqlite3* o_fileDb = NULL;
   sqlite3_backup* o_backup = NULL;
@@ -134,13 +139,11 @@ PileupDB::load_from_disk (std::string_view path)
     // NOTE: the error here belongs to o_fileDb (the handle
     // that failed to open), not db.
     const std::string errMsg = sqlite3_errmsg (o_fileDb);
-    return std::unexpected (
-        LoadError{
-            .code = PileupDB::LoadError::openFail,
-            .sqlRc = sqlRc,
-            .sqlMsg = errMsg
-        }
-    );
+    return {
+        .code = PileupDB::LoadStatus::openFail,
+        .sqlRc = sqlRc,
+        .sqlMsg = errMsg
+    };
   }
 
   if (o_backup =
@@ -159,23 +162,23 @@ PileupDB::load_from_disk (std::string_view path)
     const auto verifyResult = verify_schema (db);
     if (!verifyResult) {
       // idk what to do here
-      return std::unexpected{LoadError{
-          .code = LoadError::verifyError,
+      return {
+          .code = LoadStatus::verifyError,
           .sqlRc = verifyResult.error(),
           .sqlMsg = std::nullopt
-      }};
+      };
     }
     if (!*verifyResult) {
       // ditto
-      return std::unexpected{LoadError{
-          .code = LoadError::schemaMismatch,
+      return {
+          .code = LoadStatus::schemaMismatch,
           .sqlRc = std::nullopt,
           .sqlMsg = std::nullopt
-      }};
+      };
     }
   }
 
-  return db;
+  return {.code = LoadStatus::success};
 
 err_sql: {
   // NOTE: per sqlite3 docs, errors from backup_init/backup_step
@@ -183,13 +186,11 @@ err_sql: {
   // connection being loaded into) is the right handle to query
   // here in every failure case above.
   const std::string errMsg = sqlite3_errmsg (db);
-  return std::unexpected (
-      LoadError{
-          .code = LoadError::copyFail,
-          .sqlRc = sqlRc,
-          .sqlMsg = errMsg
-      }
-  );
+  return {
+      .code = LoadStatus::copyFail,
+      .sqlRc = sqlRc,
+      .sqlMsg = errMsg
+  };
 }
 }
 

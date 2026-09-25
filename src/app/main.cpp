@@ -87,6 +87,235 @@ struct ApbCliArgs {
   std::string logPath;
 };
 
+namespace welcome {
+static constexpr std::string_view msg{
+    "Welcome to apb! All coordinate data is 0-indexed."
+};
+}
+
+static std::expected<ApbCliArgs, std::string> setup_cli (
+    int argc, char** argv
+);
+
+[[nodiscard]] static std::expected<void, std::string>
+populate_db_mode_locus (
+    PileupDB& db, std::string_view alnPath,
+    std::string_view locus,
+    std::optional<std::string_view> refPath
+);
+
+int main (int argc, char** argv)
+{
+  auto argRet = setup_cli (argc, argv);
+  if (!argRet) {
+    std::cerr << argRet.error() << std::endl;
+    return EXIT_FAILURE;
+  }
+  ApbCliArgs args = *argRet;
+
+  plog::init (
+      plog::debug, args.logPath.c_str(),
+      1000000 /* 10mb limit */, 1
+  );
+
+  auto initResult = PileupDB::init();
+  if (!initResult) {
+    std::cerr
+        << fmt::format (
+               "Error: sqlite3 operation failed during "
+               "initalisation of database, reporting code {} "
+               "- please report "
+               "this failure to the maintainer",
+               initResult.error()
+           )
+        << std::endl;
+    return EXIT_FAILURE;
+  }
+  auto db{std::move (*initResult)};
+
+  switch (args.mode) {
+    case ApbMode::locus:
+      if (const auto popRet = populate_db_mode_locus (
+              db, args.alnPath, args.locus,
+              (args.refPath.empty())
+                  ? std::nullopt
+                  : std::optional (args.refPath)
+          );
+          !popRet) {
+        std::cerr << "Error: " << popRet.error() << std::endl;
+        return EXIT_FAILURE;
+      }
+      break;
+    case ApbMode::demo: {
+      constexpr hts_pos_t demoGOffset = 10'000'000;
+      DemoDataPack demoData;
+      generate_demo_data (300, 100, demoGOffset, demoData);
+      if (const auto rc = insert_demo_data (db, demoData)) {
+        std::cerr
+            << fmt::format (
+                   "Failed to transform/insert data to internal "
+                   "database, reporting code {} "
+                   "and status {} - please report this failure "
+                   "to the "
+                   "maintainer",
+                   rc, sqlite3_errmsg (db)
+               )
+            << std::endl;
+        return EXIT_FAILURE;
+      }
+      break;
+    }
+    case ApbMode::db:
+      switch (const auto loadStatus =
+                  PileupDB::load_from_disk (db, args.dbPath);
+              loadStatus.code) {
+        case PileupDB::LoadStatus::openFail:
+          std::cerr
+              << fmt::format (
+                     "Error: failed to open database at {}, "
+                     "reporting error: {}; and extended status "
+                     "msg: "
+                     "{}",
+                     args.dbPath,
+                     sqlite3_errstr (loadStatus.sqlRc.value()),
+                     loadStatus.sqlMsg.value()
+                 )
+              << std::endl;
+          return EXIT_FAILURE;
+        case PileupDB::LoadStatus::copyFail:
+          std::cerr
+              << fmt::format (
+                     "Error: sqlite3 operation failed during "
+                     "loading of database, reporting "
+                     "code {} "
+                     "and status {} - please report "
+                     "this failure to the maintainer",
+                     loadStatus.sqlRc.value(),
+                     loadStatus.sqlMsg.value()
+                 )
+              << std::endl;
+          return EXIT_FAILURE;
+        case PileupDB::LoadStatus::verifyError:
+          std::cerr
+              << fmt::format (
+                     "Error: sqlite3 operation failed during "
+                     "verification of database, reporting "
+                     "code {} "
+                     "and status {} - please report "
+                     "this failure to the maintainer",
+                     loadStatus.sqlRc.value(),
+                     loadStatus.sqlMsg.value()
+                 )
+              << std::endl;
+          return EXIT_FAILURE;
+        case PileupDB::LoadStatus::schemaMismatch:
+          std::cerr
+              << fmt::format (
+                     "Error: database at {} does not have the "
+                     "expected schema for an apb database. Is "
+                     "it "
+                     "from an old version?",
+                     args.dbPath
+                 )
+              << std::endl;
+          return EXIT_FAILURE;
+        case PileupDB::LoadStatus::success:
+          break;
+      }
+      break;
+  }
+
+
+  if (!args.dumpPath.empty()) {
+    if (args.dumpPath == "-") {
+      switch (const auto dumpStatus = query::dump_to_stdout (db);
+              dumpStatus.code) {
+        case query::StdoutDumpStatus::success:
+          break;
+        case query::StdoutDumpStatus::sqliteSerialiseFail:
+          std::cerr << fmt::format (
+                           "Error: failed to serialise "
+                           "database. Please "
+                           "report this to the maintainer."
+                       )
+                    << std::endl;
+          return EXIT_FAILURE;
+        case query::StdoutDumpStatus::writeFail:
+          std::cerr << "Error: failed to write database to "
+                       "stdout. Output may be corrupted."
+                    << std::endl;
+          return EXIT_FAILURE;
+      }
+    }
+    else {
+      switch (const auto dumpStatus =
+                  query::dump_to_disk (db, args.dumpPath);
+              dumpStatus.code) {
+        case query::DiskDumpStatus::success:
+          break;
+        case query::DiskDumpStatus::fail:
+          std::cerr << fmt::format (
+                           "Error: failed to dump database to "
+                           "disk, reporting code {} and status "
+                           "{} - please report to maintainer.",
+                           dumpStatus.sqlRc.value(),
+                           dumpStatus.dumpDbMsg.value()
+                       )
+                    << std::endl;
+          return EXIT_FAILURE;
+      }
+    }
+    // dump and exit
+    return EXIT_SUCCESS;
+  }
+
+  auto stateRet = init_tui_state (db, welcome::msg);
+  if (!stateRet) {
+    std::cerr << fmt::format (
+                     "Error: sqlite3 operation failed during "
+                     "initalisation of TUI, reporting code {} "
+                     "- {} and status {} - please report "
+                     "this failure to the maintainer",
+                     stateRet.error(),
+                     sqlite3_errstr (stateRet.error()),
+                     sqlite3_errmsg (db)
+                 )
+              << std::endl;
+    return EXIT_FAILURE;
+  }
+  // NOTE: state object has taken ownership of db.
+  // db object is now nulled.
+  AppState state = std::move (*stateRet);
+
+  switch (const auto loopExitStatus = run_tui_loop (state);
+          loopExitStatus.code) {
+    case TuiStatus::success:
+      break;
+    case TuiStatus::insufficientSz:
+      std::cerr
+          << "Terminal too small to display TUI! Try resizing?"
+          << std::endl;
+      return EXIT_FAILURE;
+    case TuiStatus::sqlFail:
+      std::cerr << fmt::format (
+                       "Error: sqlite3 operation failed during "
+                       "TUI main loop, reporting code {} "
+                       "- {} and status {} - please report "
+                       "this failure to the maintainer",
+                       stateRet.error(),
+                       sqlite3_errstr (stateRet.error()),
+                       sqlite3_errmsg (db)
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
+  }
+
+  std::cerr << "Bye!" << std::endl;
+
+  return EXIT_SUCCESS;
+}
+
+
 static std::expected<ApbCliArgs, std::string> setup_cli (
     int argc, char** argv
 )
@@ -188,52 +417,8 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   return parsedArgs;
 }
 
-namespace welcome {
-static constexpr std::string_view msg{
-    "Welcome to apb! Type '?' and press Enter for help. All "
-    "coordinate data is 0-indexed."
-};
-}
 
-using VoidOrFailMsg = std::expected<void, std::string>;
-
-[[nodiscard]] static VoidOrFailMsg populate_db_mode_demo (
-    PileupDB& db
-)
-{
-  PLOGD << "Inserting demo data into pileup db";
-  constexpr hts_pos_t demoGOffset = 10'000'000;
-  DemoDataPack demoData;
-  generate_demo_data (300, 100, demoGOffset, demoData);
-  if (const auto rc = insert_demo_data (db, demoData)) {
-    return std::unexpected (
-        fmt::format (
-            "Failed to transform/insert data to internal "
-            "database, reporting code {} and messages {} "
-            "and {} - please report this failure to the "
-            "maintainer",
-            rc, sqlite3_errstr (rc), sqlite3_errmsg (db)
-        )
-    );
-  }
-
-  return {};
-}
-
-[[nodiscard]] static VoidOrFailMsg populate_db_mode_db (
-    PileupDB& db, std::string_view dbPath
-)
-{
-  PLOGD << "Loading db from disk";
-  auto loadRet = query::load_from_disk (db, dbPath);
-  if (!loadRet) {
-    return std::unexpected (loadRet.error().msg);
-  }
-
-  return {};
-}
-
-[[nodiscard]] static VoidOrFailMsg populate_db_mode_locus (
+static std::expected<void, std::string> populate_db_mode_locus (
     PileupDB& db, std::string_view alnPath,
     std::string_view locus,
     std::optional<std::string_view> refPath
@@ -374,107 +559,4 @@ using VoidOrFailMsg = std::expected<void, std::string>;
   }
 
   return {};
-}
-
-int main (int argc, char** argv)
-{
-  auto argRet = setup_cli (argc, argv);
-  if (!argRet) {
-    std::cerr << argRet.error() << std::endl;
-    return EXIT_FAILURE;
-  }
-  ApbCliArgs args = *argRet;
-
-  plog::init (
-      plog::debug, args.logPath.c_str(),
-      1000000 /* 10mb limit */, 1
-  );
-  PLOGD << "Startup";
-
-  PLOGD << "Creating database";
-  PileupDB db;
-  auto initRet = init_db (db);
-  if (!initRet) {
-    std::cerr << "Error: failed to create database. Reporting: "
-              << initRet.error().msg << std::endl;
-  }
-
-  VoidOrFailMsg popRet;
-  switch (args.mode) {
-    case ApbMode::locus:
-      popRet = populate_db_mode_locus (
-          db, args.alnPath, args.locus,
-          (args.refPath.empty()) ? std::nullopt
-                                 : std::optional (args.refPath)
-      );
-      break;
-    case ApbMode::demo:
-      popRet = populate_db_mode_demo (db);
-      break;
-    case ApbMode::db:
-      popRet = populate_db_mode_db (db, args.dbPath);
-      break;
-  }
-
-  if (!popRet) {
-    std::cerr << "Error: " << popRet.error() << std::endl;
-    return EXIT_FAILURE;
-  }
-
-  if (!args.dumpPath.empty()) {
-    PLOGD << "Dumping db";
-    auto dumpRet = (args.dumpPath == "-")
-                       ? query::dump_to_stdout (db)
-                       : query::dump_to_disk (db, args.dumpPath);
-    if (!dumpRet) {
-      std::cerr << "Error: failed to dump database. Reporting: "
-                << dumpRet.error().msg << std::endl;
-    }
-    return EXIT_SUCCESS;
-  }
-
-  auto stateRet = init_tui_state (db, welcome::msg);
-  if (!stateRet) {
-    std::cerr << fmt::format (
-                     "Error: sqlite3 operation failed during "
-                     "initalisation of TUI, reporting code {} "
-                     "- {} and status {} - please report "
-                     "this failure to the maintainer",
-                     stateRet.error(),
-                     sqlite3_errstr (stateRet.error()),
-                     sqlite3_errmsg (db)
-                 )
-              << std::endl;
-    return EXIT_FAILURE;
-  }
-  // NOTE: state object has taken ownership of db.
-  // db object is now nulled.
-  AppState state = std::move (*stateRet);
-
-  switch (const auto loopExitStatus = run_tui_loop (state);
-          loopExitStatus.code) {
-    case TuiStatus::success:
-      break;
-    case TuiStatus::insufficientSz:
-      std::cerr
-          << "Terminal too small to display TUI! Try resizing?"
-          << std::endl;
-      return EXIT_FAILURE;
-    case TuiStatus::sqlFail:
-      std::cerr << fmt::format (
-                       "Error: sqlite3 operation failed during "
-                       "TUI main loop, reporting code {} "
-                       "- {} and status {} - please report "
-                       "this failure to the maintainer",
-                       stateRet.error(),
-                       sqlite3_errstr (stateRet.error()),
-                       sqlite3_errmsg (db)
-                   )
-                << std::endl;
-      return EXIT_FAILURE;
-  }
-
-  std::cerr << "Bye!" << std::endl;
-
-  return EXIT_SUCCESS;
 }

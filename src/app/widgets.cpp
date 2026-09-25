@@ -970,7 +970,9 @@ static void draw_pileup_ambient (
 
 
 static void draw_cmd (
-    CmdWgt& cWgt, const query::DynamicFragments& userQuery
+    CmdWgt& cWgt,
+    const query::DynamicSelectReadsStmt::DynamicFragments&
+        userQuery
 )
 {
   e2::write_string (

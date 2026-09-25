@@ -2,29 +2,6 @@
 
 #include <sqlite3.h>
 
-struct SqliteConn {
-  sqlite3* o_conn = nullptr;
-  operator sqlite3*() const { return o_conn; }
-
-  SqliteConn() = default;
-  // delete copy, avoid double free/close
-  SqliteConn (const SqliteConn&) = delete;
-  SqliteConn& operator= (const SqliteConn&) = delete;
-
-  SqliteConn (SqliteConn&& other) noexcept
-      : o_conn (other.o_conn)
-  {
-    other.o_conn = nullptr;
-  }
-  SqliteConn& operator= (SqliteConn&&) = delete;
-
-  ~SqliteConn()
-  {
-    if (o_conn != nullptr) {
-      sqlite3_close_v2 (o_conn);
-    }
-  }
-};
 
 /* STATEMENTS */
 
