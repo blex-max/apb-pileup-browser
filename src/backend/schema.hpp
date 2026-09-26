@@ -14,11 +14,12 @@ inline constexpr std::string_view sqlCreateMetaDataTable =
     R"sql(
 CREATE TABLE metadata (
     id     INTEGER PRIMARY KEY CHECK (id = 1),  -- one row only; one locus per db
-    contig TEXT NOT NULL,
+    contig TEXT NOT NULL CHECK (contig <> ''),
     pos    INTEGER NOT NULL, -- 0-based pileup position
-    start  INTEGER,
-    end    INTEGER,
-    ref    TEXT              -- reference slice spanned by pileup
+    start  INTEGER NOT NULL CHECK (start >= 0),
+    end    INTEGER NOT NULL CHECK (start < end),
+    ref    TEXT,             -- reference slice spanned by pileup
+    CHECK (pos >= start AND pos <= end)
 )
 )sql";
 
@@ -63,7 +64,7 @@ CREATE TABLE reads (
     rend        INTEGER NOT NULL,  -- 0-based righmost mapping pos
     mapq        INTEGER NOT NULL,  -- MAPping Quality
 
-    base        CHAR(1) NOT NULL,  -- query base at pileup position (denormalised from seq for easy access)
+    base        CHAR(1) NOT NULL CHECK (length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
     basequal    INTEGER NOT NULL,  -- query base quality
     qpos        INTEGER NOT NULL,  -- 0-based offset into seq/qual at this position
     indel       INTEGER NOT NULL,  -- indel length to the next position (0 none, >0 ins, <0 del) NOTE: best format?
@@ -87,8 +88,10 @@ CREATE TABLE reads (
 
     -- for frontend alignment purposes
     cig_uint32     BLOB NOT NULL,  -- can be null per spec, but that would be an unmapped read, which apb does not handle
-    ncig        INTEGER NOT NULL
+    ncig        INTEGER NOT NULL,
 
+    CHECK (length (seq) = length (qual)),
+    CHECK (length (cig_uint32) = ncig * 4)
 );
 )sql";
 

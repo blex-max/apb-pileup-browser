@@ -20,16 +20,15 @@ std::expected<AlnFile, AlnFile::LoadErrCodes> AlnFile::load_aln (
   }
   aln.o_idx = sam_index_load (aln.o_fh, path.c_str());
   if (aln.o_idx == nullptr) {
-    return std::unexpected (
-        AlnFile::LoadErrCodes::indexLoadFail
-    );
+    return std::unexpected (AlnFile::LoadErrCodes::indexLoadFail);
   }
 
   return aln;
 }
 
-std::expected<FastaFile, FastaFile::LoadErrCodes>
-FastaFile::load_fasta (const char* path)
+std::expected<FastaFile, FastaFile::LoadErrCodes> FastaFile::load_fasta (
+    const char* path
+)
 {
   FastaFile ff;
 
@@ -68,12 +67,9 @@ PileupIterator::prepare_pileup_iter (
   PileupIterator out;
 
   PLOGD << "Initalising sam_itr_queryi";
-  auto* o_alnIter =
-      sam_itr_queryi (aln.o_idx, tid, pos, pos + 1);
+  auto* o_alnIter = sam_itr_queryi (aln.o_idx, tid, pos, pos + 1);
   if (o_alnIter == NULL) {
-    return std::unexpected (
-        PileupIterator::ConstructErrCodes::samItrFail
-    );
+    return std::unexpected (PileupIterator::ConstructErrCodes::samItrFail);
   }
 
   PLOGD << "Initialising bam_plp_t";
@@ -91,32 +87,34 @@ PileupIterator::prepare_pileup_iter (
   int nPlp = -1;
   const bam_pileup1_t* br_plpArr;
   PLOGD << "Iterating pileup";
-  while ((br_plpArr = bam_plp64_auto (
-              out.o_plp, &plpTid, &plpPos, &nPlp
-          )) != 0) {
+  while ((br_plpArr =
+              bam_plp64_auto (out.o_plp, &plpTid, &plpPos, &nPlp)) != 0) {
     if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
       return std::unexpected (
           PileupIterator::ConstructErrCodes::pileupIterateFail
       );
     }
     if (plpPos < pos) {
-      continue;  // doesn't cover variant
+      continue;  // doesn't cover locus
     }
     PLOGD << "Position found";
+    if (nPlp == 0) {
+      // I don't believe this to be possible,
+      // but harmless guard.
+      break;
+    }
     out.br_plpArr = br_plpArr;
     out.nPlp = static_cast<size_t> (nPlp);
     out.tid = tid;
     out.pos = pos;
-    // fill span member
     out.span = GenomicSpan{INT64_MAX, 0};
     for (int i = 0; i < nPlp; i++) {
       auto* const b1 = br_plpArr[i].b;
       const auto rStart = b1->core.pos;
-      const auto rEnd =
-          rStart + bam_cigar2rlen (
-                       static_cast<int> (b1->core.n_cigar),
-                       bam_get_cigar (b1)
-                   );
+      const auto rEnd = rStart + bam_cigar2rlen (
+                                     static_cast<int> (b1->core.n_cigar),
+                                     bam_get_cigar (b1)
+                                 );
       out.span.start = std::min (out.span.start, rStart);
       out.span.end = std::max (out.span.end, rEnd);
     }

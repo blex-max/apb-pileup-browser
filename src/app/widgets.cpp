@@ -818,9 +818,7 @@ static WidgetStatus draw_query_data (
         // db.stmt is only ever installed after a full count_rows
         // pass already succeeded against this exact data (see
         // main()'s startup query / try_apply_query_clause), and
-        // nothing writes to db afterwards - so a failure
-        // re-stepping it here is a genuine internal invariant
-        // violation.
+        // nothing writes to db afterwards.
         APB_UNREACHABLE (
             fmt::format (
                 "failed to step query during render: {}",

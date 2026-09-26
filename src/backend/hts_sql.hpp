@@ -11,7 +11,6 @@
 
 #include "backend/hts_types.hpp"
 #include "backend/sql_types.hpp"
-#include "shared/err.hpp"
 
 struct PileupDB {
   sqlite3* o_conn = nullptr;
@@ -110,6 +109,8 @@ struct PileupMetadata {
   int64_t end;
   std::optional<std::string> refSlice;
 
+  // Should be redundant with metadata's schema CHECK constraints
+  // (schema.hpp) - kept as a backstop.
   bool valid() const noexcept
   {
     return !contig.empty() && start >= 0 && start < end &&
@@ -117,14 +118,10 @@ struct PileupMetadata {
   }
 };
 
-struct LocusDataErr {
-  enum Code : uint8_t { notFound, invalidContent };
-  Code code;
-};
-// Get locus metadata from db.
-std::expected<PileupMetadata, LocusDataErr> get_locus_data (
-    const PileupDB& db
-);
+// Get locus metadata from db. Asserts internally; only call once
+// locus metadata is known to exist (post load_from_disk, or after
+// apb's own insert_pileup/insert_demo_data in the same process).
+PileupMetadata get_locus_data (const PileupDB& db);
 
 struct DiskDumpStatus {
   enum Code : uint8_t {

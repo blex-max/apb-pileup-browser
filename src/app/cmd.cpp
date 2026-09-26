@@ -16,6 +16,7 @@
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/version.hpp"
 
 
 // --- HELPERS --- //
@@ -26,9 +27,7 @@ static std::string cmd_format_misuse (
     std::string_view misuseMsg, std::string_view cmdUsage
 )
 {
-  return fmt::format (
-      "Misuse - {}. Usage: {}", misuseMsg, cmdUsage
-  );
+  return fmt::format ("Misuse - {}. Usage: {}", misuseMsg, cmdUsage);
 }
 static std::string cmd_format_fail (std::string_view failMsg)
 {
@@ -36,8 +35,9 @@ static std::string cmd_format_fail (std::string_view failMsg)
 }
 
 
-static std::pair<std::string_view, std::string_view>
-split_first_space (std::string_view s)
+static std::pair<std::string_view, std::string_view> split_first_space (
+    std::string_view s
+)
 {
   const auto start = s.find_first_not_of (' ');
   if (start == std::string_view::npos) {
@@ -51,9 +51,7 @@ split_first_space (std::string_view s)
   return {s.substr (0, pos), s.substr (pos + 1)};
 }
 
-static std::vector<std::string_view> split_whitespace (
-    std::string_view s
-)
+static std::vector<std::string_view> split_whitespace (std::string_view s)
 {
   std::vector<std::string_view> out;
   auto [f, rest] = split_first_space (s);
@@ -79,9 +77,8 @@ static std::expected<void, CmdResult> cmd_validate_args_empty (
   return {};
 }
 static std::expected<void, CmdResult> cmd_validate_ntok (
-    const std::span<const std::string_view> argTok,
-    uint8_t minNTok, uint8_t maxNTok,
-    const std::string_view usage
+    const std::span<const std::string_view> argTok, uint8_t minNTok,
+    uint8_t maxNTok, const std::string_view usage
 )
 {
   APB_ASSERT (maxNTok >= minNTok);
@@ -114,34 +111,25 @@ static std::expected<void, CmdResult> cmd_validate_ntok (
 
 struct QuitCmd {
   constexpr static std::string_view call{"quit"};
-  constexpr static std::array<std::string_view, 2> callAlias{
-      "q", "exit"
-  };
+  constexpr static std::array<std::string_view, 2> callAlias{"q", "exit"};
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{"Exit the browser."};
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
-    if (const auto ret = cmd_validate_args_empty (args, usage);
-        !ret) {
+    if (const auto ret = cmd_validate_args_empty (args, usage); !ret) {
       return ret.error();
     }
     state.conf.run = false;
     return {true, "Bye!"};
   }
 
-  constexpr static CmdView view{
-      call, callAlias, &operator(), usage, desc
-  };
+  constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
 };
 
 struct ShowTableColCmd {
   constexpr static std::string_view call{"col"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "c"
-  };
+  constexpr static std::array<std::string_view, 1> callAlias{"c"};
   inline static const std::string usage =
       fmt::format ("{} <field-name>...", call);
   constexpr static std::string_view desc{
@@ -150,9 +138,7 @@ struct ShowTableColCmd {
       "manual or run `? table`."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     const auto tokens = split_whitespace (args);
     const auto nargRet = cmd_validate_ntok (tokens, 1, UINT8_MAX, usage);
@@ -172,9 +158,7 @@ struct ShowTableColCmd {
       return {
           false,
           cmd_format_misuse (
-              fmt::format (
-                  "duplicated arg/s {}", fmt::join (dups, ", ")
-              ),
+              fmt::format ("duplicated arg/s {}", fmt::join (dups, ", ")),
               usage
           )
       };
@@ -213,17 +197,13 @@ struct ShowTableColCmd {
 
     std::string outMsg;
     if (!nowVisible.empty()) {
-      outMsg += fmt::format (
-          "Showing: {}", fmt::join (nowVisible, ", ")
-      );
+      outMsg += fmt::format ("Showing: {}", fmt::join (nowVisible, ", "));
     }
     if (!nowHidden.empty()) {
       if (!outMsg.empty()) {
         outMsg += "|";
       }
-      outMsg += fmt::format (
-          "Hiding: {}", fmt::join (nowHidden, ", ")
-      );
+      outMsg += fmt::format ("Hiding: {}", fmt::join (nowHidden, ", "));
     }
 
     return {true, outMsg};
@@ -240,10 +220,9 @@ static CmdResult try_apply_query_clause (
     std::string_view successMsg
 )
 {
-  auto prepResult =
-      query::DynamicSelectReadsStmt::prepare_select_reads (
-          state.db.db, newClause
-      );
+  auto prepResult = query::DynamicSelectReadsStmt::prepare_select_reads (
+      state.db.db, newClause
+  );
   if (!prepResult) {
     return {
         false, cmd_format_fail (
@@ -276,9 +255,7 @@ static CmdResult try_apply_query_clause (
 
 struct WhereCmd {
   constexpr static std::string_view call{"where"};
-  constexpr static std::array<std::string_view, 2> callAlias{
-      "w", "wh"
-  };
+  constexpr static std::array<std::string_view, 2> callAlias{"w", "wh"};
   inline static const std::string usage =
       fmt::format ("{} <clause>", call);
   constexpr static std::string_view desc{
@@ -287,9 +264,7 @@ struct WhereCmd {
       "the manual or run `? table`."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     // copy in case sql compile fails
     auto newClause = state.db.userClause;
@@ -320,20 +295,15 @@ struct AndCmd {
       "Extend current WHERE clause with an AND condition."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     if (args.empty()) {
-      return {
-          false, cmd_format_misuse ("no condition given", usage)
-      };
+      return {false, cmd_format_misuse ("no condition given", usage)};
     }
 
     if (state.db.userClause.where.empty()) {
       return {
-          false,
-          cmd_format_fail ("WHERE clause empty; cannot add term")
+          false, cmd_format_fail ("WHERE clause empty; cannot add term")
       };
     }
 
@@ -355,9 +325,7 @@ struct AndCmd {
     );
   }
 
-  inline static const CmdView view{
-      call, {}, &operator(), usage, desc
-  };
+  inline static const CmdView view{call, {}, &operator(), usage, desc};
 };
 
 struct OrCmd {
@@ -368,14 +336,10 @@ struct OrCmd {
       "Extend the query with an OR condition."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     if (args.empty()) {
-      return {
-          false, cmd_format_misuse ("no condition given", usage)
-      };
+      return {false, cmd_format_misuse ("no condition given", usage)};
     }
 
     if (state.db.userClause.where.empty()) {
@@ -399,16 +363,12 @@ struct OrCmd {
     );
   }
 
-  inline static const CmdView view{
-      call, {}, &operator(), usage, desc
-  };
+  inline static const CmdView view{call, {}, &operator(), usage, desc};
 };
 
 struct BackCmd {
   constexpr static std::string_view call{"back"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "bk"
-  };
+  constexpr static std::array<std::string_view, 1> callAlias{"bk"};
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{
       "Drop the most recently added condition from the query "
@@ -416,12 +376,9 @@ struct BackCmd {
       "present."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
-    if (const auto res = cmd_validate_args_empty (args, usage);
-        !res) {
+    if (const auto res = cmd_validate_args_empty (args, usage); !res) {
       return res.error();
     };
 
@@ -439,27 +396,20 @@ struct BackCmd {
     );
   }
 
-  constexpr static CmdView view{
-      call, callAlias, &operator(), usage, desc
-  };
+  constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
 };
 
 struct ClearWhereCmd {
   constexpr static std::string_view call{"clear-where"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "cw"
-  };
+  constexpr static std::array<std::string_view, 1> callAlias{"cw"};
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{
       "Clear WHERE clause, retaining ORDER BY."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
-    if (const auto res = cmd_validate_args_empty (args, usage);
-        !res) {
+    if (const auto res = cmd_validate_args_empty (args, usage); !res) {
       return res.error();
     };
 
@@ -471,9 +421,7 @@ struct ClearWhereCmd {
     );
   }
 
-  constexpr static CmdView view{
-      call, callAlias, &operator(), usage, desc
-  };
+  constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
 };
 
 struct OrderCmd {
@@ -487,14 +435,10 @@ struct OrderCmd {
       "Sort reads by ORDER BY expression."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     if (args.empty()) {
-      return {
-          false, cmd_format_misuse ("no clause given", usage)
-      };
+      return {false, cmd_format_misuse ("no clause given", usage)};
     }
 
     PLOGD << fmt::format ("User requesting sort: {}", args);
@@ -514,9 +458,7 @@ struct OrderCmd {
 
 struct CountCmd {
   constexpr static std::string_view call{"count"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "ct"
-  };
+  constexpr static std::array<std::string_view, 1> callAlias{"ct"};
   inline static const std::string usage =
       fmt::format ("{} [clause]", call);
   constexpr static std::string_view desc{
@@ -527,9 +469,7 @@ struct CountCmd {
       "the count WHERE clause alone."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     auto where = state.db.userClause.where;
     if (!args.empty()) {
@@ -543,10 +483,9 @@ struct CountCmd {
       }
     }
 
-    auto stmtResult =
-        query::DynamicCountReadsStmt::prepare_count_reads (
-            state.db.db, where
-        );
+    auto stmtResult = query::DynamicCountReadsStmt::prepare_count_reads (
+        state.db.db, where
+    );
     if (!stmtResult) {
       return {
           false, cmd_format_fail (
@@ -561,10 +500,10 @@ struct CountCmd {
     auto& stmt = *stmtResult;
     if (const int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
       return {
-          false, fmt::format (
-                     "Could not execute count - {}",
-                     sqlite3_errmsg (state.db.db)
-                 )
+          false,
+          fmt::format (
+              "Could not execute count - {}", sqlite3_errmsg (state.db.db)
+          )
       };
     }
 
@@ -590,18 +529,13 @@ struct CountCmd {
 
 struct ClearCmd {
   constexpr static std::string_view call{"clear"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "cl"
-  };
+  constexpr static std::array<std::string_view, 1> callAlias{"cl"};
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{"Clear current query."};
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
-    if (const auto res = cmd_validate_args_empty (args, usage);
-        !res) {
+    if (const auto res = cmd_validate_args_empty (args, usage); !res) {
       return res.error();
     };
 
@@ -614,36 +548,28 @@ struct ClearCmd {
     );
   }
 
-  constexpr static CmdView view{
-      call, callAlias, &operator(), usage, desc
-  };
+  constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
 };
 
 struct ShowTableCmd {
   constexpr static std::string_view call{"show-table"};
-  constexpr static std::array<std::string_view, 1> callAlias{
-      "st"
-  };
+  constexpr static std::array<std::string_view, 1> callAlias{"st"};
   constexpr static std::string_view usage = call;
   constexpr static std::string_view desc{"Show/hide table pane"};
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     const auto valRet = cmd_validate_args_empty (args, usage);
     if (!valRet) {
       return valRet.error();
     }
 
-    state.conf.drawPaneSwitches.table =
-        !state.conf.drawPaneSwitches.table;
+    state.conf.drawPaneSwitches.table = !state.conf.drawPaneSwitches.table;
     return {
         true,
         fmt::format (
-            "{} table pane", (state.conf.drawPaneSwitches.table)
-                                 ? "Unfolded"
-                                 : "Folded"
+            "{} table pane",
+            (state.conf.drawPaneSwitches.table) ? "Unfolded" : "Folded"
         )
     };
   }
@@ -673,12 +599,9 @@ struct ShowTrackCmd {
   }
 
   constexpr static std::string_view call{"track"};
-  constexpr static std::array<std::string_view, 2> callAlias{
-      "t", "tr"
-  };
-  inline static const std::string usage = fmt::format (
-      "{} [({})...]", call, fmt::join (trackNames, "|")
-  );
+  constexpr static std::array<std::string_view, 2> callAlias{"t", "tr"};
+  inline static const std::string usage =
+      fmt::format ("{} [({})...]", call, fmt::join (trackNames, "|"));
   constexpr static std::string_view desc{
       "Show/hide insertion and quality score tracks in "
       "alignment pane, or reset to default with no args. "
@@ -687,9 +610,7 @@ struct ShowTrackCmd {
   };
 
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     auto& switches = state.conf.drawTrackSwitches;
 
@@ -698,17 +619,16 @@ struct ShowTrackCmd {
       switches.qual = false;
       switches.ins = true;
       return {
-          true, fmt::format (
-                    "{} Reset track display to default",
-                    CMD_GENERIC_SUCCESS
-                )
+          true,
+          fmt::format (
+              "{} Reset track display to default", CMD_GENERIC_SUCCESS
+          )
       };
     }
     const auto tokens = split_whitespace (args);
 
-    if (const auto expectedNTok = cmd_validate_ntok (
-            tokens, 1, trackNames.size(), usage
-        );
+    if (const auto expectedNTok =
+            cmd_validate_ntok (tokens, 1, trackNames.size(), usage);
         !expectedNTok) {
       return expectedNTok.error();
     }
@@ -717,11 +637,9 @@ struct ShowTrackCmd {
     for (const auto& tok : tokens) {
       if (!seen.insert (tok).second) {
         return {
-            false,
-            cmd_format_misuse (
-                fmt::format ("duplicated token \"{}\"", tok),
-                usage
-            )
+            false, cmd_format_misuse (
+                       fmt::format ("duplicated token \"{}\"", tok), usage
+                   )
         };
       }
     }
@@ -732,10 +650,9 @@ struct ShowTrackCmd {
       tracksToToggle.emplace_back (track_by_name (tok));
       if (tracksToToggle.back() == "") {
         return {
-            false,
-            cmd_format_misuse (
-                fmt::format ("unknown track \"{}\"", tok), usage
-            )
+            false, cmd_format_misuse (
+                       fmt::format ("unknown track \"{}\"", tok), usage
+                   )
         };
       }
     }
@@ -760,17 +677,15 @@ struct ShowTrackCmd {
 
     std::string outMsg;
     if (!nowShown.empty()) {
-      outMsg += fmt::format (
-          "Showing track/s: {}", fmt::join (nowShown, ", ")
-      );
+      outMsg +=
+          fmt::format ("Showing track/s: {}", fmt::join (nowShown, ", "));
     }
     if (!nowHidden.empty()) {
       if (!outMsg.empty()) {
         outMsg += " | ";
       }
-      outMsg += fmt::format (
-          "Hiding track/s: {}", fmt::join (nowHidden, ", ")
-      );
+      outMsg +=
+          fmt::format ("Hiding track/s: {}", fmt::join (nowHidden, ", "));
     }
 
     return {true, outMsg};
@@ -784,20 +699,16 @@ struct ShowTrackCmd {
 
 struct DumpCmd {
   constexpr static std::string_view call{"dump"};
-  inline static const std::string usage =
-      fmt::format ("{} <path>", call);
+  inline static const std::string usage = fmt::format ("{} <path>", call);
   constexpr static std::string_view desc{
       "Write the in-memory database to a file. Takes a single "
       "path. The current query is not preserved."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     const auto tokens = split_whitespace (args);
-    if (const auto expectedNTok =
-            cmd_validate_ntok (tokens, 1, 1, usage);
+    if (const auto expectedNTok = cmd_validate_ntok (tokens, 1, 1, usage);
         !expectedNTok) {
       return expectedNTok.error();
     }
@@ -807,25 +718,21 @@ struct DumpCmd {
                 query::dump_to_disk (state.db.db, path);
             dumpStatus.code) {
       case query::DiskDumpStatus::success:
-        return {
-            true, fmt::format ("Dumped database to {}", path)
-        };
+        return {true, fmt::format ("Dumped database to {}", path)};
       case query::DiskDumpStatus::fail:
         return {
-            false, fmt::format (
-                       "Error: failed to dump database to "
-                       "disk, reporting code {} and status "
-                       "{} - please report to maintainer.",
-                       dumpStatus.sqlRc.value(),
-                       dumpStatus.dumpDbMsg.value()
-                   )
+            false,
+            fmt::format (
+                "Error: failed to dump database to "
+                "disk, reporting code {} and status "
+                "{} - please report to maintainer.",
+                dumpStatus.sqlRc.value(), dumpStatus.dumpDbMsg.value()
+            )
         };
     }
   }
 
-  inline static const CmdView view{
-      call, {}, &operator(), usage, desc
-  };
+  inline static const CmdView view{call, {}, &operator(), usage, desc};
 };
 
 static std::vector<std::string> word_wrap (
@@ -872,16 +779,12 @@ std::vector<std::string> build_cmd_ref_table()
   std::vector<std::string> lines{" COMMAND REFERENCE"};
   for (const auto* cmd : get_cmd_registry()) {
     append_wrapped (
-        lines, fmt::format ("`{}`:", cmd->usage), headerIndent,
-        width
+        lines, fmt::format ("`{}`:", cmd->usage), headerIndent, width
     );
     append_wrapped (lines, cmd->desc, bodyIndent, width);
     if (!cmd->alias.empty()) {
       append_wrapped (
-          lines,
-          fmt::format (
-              "alias: {}", fmt::join (cmd->alias, ", ")
-          ),
+          lines, fmt::format ("alias: {}", fmt::join (cmd->alias, ", ")),
           bodyIndent, width
       );
     }
@@ -892,28 +795,22 @@ std::vector<std::string> build_cmd_ref_table()
 
 struct HelpCmd {
   constexpr static std::string_view call{"help"};
-  constexpr static std::array<std::string_view, 2> alias{
-      "h", "?"
-  };
+  constexpr static std::array<std::string_view, 2> alias{"h", "?"};
 
   enum Topic : uint8_t { nav, cmd, tableColumns, COUNT };
-  constexpr static std::array<std::string_view, Topic::COUNT>
-      topicNames{{
-          [Topic::nav] = "nav",
-          [Topic::cmd] = "cmd",
-          [Topic::tableColumns] = "table",
-      }};
+  constexpr static std::array<std::string_view, Topic::COUNT> topicNames{{
+      [Topic::nav] = "nav",
+      [Topic::cmd] = "cmd",
+      [Topic::tableColumns] = "table",
+  }};
 
-  inline static const std::string usage = fmt::format (
-      "{} [({})]", call, fmt::join (topicNames, "|")
-  );
+  inline static const std::string usage =
+      fmt::format ("{} [({})]", call, fmt::join (topicNames, "|"));
   constexpr static std::string_view desc{
       "Show help for given topic, or general help with no args."
   };
 
-  static CmdResult operator() (
-      std::string_view args, AppState& state
-  )
+  static CmdResult operator() (std::string_view args, AppState& state)
   {
     const auto tokens = split_whitespace (args);
     const auto nargRet = cmd_validate_ntok (tokens, 0, 1, usage);
@@ -923,7 +820,13 @@ struct HelpCmd {
 
     helpblocks::TextBlockRef content;
     if (tokens.empty()) {
-      content = helpblocks::app;
+      static std::vector<std::string> appBlock;
+      static std::vector<std::string_view> appBlockView;
+      appBlock.assign (helpblocks::app.begin(), helpblocks::app.end());
+      appBlock.push_back ("");
+      appBlock.push_back (fmt::format (" apb version {}", APB_VERSION));
+      appBlockView.assign (appBlock.begin(), appBlock.end());
+      content = appBlockView;
     }
     else if (std::ranges::contains (topicNames, tokens[0])) {
       const auto topic = tokens[0];
@@ -946,32 +849,27 @@ struct HelpCmd {
     }
     else {
       return {
-          false,
-          cmd_format_misuse (
-              fmt::format ("unknown topic {}", tokens[0]), usage
-          )
+          false, cmd_format_misuse (
+                     fmt::format ("unknown topic {}", tokens[0]), usage
+                 )
       };
     }
     CmdResult out;
     if (size_and_set_overlay_widget (
-            state.ui.overlay, content, state.ui.screenW,
-            state.ui.screenH
+            state.ui.overlay, content, state.ui.screenW, state.ui.screenH
         )) {
       out.success = true;
       state.conf.showOverlay = true;
     }
     else {
       out.success = false;
-      out.msg = cmd_format_fail (
-          "terminal too small to display help pane"
-      );
+      out.msg =
+          cmd_format_fail ("terminal too small to display help pane");
     }
     return out;
   }
 
-  inline static const CmdView view{
-      call, alias, &operator(), usage, desc
-  };
+  inline static const CmdView view{call, alias, &operator(), usage, desc};
 };
 
 static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{{
@@ -994,8 +892,7 @@ static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{{
 // `view`s are not constexpr, so here's somewhat horrible
 // solution for compile time overlap checking. Keep in
 // sync with above!
-static constexpr std::array<
-    std::span<const std::string_view>, 14>
+static constexpr std::array<std::span<const std::string_view>, 14>
     cmdAliases_SH{
         {HelpCmd::alias,
          QuitCmd::callAlias,
@@ -1030,8 +927,7 @@ static constexpr bool all_aliases_unique()
   return true;
 }
 static_assert (
-    all_aliases_unique(),
-    "Command registry contains overlapping aliases!"
+    all_aliases_unique(), "Command registry contains overlapping aliases!"
 );
 
 
@@ -1058,7 +954,5 @@ CmdResult exec_cmd (std::string_view call, AppState& state)
   if (const auto* br_cmd = find_cmd (name)) {
     return br_cmd->exec (args, state);
   }
-  return {
-      false, fmt::format ("Command \"{}\" not found!", name)
-  };
+  return {false, fmt::format ("Command \"{}\" not found!", name)};
 }

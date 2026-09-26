@@ -14,7 +14,7 @@ struct GenomicSpan {
 
   bool valid() const noexcept
   {
-    return start >= 0 && end >= 0 && end >= start;
+    return start >= 0 && end >= 0 && end > start;
   }
 };
 

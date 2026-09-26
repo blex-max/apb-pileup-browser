@@ -23,11 +23,7 @@
 #include "demo/demo.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
-
-// Defined in CMakeLists.txt
-#ifndef APB_VERSION
-#define APB_VERSION "undef"
-#endif
+#include "shared/version.hpp"
 
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
@@ -76,7 +72,8 @@ options:
 
  See README.md for project background and development
  information.
-)txt";
+)txt"
+    "\napb version " APB_VERSION "\n";
 
 
 enum class ApbMode : uint8_t { locus, demo, db };
@@ -277,22 +274,7 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
-  // TODO - this is clearly the wrong place to check this
-  auto locusResult = query::get_locus_data (db);
-  if (!locusResult) {
-    switch (locusResult.error().code) {
-      case query::LocusDataErr::notFound:
-        std::cerr << "Error: database has no locus metadata - is "
-                     "this a valid apb dump?"
-                  << std::endl;
-        return EXIT_FAILURE;
-      case query::LocusDataErr::invalidContent:
-        std::cerr << "Error: locus metadata in database is invalid "
-                     "or corrupt."
-                  << std::endl;
-        return EXIT_FAILURE;
-    }
-  }
+  auto locusInfo = query::get_locus_data (db);
   auto prepResult =
       query::DynamicSelectReadsStmt::prepare_select_reads (db, {});
   if (!prepResult) {
@@ -325,7 +307,7 @@ int main (int argc, char** argv)
           .stmt = std::move (startupStmt),
           .userClause = {},
           .nStmtRows = *rowCountResult,
-          .locusInfo = std::move (*locusResult)
+          .locusInfo = std::move (locusInfo)
       }
   };
   state.ui.cmd.msgBuf =

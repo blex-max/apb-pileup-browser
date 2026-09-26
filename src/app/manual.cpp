@@ -9,6 +9,7 @@
 
 #include "app/cmd.hpp"
 #include "app/helpblocks.hpp"
+#include "shared/version.hpp"
 
 
 static constexpr std::string_view manualChunk1 = R"txt(
@@ -16,6 +17,7 @@ apb Manual - A Pileup Browser
 
 **IMPORTANT**:
 The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
+This is the manual for apb version )txt" APB_VERSION R"txt(.
 
 It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 

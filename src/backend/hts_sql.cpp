@@ -12,7 +12,6 @@
 #include "plog/Log.h"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
-#include "shared/err.hpp"
 
 namespace {
 // -- internal helpers --
@@ -195,6 +194,44 @@ PileupDB::LoadStatus PileupDB::load_from_disk (
     }
   }
 
+  {
+    // Row content is already covered by quick_check, above (schema
+    // CHECK constraints); only presence needs checking here.
+    sqlite3_stmt* o_stmt = NULL;
+    if (const auto rc = sqlite3_prepare_v2 (
+            db, schema::sqlSelectMetadata.data(),
+            static_cast<int> (schema::sqlSelectMetadata.size()), &o_stmt,
+            NULL
+        );
+        rc != SQLITE_OK) {
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to prepare locus metadata query: {}",
+              sqlite3_errstr (rc)
+          )
+      );
+    }
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+    const auto rc = sqlite3_step (o_stmt);
+    if (rc == SQLITE_DONE) {
+      return {
+          .code = LoadStatus::contentCorrupt,
+          .sqlRc = std::nullopt,
+          .sqlMsg =
+              "database has no locus metadata - is this a valid "
+              "apb dump?"
+      };
+    }
+    if (rc != SQLITE_ROW) {
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to read locus metadata row: {}", sqlite3_errstr (rc)
+          )
+      );
+    }
+  }
+
   return {.code = LoadStatus::success};
 
 err_sql: {
@@ -306,9 +343,7 @@ DynamicCountReadsStmt::prepare_count_reads (
   return stmt;
 }
 
-std::expected<PileupMetadata, LocusDataErr> get_locus_data (
-    const PileupDB& db
-)
+PileupMetadata get_locus_data (const PileupDB& db)
 {
   sqlite3_stmt* o_stmt = NULL;
   if (const auto rc = sqlite3_prepare_v2 (
@@ -326,11 +361,7 @@ std::expected<PileupMetadata, LocusDataErr> get_locus_data (
   }
   Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
-  const auto rc = sqlite3_step (o_stmt);
-  if (rc == SQLITE_DONE) {
-    return std::unexpected (LocusDataErr{.code = LocusDataErr::notFound});
-  }
-  if (rc != SQLITE_ROW) {
+  if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
     APB_UNREACHABLE (
         fmt::format (
             "failed to read locus metadata row: {}", sqlite3_errstr (rc)
@@ -356,9 +387,7 @@ std::expected<PileupMetadata, LocusDataErr> get_locus_data (
   }
 
   if (!out.valid()) {
-    return std::unexpected (
-        LocusDataErr{.code = LocusDataErr::invalidContent}
-    );
+    APB_UNREACHABLE ("locus metadata invalid post-validation");
   }
 
   return out;
@@ -485,8 +514,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
     free (o_fetch);
   }
 
-  // NOTE: if insert_reads_internal fails, insert_metadata not
-  // rolled back.
   // NOTE: nreads not currently recorded in metadata table
   auto rcInsMeta = insert_metadata (
       db, contigName, pileupIter.pos, pileupIter.span, refSlice
@@ -510,10 +537,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
         )
     );
   }
-  Defer rollbackOnErr ([&]() {
-    sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
-  });
-
   PLOGD << "Inserting reads";
 
   for (size_t i = 0; i < pileupIter.nPlp; ++i) {
@@ -566,7 +589,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
         )
     );
   }
-  rollbackOnErr.cancel();  // committed; nothing left to roll back
   return {};
 };
 
@@ -580,11 +602,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
     insert the pileup locus into the database's single metadata row.
     Uses automatic transaction handling, not necessary to begin/end transaction.
   */
-  // sqlInsertMetadata is fixed, apb-authored SQL, run only against
-  // a freshly-built db (never a loaded/untrusted one - this is
-  // called from insert_pileup in locus mode and directly from
-  // demo.cpp in demo mode) - so a prepare failure here is always a
-  // genuine internal invariant violation.
   SqliteStmt stmt;
   if (const auto rc = sqlite3_prepare_v2 (
           db, schema::sqlInsertMetadata.data(),
@@ -640,11 +657,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
   return {};
 }
 
-// sqlInsertReads is fixed, apb-authored SQL, run only against a
-// freshly-built db (never a loaded/untrusted one - this is called
-// from insert_pileup in locus mode and directly from demo.cpp in
-// demo mode) - so a prepare failure here is always a genuine
-// internal invariant violation.
 SqliteStmt prepare_insert_reads_stmt (PileupDB& db)
 {
   SqliteStmt stmt;
@@ -750,7 +762,7 @@ bool fill_fields (
 
 // Bind one pileup row's fields into `stmt`, in column order matching
 // stmt_str_InsertReads. Binding never evaluates table constraints
-// so a bind failure is always an internal invariant violation.
+// so a bind failure is always an invariant violation.
 void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf)
 {
   // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
