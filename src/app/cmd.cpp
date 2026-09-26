@@ -215,13 +215,12 @@ struct ShowTableColCmd {
 };
 
 static CmdResult try_apply_query_clause (
-    AppState& state,
-    query::DynamicSelectReadsStmt::DynamicFragments newClause,
+    AppState& state, query::DynamicFragments newClause,
     std::string_view successMsg
 )
 {
-  auto prepResult = query::DynamicSelectReadsStmt::prepare_select_reads (
-      state.db.db, newClause
+  auto prepResult = query::prepare_select_reads (
+      state.db.db, schema::ReadTableSelect::sqlPrefix, newClause
   );
   if (!prepResult) {
     return {
@@ -246,7 +245,7 @@ static CmdResult try_apply_query_clause (
     };
   }
   const uint32_t nRow = *rowCountResult;
-  state.db.stmt = std::move (newStmt);
+  state.db.selectStmt = std::move (newStmt);
   state.db.userClause = std::move (newClause);
   state.db.stmtRowScrollOffset = 0;  // reset row view
   state.db.nStmtRows = nRow;
@@ -483,8 +482,9 @@ struct CountCmd {
       }
     }
 
-    auto stmtResult = query::DynamicCountReadsStmt::prepare_count_reads (
-        state.db.db, where
+    auto stmtResult = query::prepare_select_reads (
+        state.db.db, schema::ReadTableSelect::sqlCountPrefix,
+        {.where = where, .orderBy = {}}
     );
     if (!stmtResult) {
       return {

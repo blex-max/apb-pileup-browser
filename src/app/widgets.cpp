@@ -314,15 +314,13 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
   // NOTE: currently does no error checking
   return {
       .rStart =
-          sqlite3_column_int64 (row, schema::FieldIndex::rstart),
+          sqlite3_column_int64 (row, schema::ReadTableSelect::rstart),
       .seq =
           [&row]() {
-            const auto* p = sqlite3_column_text (
-                row, schema::FieldIndex::seq
-            );
-            const auto len = sqlite3_column_bytes (
-                row, schema::FieldIndex::seq
-            );
+            const auto* p =
+                sqlite3_column_text (row, schema::ReadTableSelect::seq);
+            const auto len =
+                sqlite3_column_bytes (row, schema::ReadTableSelect::seq);
             return std::string (
                 reinterpret_cast<const char*> (p),
                 static_cast<size_t> (len)
@@ -330,12 +328,10 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
           }(),
       .qual =
           [&row]() {
-            const auto* br_p = sqlite3_column_text (
-                row, schema::FieldIndex::qual
-            );
-            const auto len = sqlite3_column_bytes (
-                row, schema::FieldIndex::qual
-            );
+            const auto* br_p =
+                sqlite3_column_text (row, schema::ReadTableSelect::qual);
+            const auto len =
+                sqlite3_column_bytes (row, schema::ReadTableSelect::qual);
             return std::string (
                 reinterpret_cast<const char*> (br_p),
                 static_cast<size_t> (len)
@@ -343,17 +339,15 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
           }(),
       .cig_br =
           [&row]() {
-            return static_cast<const uint32_t*> (
-                sqlite3_column_blob (
-                    row, schema::FieldIndex::cig_uint32
-                )
-            );
+            return static_cast<const uint32_t*> (sqlite3_column_blob (
+                row, schema::ReadTableSelect::cig_uint32
+            ));
           }(),
       .nCig =
           [&row]() {
-            return static_cast<uint64_t> (sqlite3_column_int (
-                row, schema::FieldIndex::ncig
-            ));
+            return static_cast<uint64_t> (
+                sqlite3_column_int (row, schema::ReadTableSelect::ncig)
+            );
           }()
   };
 };
@@ -671,7 +665,7 @@ static WidgetStatus draw_query_data (
   }
   APB_ASSERT (db.locusInfo.valid());
 
-  sqlite3_reset (db.stmt);
+  sqlite3_reset (db.selectStmt);
 
   /* size widgets */
   uint16_t tableWidth = 0;
@@ -813,7 +807,7 @@ static WidgetStatus draw_query_data (
     uint16_t nReadDrawn = 0;
     for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y;
          ++iRead) {
-      const auto iterStatus = next_read (db.stmt);
+      const auto iterStatus = query::next_read (db.selectStmt);
       if (!iterStatus) {
         // db.stmt is only ever installed after a full count_rows
         // pass already succeeded against this exact data (see
@@ -833,11 +827,11 @@ static WidgetStatus draw_query_data (
           continue;
         }
         const auto dHead = draw_aln::seq1 (
-            static_cast<int16_t> (seqWriteHead.y), db.stmt,
+            static_cast<int16_t> (seqWriteHead.y), db.selectStmt,
             db.locusInfo.refSlice, seq1Fixed
         );
         if (conf.drawPaneSwitches.table) {
-          draw_table::row1 (seqWriteHead.y, db.stmt, row1Fixed);
+          draw_table::row1 (seqWriteHead.y, db.selectStmt, row1Fixed);
         }
         seqWriteHead.y += dHead.dy;
         ++nReadDrawn;

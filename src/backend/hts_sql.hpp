@@ -50,44 +50,24 @@ struct PileupDB {
   };
   // Copy a database file on disk into an in-memory PileupDB,
   // using sqlite3's online backup API.
-  static LoadStatus load_from_disk (
-      PileupDB& db, std::string_view path
-  );
+  static LoadStatus load_from_disk (PileupDB& db, std::string_view path);
 };
 
 namespace query {
 
 std::string build_where_clause (const std::vector<std::string>& fragments);
 
-struct DynamicSelectReadsStmt : public SqliteStmt {
-  static inline const std::string_view sqlStmtPrefix =
-      "SELECT * FROM reads";
-
-  // could be a member. Oh well, TODO
-  struct DynamicFragments {
-    std::vector<std::string> where;
-    std::string orderBy;
-  };
-
-  // returns compiled sql statement object, or sqlite3 integer
-  // return code on failure
-  static std::expected<DynamicSelectReadsStmt, int>
-  prepare_select_reads (
-      const PileupDB& db, const DynamicFragments& frags
-  );
+struct DynamicFragments {
+  std::vector<std::string> where;
+  std::string orderBy;
 };
-
-struct DynamicCountReadsStmt : public SqliteStmt {
-  static inline const std::string_view sqlStmtPrefix =
-      "SELECT COUNT(*) FROM reads";
-
-  // returns compiled sql statement object, or sqlite3 integer
-  // return code on failure
-  static std::expected<DynamicCountReadsStmt, int>
-  prepare_count_reads (
-      const PileupDB& db, const std::vector<std::string>& where
-  );
-};
+// Compiles `prefix` with the WHERE/ORDER BY built from `frags` appended.
+// returns compiled sql statement object, or sqlite3 integer
+// return code on failure
+std::expected<SqliteStmt, int> prepare_select_reads (
+    const PileupDB& db, std::string_view prefix,
+    const DynamicFragments& frags
+);
 
 // Step `stmt` forward by one row.
 // returns status code, or sqlite3 integer return code in on failure.
@@ -113,8 +93,8 @@ struct PileupMetadata {
   // (schema.hpp) - kept as a backstop.
   bool valid() const noexcept
   {
-    return !contig.empty() && start >= 0 && start < end &&
-           pos >= start && pos <= end;
+    return !contig.empty() && start >= 0 && start < end && pos >= start &&
+           pos <= end;
   }
 };
 
@@ -148,9 +128,7 @@ struct StdoutDumpStatus {
   };
   Code code;
 };
-[[nodiscard]] StdoutDumpStatus dump_to_stdout (
-    const PileupDB& db
-);
+[[nodiscard]] StdoutDumpStatus dump_to_stdout (const PileupDB& db);
 
 
 }  // namespace query
@@ -165,8 +143,7 @@ struct InsertPileupErr {
   std::optional<int> htsRc = std::nullopt;
 };
 // insert reads at pileup position into database
-[[nodiscard]] std::expected<void, InsertPileupErr>
-insert_pileup (
+[[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
     PileupDB& db, const PileupIterator& pileupIter,
     const std::string& contigName, const sam_hdr_t* br_alnHdr,
     const std::optional<FastaFile>& ff
@@ -175,8 +152,8 @@ insert_pileup (
 // insert pileup locus info into single-row metadata table.
 // Returns void or int sqlite3 error code
 [[nodiscard]] int insert_metadata (
-    PileupDB& db, const std::string& contigName,
-    int64_t pileupPos, const GenomicSpan& pileupSpan,
+    PileupDB& db, const std::string& contigName, int64_t pileupPos,
+    const GenomicSpan& pileupSpan,
     const std::optional<std::string>& refSlice
 );
 
@@ -218,8 +195,7 @@ struct PileupFields {
 // returns true on success, false on failure
 // to parse an aux tag in br_p1->b1.
 [[nodiscard]] bool fill_fields (
-    PileupFields& pf, const bam_pileup1_t* br_p1,
-    const char* mTidName
+    PileupFields& pf, const bam_pileup1_t* br_p1, const char* mTidName
 );
 
 // Bind one pileup row's fields into `stmt`, in column order matching
@@ -227,9 +203,7 @@ struct PileupFields {
 void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf);
 
 // Render a CIGAR array as text (e.g. "151M").
-std::string stringify_cigar (
-    const uint32_t* br_cig, size_t nCig
-);
+std::string stringify_cigar (const uint32_t* br_cig, size_t nCig);
 
 struct Aux1ToJsonErr {
   enum Codes : uint8_t {

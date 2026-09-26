@@ -275,8 +275,9 @@ int main (int argc, char** argv)
   }
 
   auto locusInfo = query::get_locus_data (db);
-  auto prepResult =
-      query::DynamicSelectReadsStmt::prepare_select_reads (db, {});
+  auto prepResult = query::prepare_select_reads (
+      db, schema::ReadTableSelect::sqlPrefix, {}
+  );
   if (!prepResult) {
     APB_UNREACHABLE (
         fmt::format (
@@ -304,8 +305,8 @@ int main (int argc, char** argv)
   AppState state{
       .db = {
           .db = std::move (db),
-          .stmt = std::move (startupStmt),
           .userClause = {},
+          .selectStmt = std::move (startupStmt),
           .nStmtRows = *rowCountResult,
           .locusInfo = std::move (locusInfo)
       }

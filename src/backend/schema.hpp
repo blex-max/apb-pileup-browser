@@ -2,6 +2,9 @@
 
 #include <string_view>
 
+// NOTE: sqlite3 bind indexing is 1-based, select indexing
+// is 0-based, so enum can only be used with select
+
 namespace schema {
 
 // keep all data in working memory.
@@ -10,10 +13,12 @@ inline constexpr std::string_view sqlSetTempStoreMemory =
     PRAGMA temp_store = MEMORY;
 )sql";
 
+
 inline constexpr std::string_view sqlCreateMetaDataTable =
     R"sql(
 CREATE TABLE metadata (
     id     INTEGER PRIMARY KEY CHECK (id = 1),  -- one row only; one locus per db
+    apb_version TEXT NOT NULL,
     contig TEXT NOT NULL CHECK (contig <> ''),
     pos    INTEGER NOT NULL, -- 0-based pileup position
     start  INTEGER NOT NULL CHECK (start >= 0),
@@ -23,34 +28,29 @@ CREATE TABLE metadata (
 )
 )sql";
 
-// TIED TO READS TABLE SCHEMA CREATE ORDER
-struct FieldIndex {
+inline constexpr std::string_view sqlInsertMetadata = R"sql(
+INSERT INTO metadata (apb_version, contig, pos, start, end, ref) VALUES (?,?,?,?,?,?);
+)sql";
+
+struct MetaTableSelect {
+  // TIED TO EXPLICIT SELECT STATEMENT
   enum Idx : uint8_t {
-    id,  // 0
-    qname,
-    flag,
-    rstart,
-    rend,
-    mapq,
-    base,
-    basequal,
-    qpos,
-    indel,
-    is_del,
-    is_head,
-    is_tail,
-    is_refskip,
-    cigar,
-    seq,
-    qual,
-    mtid,
-    mstart,
-    tags,
-    cig_uint32,
-    ncig
+    id,
+    version,
+    contig,
+    pos,
+    start,
+    end,
+    ref,
   };
+
+  // not a prefix, only one row, complete retrieval
+  // and therefore semicolon terminated statement
+  static constexpr std::string_view sql =
+      R"sql(SELECT id, apb_version, contig, pos, start, end, ref FROM metadata;)sql";
 };
-// TODO: key table off index?
+
+
 // One row per read overlapping pileup reference position.
 inline constexpr std::string_view sqlCreateReadsTable =
     R"sql(
@@ -95,15 +95,6 @@ CREATE TABLE reads (
 );
 )sql";
 
-// --- FIXED STATEMENTS ---
-inline constexpr std::string_view sqlInsertMetadata = R"sql(
-INSERT INTO metadata (contig, pos, start, end, ref) VALUES (?,?,?,?,?);
-)sql";
-
-inline constexpr std::string_view sqlSelectMetadata = R"sql(
-SELECT contig, pos, start, end, ref FROM metadata;
-)sql";
-
 inline constexpr std::string_view sqlInsertReads = R"sql(
 INSERT INTO reads (
   qname, flag, rstart, rend, mapq,
@@ -111,5 +102,42 @@ INSERT INTO reads (
   cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
 )sql";
+
+struct ReadTableSelect {
+  // TIED TO SCHEMA ORDER
+  // query callers all use
+  // SELECT * FROM reads - returns in schema order.
+  enum Idx : uint8_t {
+    id,  // 0
+    qname,
+    flag,
+    rstart,
+    rend,
+    mapq,
+    base,
+    basequal,
+    qpos,
+    indel,
+    is_del,
+    is_head,
+    is_tail,
+    is_refskip,
+    cigar,
+    seq,
+    qual,
+    mtid,
+    mstart,
+    tags,
+    cig_uint32,
+    ncig
+  };
+
+  // prefixes for dynamic querying, no terminating semicolon
+  static constexpr std::string_view sqlPrefix =
+      R"sql(SELECT * FROM reads)sql";
+  static constexpr std::string_view sqlCountPrefix =
+      R"sql(SELECT COUNT(*) FROM reads)sql";
+};
+
 
 }  // namespace schema

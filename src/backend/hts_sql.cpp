@@ -9,6 +9,7 @@
 
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
+#include "backend/sql_types.hpp"
 #include "plog/Log.h"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
@@ -195,13 +196,13 @@ PileupDB::LoadStatus PileupDB::load_from_disk (
   }
 
   {
-    // Row content is already covered by quick_check, above (schema
-    // CHECK constraints); only presence needs checking here.
+    // Verify locus metadata exists and is well-formed - the one thing
+    // schema matching and quick_check don't catch.
     sqlite3_stmt* o_stmt = NULL;
     if (const auto rc = sqlite3_prepare_v2 (
-            db, schema::sqlSelectMetadata.data(),
-            static_cast<int> (schema::sqlSelectMetadata.size()), &o_stmt,
-            NULL
+            db, schema::MetaTableSelect::sql.data(),
+            static_cast<int> (schema::MetaTableSelect::sql.size()),
+            &o_stmt, NULL
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
@@ -229,6 +230,38 @@ PileupDB::LoadStatus PileupDB::load_from_disk (
               "failed to read locus metadata row: {}", sqlite3_errstr (rc)
           )
       );
+    }
+
+    query::PileupMetadata meta;
+    meta.contig = {
+        reinterpret_cast<const char*> (
+            sqlite3_column_text (o_stmt, schema::MetaTableSelect::contig)
+        ),
+        static_cast<size_t> (
+            sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::contig)
+        )
+    };
+    meta.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
+    meta.start =
+        sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
+    meta.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
+    if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
+        SQLITE_NULL) {
+      meta.refSlice = std::string{
+          reinterpret_cast<const char*> (
+              sqlite3_column_text (o_stmt, schema::MetaTableSelect::ref)
+          ),
+          static_cast<size_t> (
+              sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
+          )
+      };
+    }
+    if (!meta.valid()) {
+      return {
+          .code = LoadStatus::contentCorrupt,
+          .sqlRc = std::nullopt,
+          .sqlMsg = "locus metadata in database is invalid or corrupt."
+      };
     }
   }
 
@@ -263,14 +296,16 @@ std::string build_where_clause (const std::vector<std::string>& fragments)
   return out;
 }
 
-std::expected<DynamicSelectReadsStmt, int>
-DynamicSelectReadsStmt::prepare_select_reads (
-    const PileupDB& db, const DynamicFragments& frags
+std::expected<SqliteStmt, int> prepare_select_reads (
+    const PileupDB& db, std::string_view prefix,
+    const DynamicFragments& frags
 )
 {
-  DynamicSelectReadsStmt stmt;
+  APB_ASSERT (prefix.back() != ';');
 
-  std::string rsql_builtStmt{DynamicSelectReadsStmt::sqlStmtPrefix};
+  SqliteStmt stmt;
+
+  std::string rsql_builtStmt{prefix};
 
   // build WHERE
   if (!frags.where.empty()) {
@@ -305,50 +340,12 @@ DynamicSelectReadsStmt::prepare_select_reads (
   return stmt;
 }
 
-// super similar to above, could consider folding in...
-std::expected<DynamicCountReadsStmt, int>
-DynamicCountReadsStmt::prepare_count_reads (
-    const PileupDB& db, const std::vector<std::string>& where
-)
-{
-  DynamicCountReadsStmt stmt;
-
-  std::string stmtSqlStr{DynamicCountReadsStmt::sqlStmtPrefix};
-
-  // build WHERE
-  if (!where.empty()) {
-    stmtSqlStr.append (" WHERE ");
-    stmtSqlStr.append (build_where_clause (where));
-  }
-
-  stmtSqlStr.append (";");  // end stmt
-
-  PLOGD << "Compiling user query: " + stmtSqlStr;
-
-  // If these fail, then the user statement is not valid,
-  // hence they are not unreachable
-  int rc;
-  if (rc = sqlite3_prepare_v2 (
-          db, stmtSqlStr.c_str(), static_cast<int> (stmtSqlStr.size()),
-          &stmt.o_stmt, NULL
-      );
-      rc != SQLITE_OK) {
-    return std::unexpected (rc);
-  }
-
-  if (sqlite3_stmt_readonly (stmt) == 0) {
-    return std::unexpected (SQLITE_READONLY);
-  }
-
-  return stmt;
-}
-
 PileupMetadata get_locus_data (const PileupDB& db)
 {
   sqlite3_stmt* o_stmt = NULL;
   if (const auto rc = sqlite3_prepare_v2 (
-          db, schema::sqlSelectMetadata.data(),
-          static_cast<int> (schema::sqlSelectMetadata.size()), &o_stmt,
+          db, schema::MetaTableSelect::sql.data(),
+          static_cast<int> (schema::MetaTableSelect::sql.size()), &o_stmt,
           NULL
       );
       rc != SQLITE_OK) {
@@ -371,18 +368,28 @@ PileupMetadata get_locus_data (const PileupDB& db)
 
   PileupMetadata out;
   out.contig = {
-      reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0)),
-      static_cast<size_t> (sqlite3_column_bytes (o_stmt, 0))
+      reinterpret_cast<const char*> (
+          sqlite3_column_text (o_stmt, schema::MetaTableSelect::contig)
+      ),
+      static_cast<size_t> (
+          sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::contig)
+      )
   };
 
-  out.pos = sqlite3_column_int64 (o_stmt, 1);
-  out.start = sqlite3_column_int64 (o_stmt, 2);
-  out.end = sqlite3_column_int64 (o_stmt, 3);
+  out.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
+  out.start =
+      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
+  out.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
 
-  if (sqlite3_column_type (o_stmt, 4) != SQLITE_NULL) {
+  if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
+      SQLITE_NULL) {
     out.refSlice = std::string{
-        reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 4)),
-        static_cast<size_t> (sqlite3_column_bytes (o_stmt, 4))
+        reinterpret_cast<const char*> (
+            sqlite3_column_text (o_stmt, schema::MetaTableSelect::ref)
+        ),
+        static_cast<size_t> (
+            sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
+        )
     };
   }
 
@@ -617,8 +624,15 @@ std::expected<void, InsertPileupErr> insert_pileup (
     );
   }
 
+  // NOTE: TIED TO SCHEMA ORDER. BE CAREFUL!
   int col = 1;
   int rc;
+  if (rc = sqlite3_bind_text (
+          stmt, col++, APB_VERSION, -1, SQLITE_TRANSIENT
+      );
+      rc != SQLITE_OK) {
+    return rc;
+  }
   if (rc = sqlite3_bind_text (
           stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
       );
