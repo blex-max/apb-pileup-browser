@@ -94,7 +94,7 @@ void generate_demo_data (
     elemBuf.isRefSkip = false;
     elemBuf.mapQ = mapQGen (rng);
     elemBuf.mStart = -1;
-    elemBuf.mtidName = '*';  // not present
+    elemBuf.mtidName = "";  // not present
     elemBuf.qName = "read" + std::to_string (i);
 
     elemBuf.start = static_cast<hts_pos_t> (gstartGen (rng));

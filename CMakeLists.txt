@@ -13,7 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 
-option(MAKE_TEST "Build the unit test binary" OFF)
+option(MAKE_TEST "Build apb-tests and run it as part of the build (opt out with -DMAKE_TEST=OFF)" ON)
 
 find_package(PkgConfig REQUIRED)
 # >=3.38: reads.tags relies on the built-in json_valid() (JSON support was
@@ -21,19 +21,8 @@ find_package(PkgConfig REQUIRED)
 # extension to be compiled in separately).
 pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3>=3.38)
 
-include(FetchContent)
-set(FETCHCONTENT_QUIET OFF)
-
-if(MAKE_TEST)
-  FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG        v3.8.1
-    GIT_SHALLOW    TRUE
-    SYSTEM
-  )
-  FetchContent_MakeAvailable(Catch2)
-endif()
+add_library(doctest INTERFACE)
+target_include_directories(doctest SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/doctest")
 
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/termbox2")
@@ -121,25 +110,47 @@ target_link_libraries(apb
 )
 
 if(MAKE_TEST)
-  enable_testing()
+  # Test files are co-located with the module they cover (e.g.
+  # src/backend/hts_sql_test.cpp next to hts_sql.cpp), rather than kept in
+  # a separate tests/ tree, so a glob (re-evaluated at build time via
+  # CONFIGURE_DEPENDS) is the one place in this project a source list
+  # isn't hand-maintained -- an explicit list would silently drop a new
+  # *_test.cpp that nobody remembered to add here, defeating the point.
+  file(GLOB_RECURSE APB_TEST_SOURCES CONFIGURE_DEPENDS "src/*_test.cpp")
+
   add_executable(apb-tests
-    src/backend/PileupDB.cpp
-    src/backend/pileup_ingest.cpp
+    tests/main.cpp
+    src/backend/hts_sql.cpp
     src/backend/hts_types.cpp
-    tests/test_schema.cpp
-    tests/test_ingest.cpp
-    tests/test_query.cpp
+    src/frontend/tb2_impl.cpp
+    ${APB_TEST_SOURCES}
+  )
+  target_compile_definitions(apb-tests PRIVATE
+    APB_VERSION="${PROJECT_VERSION}"
+    TB_OPT_EGC
   )
   target_include_directories(apb-tests PRIVATE src)
   target_link_libraries(apb-tests
     PRIVATE
-    Catch2::Catch2WithMain
+    doctest
+    termbox2
     fmt::fmt-header-only
     ${HTSLIB_TARGET}
     PkgConfig::DEPS
     plog::plog
   )
-  list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-  include(Catch)
-  catch_discover_tests(apb-tests)
+
+  # Exercised as part of the build itself (opt out with -DMAKE_TEST=OFF)
+  # rather than relying on a separate `ctest`/CI invocation -- a failing
+  # assertion fails the build. The echo is a real command (not just the
+  # COMMENT, which some generators/parallel builds swallow or bury) so
+  # the test run is unmistakable in the build log.
+  add_custom_command(
+    TARGET apb-tests
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "---- running apb-tests ----"
+    COMMAND apb-tests
+    COMMENT "Running apb-tests"
+    VERBATIM
+  )
 endif()

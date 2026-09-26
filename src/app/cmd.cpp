@@ -227,7 +227,7 @@ static CmdResult try_apply_query_clause (
         false, cmd_format_fail (
                    fmt::format (
                        "Could not compile statement - {}",
-                       sqlite3_errstr (prepResult.error())
+                       sqlite3_errmsg (state.db.db)
                    )
                )
     };
@@ -342,7 +342,9 @@ struct OrCmd {
     }
 
     if (state.db.userClause.where.empty()) {
-      return {false, "WHERE clause empty; cannot add term"};
+      return {
+          false, cmd_format_fail ("WHERE clause empty; cannot add term")
+      };
     }
     auto newClause = state.db.userClause;
 
@@ -429,17 +431,14 @@ struct OrderCmd {
       "order", "ob", "o"
   };
   inline static const std::string usage =
-      fmt::format ("{} <clause>", call);
+      fmt::format ("{} [clause]", call);
   constexpr static std::string_view desc{
-      "Sort reads by ORDER BY expression."
+      "Sort reads by ORDER BY expression. Clears order by with no args, "
+      "resetting to default ordering."
   };
 
   static CmdResult operator() (std::string_view args, AppState& state)
   {
-    if (args.empty()) {
-      return {false, cmd_format_misuse ("no clause given", usage)};
-    }
-
     PLOGD << fmt::format ("User requesting sort: {}", args);
 
     auto newClause = state.db.userClause;
@@ -491,7 +490,7 @@ struct CountCmd {
           false, cmd_format_fail (
                      fmt::format (
                          "Could not compile statement - {}",
-                         sqlite3_errstr (stmtResult.error())
+                         sqlite3_errmsg (state.db.db)
                      )
                  )
       };
@@ -500,10 +499,12 @@ struct CountCmd {
     auto& stmt = *stmtResult;
     if (const int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
       return {
-          false,
-          fmt::format (
-              "Could not execute count - {}", sqlite3_errmsg (state.db.db)
-          )
+          false, cmd_format_fail (
+                     fmt::format (
+                         "Could not execute count - {}",
+                         sqlite3_errmsg (state.db.db)
+                     )
+                 )
       };
     }
 
@@ -633,17 +634,6 @@ struct ShowTrackCmd {
       return expectedNTok.error();
     }
 
-    std::unordered_set<std::string_view> seen;
-    for (const auto& tok : tokens) {
-      if (!seen.insert (tok).second) {
-        return {
-            false, cmd_format_misuse (
-                       fmt::format ("duplicated token \"{}\"", tok), usage
-                   )
-        };
-      }
-    }
-
     // verify tokens are legtimate track names
     std::vector<std::string_view> tracksToToggle;
     for (const auto& tok : tokens) {
@@ -653,6 +643,18 @@ struct ShowTrackCmd {
             false, cmd_format_misuse (
                        fmt::format ("unknown track \"{}\"", tok), usage
                    )
+        };
+      }
+    }
+
+    std::unordered_set<std::string_view> seen;
+    for (const auto& track : tracksToToggle) {
+      if (!seen.insert (track).second) {
+        return {
+            false,
+            cmd_format_misuse (
+                fmt::format ("duplicated track \"{}\"", track), usage
+            )
         };
       }
     }
@@ -721,14 +723,13 @@ struct DumpCmd {
         return {true, fmt::format ("Dumped database to {}", path)};
       case query::DiskDumpStatus::fail:
         return {
-            false,
-            fmt::format (
-                "Error: failed to dump database to "
-                "disk, reporting code {} and status "
-                "{} - please report to maintainer.",
-                dumpStatus.sqlRc.value(), dumpStatus.dumpDbMsg.value()
-            )
+            false, query::describe_sqlite_failure (
+                       dumpStatus.sqlRc.value(), "dump database to disk",
+                       dumpStatus.dumpDbMsg
+                   )
         };
+      default:
+        APB_UNREACHABLE ("unrecognised DiskDumpStatus code");
     }
   }
 

@@ -83,27 +83,42 @@ and (flag & 3584) = 0
 ```
 Note that flag is a bitmask - see https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, xor and not. The webpage https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute is very useful for finding the corresponding integer given a set of SAM bits.
 
-Back to our query. Finally, let's sort to see the weakest evidence first:
+Back to our query. Let's sort to see the weakest evidence first:
 ```
 order basequal ASC
 ```
-ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `order basequal DESC, rstart ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key.
+ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `order basequal DESC, start ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key.
 
-The parser incrementally wraps these commands into a complete SQL statement. Note that you could also write the full command as a single statment via the `where` command:
+The parser incrementally wraps these commands into a complete SQL statement, which is displayed above the command line:
 ```
-where base != 'G' AND (flag & 3584) = 0 ORDER BY basequal ASC
+where (base != 'G') AND flag & 3584 = 0 ORDER BY basequal ASC
 ```
-The two styles are equally supported; in both cases, you can continue to add on further clauses with `and` and `or` as you like. You can remove clauses added in a piecewise manner with the `back` command.
+You can remove clauses added in a piecewise manner with the `back` command. In this case, a call to back would reduce the statement to:
+```
+where (base != 'G') ORDER BY basequal ASC
+```
+ORDER BY is not affected by back. To reset/clear ordering, simply call `order` with no arguments.
 
-If you want a count rather than a filtered view, `count [clause]` answers without disturbing the active query. For example, `count mapq < 20` tells you how many low-mapping-quality reads there are in the current query without changing the view.
+To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used with our latest query above, the status bar will show:
+```
+(base != 'G') AND mapq > 10: 17 reads
+```
 
 3.3.2) Further Examples
 
 Beyond plain comparisons, SQLite's full function library is available. A few examples:
 
+READ LENGTH:
+
+Arithemtic functions are available. For example:
+```
+where end - start < 100
+```
+would filter the view to reads less than 100 bases long.
+
 CIGAR QUERYING:
 
-`cigar` is a plain string, so text matching works directly on it. E.g. to search for reads containing any insertion:
+`cigar` is a plain string, so text matching works directly on it. E.g. to filter for reads containing any insertion:
 ```
 where instr(cigar, 'I')
 ```
@@ -114,7 +129,7 @@ where cigar like '%I%'
 
 AUX TAGS:
 
-`tags` is a JSON blob of the read's aux tags. Tags may be extracted with `->>`:
+aux tags may be queried with `->>`:
 ```
 where tags ->> '$.NM' > 2
 ```
@@ -155,7 +170,7 @@ The first ten (`qname` through `mstart`) can also be displayed in tabular format
 
 For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs - consult the schema.
 
-5) A Word on `dump` Functionality
+4) A Word on `dump` Functionality
 
 A dump is a small, self-contained sqlite3 file with just the reads at the specified locus. A few use cases:
 
@@ -166,7 +181,7 @@ A dump is a small, self-contained sqlite3 file with just the reads at the specif
 
 Note that coordinate data within the dump is 1-based, matching the display.
 
-6) A Word on Indexing Systems
+5) A Word on Indexing Systems
 
 htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 0-based half-open and 1-based closed coordinate systems. This can be tricky to navigate.
 

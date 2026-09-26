@@ -119,6 +119,11 @@ struct DiskDumpStatus {
     const PileupDB& db, std::string_view path
 );
 
+// Formats an sqlite3 return code into a user-facing error.
+std::string describe_sqlite_failure (
+    int rc, std::string_view context,
+    std::optional<std::string_view> dbMsg = std::nullopt
+);
 
 }  // namespace query
 

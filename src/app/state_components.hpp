@@ -40,16 +40,16 @@ struct AppConfig {
              sqlite3_column_int (row, schema::ReadTableSelect::mapq)
          );
        }},
-      {false, "rstart", 14,
+      {false, "start", 14,
        [] (sqlite3_stmt* row) {
          return std::to_string (
-             sqlite3_column_int64 (row, schema::ReadTableSelect::rstart)
+             sqlite3_column_int64 (row, schema::ReadTableSelect::start)
          );
        }},
-      {false, "rend", 14,
+      {false, "end", 14,
        [] (sqlite3_stmt* row) {
          return std::to_string (
-             sqlite3_column_int64 (row, schema::ReadTableSelect::rend)
+             sqlite3_column_int64 (row, schema::ReadTableSelect::end)
          );
        }},
       {true, "cigar", 16,

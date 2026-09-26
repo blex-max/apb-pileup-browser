@@ -98,46 +98,6 @@ populate_db_mode_locus (
     std::optional<std::string_view> refPath, bool zeroBased
 );
 
-// Formats an sqlite3 return code into a user-facing error.
-static std::string describe_sqlite_failure (
-    int rc, std::string_view context,
-    std::optional<std::string_view> dbMsg = std::nullopt
-)
-{
-  switch (rc & 0xFF) {  // strip extended result code
-    case SQLITE_CANTOPEN:
-      return fmt::format (
-          "Failed to {}: could not open the file ({}).", context,
-          sqlite3_errstr (rc)
-      );
-    case SQLITE_PERM:
-    case SQLITE_READONLY:
-      return fmt::format (
-          "Failed to {}: permission denied ({}).", context,
-          sqlite3_errstr (rc)
-      );
-    case SQLITE_NOTADB:
-    case SQLITE_CORRUPT:
-      return fmt::format (
-          "Failed to {}: the file is not a valid sqlite3 "
-          "database, or is corrupt ({}).",
-          context, sqlite3_errstr (rc)
-      );
-    case SQLITE_FULL:
-    case SQLITE_IOERR:
-      return fmt::format (
-          "Failed to {}: a disk I/O error occurred ({}).", context,
-          sqlite3_errstr (rc)
-      );
-    default:
-      return fmt::format (
-          "Failed to {}, reporting code {} and status {} - "
-          "please report this failure to the maintainer.",
-          context, rc, dbMsg.value_or (sqlite3_errstr (rc))
-      );
-  }
-}
-
 int main (int argc, char** argv)
 {
   auto argRet = setup_cli (argc, argv);
@@ -161,7 +121,7 @@ int main (int argc, char** argv)
   }
 
   plog::init (
-      plog::debug, args.logPath.c_str(), 1000000 /* 10mb limit */, 1
+      plog::debug, args.logPath.c_str(), 10000000 /* 10mb limit */, 1
   );
 
   auto db{PileupDB::init()};
@@ -204,7 +164,7 @@ int main (int argc, char** argv)
           return EXIT_FAILURE;
         case PileupDB::LoadStatus::copyFail:
           std::cerr << "Error: "
-                    << describe_sqlite_failure (
+                    << query::describe_sqlite_failure (
                            loadStatus.sqlRc.value(), "load database",
                            loadStatus.sqlMsg
                        )
@@ -243,7 +203,7 @@ int main (int argc, char** argv)
         break;
       case query::DiskDumpStatus::fail:
         std::cerr << "Error: "
-                  << describe_sqlite_failure (
+                  << query::describe_sqlite_failure (
                          dumpStatus.sqlRc.value(), "dump database to disk",
                          dumpStatus.dumpDbMsg
                      )
@@ -631,6 +591,8 @@ static std::expected<void, std::string> populate_db_mode_locus (
             "Failed to load index file for alignment; is the "
             "file indexed?"
         );
+      default:
+        APB_UNREACHABLE ("unrecognised AlnFile load error");
     }
   }
   auto aln = std::move (*alnRet);
@@ -720,6 +682,8 @@ static std::expected<void, std::string> populate_db_mode_locus (
         return std::unexpected (
             "No reads in alignment file align to this locus"
         );
+      default:
+        APB_UNREACHABLE ("unrecognised PileupIterator prepare error");
     }
   }
   auto pileupIter{std::move (*prepareResult)};
@@ -730,10 +694,12 @@ static std::expected<void, std::string> populate_db_mode_locus (
     const auto err = irRet.error();
     switch (err.code) {
       case hts2sql::InsertPileupErr::sqlFail:
-        return std::unexpected (describe_sqlite_failure (
-            err.sqlRc.value(), "transform/insert alignment data",
-            sqlite3_errmsg (db)
-        ));
+        return std::unexpected (
+            query::describe_sqlite_failure (
+                err.sqlRc.value(), "transform/insert alignment data",
+                sqlite3_errmsg (db)
+            )
+        );
       case hts2sql::InsertPileupErr::auxParseFail:
         // TODO: provide qname/read/tag details
         return std::unexpected (
@@ -746,9 +712,11 @@ static std::expected<void, std::string> populate_db_mode_locus (
                 "Failed to fetch reference region from fasta "
                 "for "
                 "span {}:{}-{}",
-                contigName, pileupIter.span.start, pileupIter.span.end
+                contigName, pileupIter.span.start + 1, pileupIter.span.end
             )
         );
+      default:
+        APB_UNREACHABLE ("unrecognised InsertPileupErr code");
     }
   }
 

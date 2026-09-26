@@ -289,8 +289,7 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
 {
   // NOTE: currently does no error checking
   return {
-      .rStart =
-          sqlite3_column_int64 (row, schema::ReadTableSelect::rstart),
+      .rStart = sqlite3_column_int64 (row, schema::ReadTableSelect::start),
       .seq =
           [&row]() {
             const auto* p =
@@ -321,9 +320,17 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
           }(),
       .nCig =
           [&row]() {
-            return static_cast<uint64_t> (
-                sqlite3_column_int (row, schema::ReadTableSelect::ncig)
+            const auto rawNCig =
+                sqlite3_column_int (row, schema::ReadTableSelect::ncig);
+            const auto cigBytes = sqlite3_column_bytes (
+                row, schema::ReadTableSelect::cig_uint32
             );
+            APB_ASSERT (
+                rawNCig >= 0 &&
+                static_cast<uint64_t> (rawNCig) * sizeof (uint32_t) <=
+                    static_cast<uint64_t> (cigBytes)
+            );
+            return static_cast<uint64_t> (rawNCig);
           }()
   };
 };
@@ -655,6 +662,9 @@ static WidgetStatus draw_query_data (
       std::max (0, size (bWgt.frame.xspan) - 2 - minAlnPaneWidth)
   );
   tableWidth = std::min (tableWidth, maxTableWidth);
+  // No visible columns leaves nothing to lay the table pane out
+  // with; fall back to the no-table-pane layout below.
+  const bool showTable = conf.drawPaneSwitches.table && tableWidth > 0;
 
   const auto& [frameX, frameY] = spans (bWgt.frame);
   const auto& contentX = body (frameX);
@@ -662,7 +672,7 @@ static WidgetStatus draw_query_data (
   // skip header, separator. leave 2 rows at end
   const auto dataY = e2::Span{first (contentY) + 2, last (contentY) - 1};
 
-  if (conf.drawPaneSwitches.table) {
+  if (showTable) {
     const int splitAbsX = last (contentX) - tableWidth;
     e2::Span alnPaneX{first (contentX), splitAbsX};
     e2::Span tablePaneX{splitAbsX + 1, last (contentX)};
@@ -738,7 +748,7 @@ static WidgetStatus draw_query_data (
     );
   }
 
-  if (conf.drawPaneSwitches.table) {
+  if (showTable) {
     draw_table::header (bWgt.tablePaneHeaderLine, activeCols);
     draw_table::row_separators (bWgt.tablePaneDataBox, activeCols);
     /* draw pane separator */
@@ -791,7 +801,7 @@ static WidgetStatus draw_query_data (
             static_cast<int16_t> (seqWriteHead.y), db.selectStmt,
             db.locusInfo.refSlice, seq1Fixed
         );
-        if (conf.drawPaneSwitches.table) {
+        if (showTable) {
           draw_table::row1 (seqWriteHead.y, db.selectStmt, row1Fixed);
         }
         seqWriteHead.y += dHead.dy;
@@ -804,12 +814,17 @@ static WidgetStatus draw_query_data (
     bWgt.nReadOnscreen = nReadDrawn;
 
     /* draw crosshair */
-    if (const auto pileupScreenXPos = static_cast<int16_t> (
+    // Bounds-check before narrowing: userPanOffset can be far
+    // larger than an int16_t can hold, so compare in the wide
+    // type first and only truncate once known on-screen.
+    if (const int64_t pileupScreenXPosWide =
             first (bWgt.alnPaneDataBox.xspan) + alnPaneHalfWidth -
-            bWgt.userPanOffset
-        );
-        pileupScreenXPos < last (bWgt.alnPaneDataBox.xspan)) {
+            bWgt.userPanOffset;
+        pileupScreenXPosWide >= first (bWgt.alnPaneDataBox.xspan) &&
+        pileupScreenXPosWide < last (bWgt.alnPaneDataBox.xspan)) {
       // if user has not scrolled crosshair offscreen:
+      const auto pileupScreenXPos =
+          static_cast<int16_t> (pileupScreenXPosWide);
       e2::VLine pileupCrosshair{
           pileupScreenXPos, bWgt.alnPaneDataBox.yspan
       };

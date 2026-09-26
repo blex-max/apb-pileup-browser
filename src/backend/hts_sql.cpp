@@ -487,6 +487,44 @@ err_sql: {
 }
 }
 
+std::string describe_sqlite_failure (
+    int rc, std::string_view context, std::optional<std::string_view> dbMsg
+)
+{
+  switch (rc & 0xFF) {  // strip extended result code
+    case SQLITE_CANTOPEN:
+      return fmt::format (
+          "Failed to {}: could not open the file ({}).", context,
+          sqlite3_errstr (rc)
+      );
+    case SQLITE_PERM:
+    case SQLITE_READONLY:
+      return fmt::format (
+          "Failed to {}: permission denied ({}).", context,
+          sqlite3_errstr (rc)
+      );
+    case SQLITE_NOTADB:
+    case SQLITE_CORRUPT:
+      return fmt::format (
+          "Failed to {}: the file is not a valid sqlite3 "
+          "database, or is corrupt ({}).",
+          context, sqlite3_errstr (rc)
+      );
+    case SQLITE_FULL:
+    case SQLITE_IOERR:
+      return fmt::format (
+          "Failed to {}: a disk I/O error occurred ({}).", context,
+          sqlite3_errstr (rc)
+      );
+    default:
+      return fmt::format (
+          "Failed to {}, reporting code {} and status {} - "
+          "please report this failure to the maintainer.",
+          context, rc, dbMsg.value_or (sqlite3_errstr (rc))
+      );
+  }
+}
+
 }  // namespace query
 
 namespace hts2sql {

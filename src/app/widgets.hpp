@@ -49,8 +49,6 @@ struct UIBundle {
   OverlayWgt overlay;
   int screenH = -1;
   int screenW = -1;
-  // TODO: add individual dirty flags
-  // for each widget
 };
 
 // Calculates and sets sizes on statically-sized UI elements.

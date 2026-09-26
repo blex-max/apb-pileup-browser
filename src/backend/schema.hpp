@@ -60,8 +60,8 @@ CREATE TABLE reads (
     -- pileup position fields
     qname       TEXT,  -- Query template NAME
     flag        INTEGER NOT NULL,  -- bitwise FLAG
-    rstart      INTEGER NOT NULL CHECK (rstart > 0),       -- 1-based leftmost mapping pos
-    rend        INTEGER NOT NULL CHECK (rend >= rstart),   -- 1-based righmost mapping pos
+    start       INTEGER NOT NULL CHECK (start > 0),        -- 1-based leftmost mapping pos
+    end         INTEGER NOT NULL CHECK (end >= start),     -- 1-based righmost mapping pos
     mapq        INTEGER NOT NULL CHECK (mapq >= 0 AND mapq <= 255),  -- MAPping Quality
 
     base        CHAR(1) NOT NULL CHECK (length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
@@ -104,10 +104,10 @@ FOR EACH ROW
 BEGIN
   SELECT RAISE (ABORT, 'read span/position inconsistent with locus metadata')
   FROM metadata
-  WHERE NEW.rstart < metadata.start
-     OR NEW.rend   > metadata.end
-     OR NEW.rstart > metadata.pos
-     OR NEW.rend   < metadata.pos;
+  WHERE NEW.start < metadata.start
+     OR NEW.end   > metadata.end
+     OR NEW.start > metadata.pos
+     OR NEW.end   < metadata.pos;
 END;
 )sql";
 
@@ -119,8 +119,8 @@ struct ReadTableSelect {
     id,  // 0
     qname,
     flag,
-    rstart,
-    rend,
+    start,
+    end,
     mapq,
     base,
     basequal,
@@ -149,7 +149,7 @@ struct ReadTableSelect {
 
 inline constexpr std::string_view sqlInsertReads = R"sql(
 INSERT INTO reads (
-  qname, flag, rstart, rend, mapq,
+  qname, flag, start, end, mapq,
   base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
   cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
