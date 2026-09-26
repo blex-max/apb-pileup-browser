@@ -872,7 +872,7 @@ struct HelpCmd {
   inline static const CmdView view{call, alias, &operator(), usage, desc};
 };
 
-static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{{
+static constexpr std::array<const CmdView*, 14> kCmdRegistry{{
     &HelpCmd::view,
     &QuitCmd::view,
     &WhereCmd::view,
@@ -892,29 +892,29 @@ static constexpr std::array<const CmdView*, 14> cmdRegistry_SH{{
 // `view`s are not constexpr, so here's somewhat horrible
 // solution for compile time overlap checking. Keep in
 // sync with above!
-static constexpr std::array<std::span<const std::string_view>, 14>
-    cmdAliases_SH{
-        {HelpCmd::alias,
-         QuitCmd::callAlias,
-         WhereCmd::callAlias,
-         {},
-         {},
-         BackCmd::callAlias,
-         ClearWhereCmd::callAlias,
-         OrderCmd::callAlias,
-         ClearCmd::callAlias,
-         {},
-         ShowTableCmd::callAlias,
-         ShowTrackCmd::callAlias,
-         ShowTableColCmd::callAlias,
-         CountCmd::callAlias}
-    };
 static constexpr bool all_aliases_unique()
 {
-  for (size_t i = 0; i < cmdAliases_SH.size(); i++) {
-    const auto& iAliases = cmdAliases_SH[i];
-    for (size_t j = i + 1; j < cmdAliases_SH.size(); j++) {
-      const auto& jAliases = cmdAliases_SH[j];
+  static constexpr std::array<std::span<const std::string_view>, 14>
+      kCmdAlias{
+          {HelpCmd::alias,
+           QuitCmd::callAlias,
+           WhereCmd::callAlias,
+           {},
+           {},
+           BackCmd::callAlias,
+           ClearWhereCmd::callAlias,
+           OrderCmd::callAlias,
+           ClearCmd::callAlias,
+           {},
+           ShowTableCmd::callAlias,
+           ShowTrackCmd::callAlias,
+           ShowTableColCmd::callAlias,
+           CountCmd::callAlias}
+      };
+  for (size_t i = 0; i < kCmdAlias.size(); i++) {
+    const auto& iAliases = kCmdAlias[i];
+    for (size_t j = i + 1; j < kCmdAlias.size(); j++) {
+      const auto& jAliases = kCmdAlias[j];
       for (const auto& iAlias : iAliases) {
         for (const auto& jAlias : jAliases) {
           if (iAlias == jAlias) {
@@ -933,12 +933,12 @@ static_assert (
 
 static std::span<const CmdView* const> get_cmd_registry()
 {
-  return cmdRegistry_SH;
+  return kCmdRegistry;
 }
 
 static const CmdView* find_cmd (std::string_view name)
 {
-  for (const auto* br_cmd : cmdRegistry_SH) {
+  for (const auto* br_cmd : kCmdRegistry) {
     if (br_cmd->call == name ||
         (!br_cmd->alias.empty() &&
          std::ranges::contains (br_cmd->alias, name))) {

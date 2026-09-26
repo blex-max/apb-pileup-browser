@@ -26,20 +26,20 @@ It is recommended to read this manual using a line/word-wrapping pager, such as 
 Given an alignment file and a genomic locus apb builds the pileup at that position and loads the reads into a fast, queryable database structure. The TUI then renders the reads as aligned at the pileup position, displays user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command line at which you can enter commands to query the reads or change the display. The display and command line can be navigated via simple arrow key navigation.
 
 **IMPORTANT**:
-apb displays all coordinate data in the TUI in 0-based half-open coordinates, matching the internal representation of htslib. The sole exception is the locus argument when starting apb in locus mode from the command line, which is 1-based to match samtools view, and the representation of loci in VCF.
+apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line. See Section 6 ("A Word on Indexing Systems") for more detail.
 
 2) CLI Usage
 
 See the helptext from `apb --help` for the canonical guide to the CLI. Some additional context is given here.
 
-`apb locus ...` opens an alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`), loads the pileup, and launches the TUI. A locus is specified in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. If a reference is provided, the reference will be shown and the alignment view will be enriched indicating divergence from the reference in the displayed reads.
+`apb FILE LOCUS [REF]` opens an alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`), loads the pileup, and launches the TUI. A locus is specified in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. If a reference is provided, the reference will be shown and the alignment view will be enriched indicating divergence from the reference in the displayed reads.
 
 **IMPORTANT**:
-The locus coordinate is 1-based, as `samtools` CLI commands and the VCF spec. This is in contrast to the display inside the browser, which is 0 based.
+The locus coordinate is 1-based, as `samtools` CLI commands and the VCF spec - matching the coordinates displayed inside the browser (see Section 6, "A Word on Indexing Systems").
 
-`apb demo` runs against synthetic data, no alignment file required. Good for a first look at the tool, but note that since the data is artifically generated the data is unrealistic and relatively uniform, and therefore it is not the best test of apb.
+`apb --demo` runs against synthetic data, no alignment file required. Good for a first look at the tool, but note that since the data is artifically generated the data is unrealistic and relatively uniform, and therefore it is not the best test of apb.
 
-`apb db ...` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command).
+`apb --db DB` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command). `--demo` and `--db` are mutually exclusive with each other and with the FILE/LOCUS/REF arguments.
 
 `apb --log <path.txt>` enables debug logging. Valuable to turn on during this early development stage in case any crashes are encountered!
 
@@ -126,13 +126,13 @@ A read with no aux tags, or missing that specific tag, returns SQL `NULL`, so `w
 
 MOTIFS AT THE QUERY POSITION:
 
-This is a slightly more advanced example. `qpos` is the 0-based offset into `seq` for the base at the pileup position, and SQLite's `substr()` is 1-based, so to search for the 4-mer `GATC` starting at the query position:
+This is a slightly more advanced example. `qpos` is the 1-based offset into `seq` for the base at the pileup position, matching SQLite's own 1-based `substr()` indexing, so to search for the 4-mer `GATC` starting at the query position:
 ```
-where substr(seq, qpos + 1, 4) = 'GATC'
+where substr(seq, qpos, 4) = 'GATC'
 ```
 `LIKE` (`_`/`%`) and `GLOB` (`?`/`*`/`[ACG]`) both work as wildcards — `GLOB`'s character classes are useful for ambiguity. To search for two possible trinucleotide motifs at the query position:
 ```
-where substr(seq, qpos + 1, 3) glob 'A[CG]T'
+where substr(seq, qpos, 3) glob 'A[CG]T'
 ```
 You can also search for motifs within a window of the `seq` string. This command searches for `GATC` within the first 10 bases of the read:
 ```
@@ -166,9 +166,11 @@ A dump is a small, self-contained sqlite3 file with just the reads at the specif
 
 6) A Word on Indexing Systems
 
-htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 3 (3!!) coordinate systems. This can be tricky to navigate.
+htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 0-based half-open and 1-based closed coordinate systems. This can be tricky to navigate.
 
-apb uses 0-based half-open coordinates throughout, except for the locus argument when starting apb from the command line in locus mode, which is 1-based. A 1-based locus argument has the advantage of being identical to the VCF `POS` field per the VCF specification, and to `samtools` commands e.g. `samtools view ...`. However, `htslib`'s internal alignment representation format is 0-based, so it is more natural (and less bug-prone) to display the alignment information as 0-based. This is an inevitable UX compromise.
+apb uses 1-based closed coordinates throughtout, i.e coordinates start at 1, and coordinate ranges are [x-y] where both x and y are included. 1-based closed coordinates match the human-readable VCF and SAM format specs, and to `samtools` commands e.g. `samtools view ...`. Coordinates from these sources, i.e. a variant locus from a VCF, may be passed directly to the locus CLI argument at startup. Loci from 0-indexed sources, e.g. BED files, may be passed directly to the CLI argument if the `-0` flag is set, but the display and internal data will still be in 1-based closed coordinates. If extracting loci from unspecified or uncertain sources, make sure to confirm the coordinate system!
+
+ The 1-based coordinates as displayed in apb also match the behaviour of both `IGV` and `jbrowse`.
 
 ---
 

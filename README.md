@@ -73,16 +73,12 @@ Advantages:
 - UI optimised for one job - inspecting pileup loci - rather than general-purpose genome browsing.
 - Powerful SQL-backed query syntax for fast exploration.
 
-This software is in a demo state and feedback is very much appreciated as I work towards a 1.0 release!
+`apb` is pre-1.0 software! Feedback is very much appreciated as I work towards a 1.0 release, and features are subject to change until that time.
 
 For CLI/TUI usage, command syntax, and query examples, generate a markdown manual specific to your version with `apb --manual > MANUAL.md`
 (Check the helptext for exact instructions for manual generation).
-You may also read the copy of [MANUAL.md](MANUAL.md) shipped with the repository without building,
+You may also read the copy of [MANUAL.txt](MANUAL.txt) shipped with the repository without building,
 but note that it may not exactly correspond to your version of the tool!
-
-**`apb` displays all coordinate data in the TUI in 0-based half-open coordinates, matching the internal representation of htslib.
-The sole exception is the locus argument when starting `apb` from the command line, which is 1-based to match samtools view,
-and the representation of loci in VCF.**
 
 ## Install
 
@@ -113,7 +109,7 @@ cmake --build build
 
 The compiled binary can be found at `build/apb`.
 
-## Future Roadmap
+## Development Roadmap
 
 Feature suggestions are welcomed.
 General suggestions regarding improvements to commands and navigation are also appreciated; I'm happy to make changes before a 1.0 release.
@@ -133,46 +129,24 @@ These are items that I think might be useful and could implement, but am unlikel
 
 - Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
 - Allow providing a list or file of loci at the CLI, and jumping between them in the TUI.
-  - Could also support VCF-driven locus browsing more specifically.
+  - Three-column format - `contig`, `pos`, and, optionally, `id`. `id` would be arbitrary user data
+    to identify each locus, e.g. `REF:A-ALT:C`.
+  - This would allow programmatic provisioning of loci from any data type which you can convert into
+    this 3-col format. e.g. for VCF `bcftools view <some subsetting logic> my.vcf | awk <extract columns and create id> > loci.txt`
+  - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
+    not familiar with those tools.
 - Arbitrary locus-jumping from within TUI - e.g. `goto chr1:2500`.
-  - Currently the view is fixed to a single locus specified at startup.
-- Allow "saving" queries and returning to them within the same session, without having to type them out again.
+  - This feels like a nice idea, but I'm skeptical of how much time it saves over exiting the TUI and starting up again
+    at the new locus via the CLI.
+  - At very high depth it could give better performance as it would allow caching databases per locus if the user
+    is likely to revisit each locus more than once within a session.
+- Allow saving queries and returning to them within the same session, without having to type them out again.
 - Optionally use unicode block characters to draw the quality string as a "sparkline" for reading at a glance,
   like so: ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁ (example does not render well on github markdown viewer).
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
 
-### Non-feature Work
-
-- Consistently assert invariants and preconditions in all functions
-- Currently the demo mode database is fixed at compile time, meaning different builds will have different demo data.
-  The demo data is generated in a parameterised manner so this isn't a big problem but it would be nice if a single
-  demo database could be distributed within the src.
 
 ## Development
 
-### Use of Hungarian Notation
-
-**o_** - owned pointer, this scope must handle lifetime.  
-**br_** - borrowed pointer, this scope must not affect lifetime.  
-**k** - file-level constant used across multiple scopes. I don't use an underscore with this one.
-
-I am almost certainly not using these reliably, but I do find them helpful.
-
-### Dependencies
-
-| Dependency | Version | Found via |
-|---|---|---|
-| sqlite3 | ≥3.38 | system, `pkg-config` |
-| htslib | ≥1.17 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) |
-| termbox2 | 605398fa | Vendored |
-| plog | v1.1.10 | Vendored |
-| argparse | v3.2 | Vendored |
-| fmt | v12.2.0 | Vendored |
-| Catch2 [optional] | v3.8.1 | CMake FetchContent |
-
-### AI Usage
-
-This repo has been developed by hand, with some use of AI tools for extraneous work like implementing githooks etc.
-The design and implementation of all core types and logic are made by the maintainer.
-Contributions are more than welcome, but would ideally follow this standard.
+See [DEV.md](DEV.md) for a guide to the development of and contributing to `apb`.
 

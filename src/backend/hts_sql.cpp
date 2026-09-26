@@ -14,6 +14,19 @@
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 
+// Error handling convention for sqlite3 calls in this file:
+//
+// - APB_ASSERT/APB_UNREACHABLE where statements apb builds itself, run
+//   against a schema apb created or has already verified (schema
+//   fingerprint match, or a fresh PileupDB::init()). Any prepare/bind
+//   failure, or a SQLITE_CONSTRAINT step failure, means apb's own
+//   SQL/schema/bind order/invariants are corrupt and therefore a bug.
+//   These states should not be reachable with valid input. Some invariants
+//   are validated at multiple points - after the first validation, they
+//   are considered unreachable
+// - Returned/propagated error where failures are not within the control
+//   of apb - i.e. user input/ouput, out of memory, etc.
+
 namespace {
 // -- internal helpers --
 
@@ -90,6 +103,15 @@ PileupDB PileupDB::init()
     APB_UNREACHABLE (
         fmt::format (
             "failed to create reads table: {}", sqlite3_errstr (rc)
+        )
+    );
+  }
+
+  if (const auto rc = sqlite_exec (schema::sqlCreateReadSpanTrigger);
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to create read span trigger: {}", sqlite3_errstr (rc)
         )
     );
   }
@@ -465,26 +487,6 @@ err_sql: {
 }
 }
 
-StdoutDumpStatus dump_to_stdout (const PileupDB& db)
-{
-  sqlite3_int64 size = 0;
-  unsigned char* o_buf = sqlite3_serialize (db, "main", &size, 0);
-  if (o_buf == NULL) {
-    return {StdoutDumpStatus::sqliteSerialiseFail};
-  }
-
-  const size_t written =
-      std::fwrite (o_buf, 1, static_cast<size_t> (size), stdout);
-  sqlite3_free (o_buf);
-
-  if (written != static_cast<size_t> (size)) {
-    return {StdoutDumpStatus::writeFail};
-  }
-
-  std::fflush (stdout);
-  return {StdoutDumpStatus::success};
-}
-
 }  // namespace query
 
 namespace hts2sql {
@@ -521,7 +523,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
     free (o_fetch);
   }
 
-  // NOTE: nreads not currently recorded in metadata table
   auto rcInsMeta = insert_metadata (
       db, contigName, pileupIter.pos, pileupIter.span, refSlice
   );
@@ -535,7 +536,7 @@ std::expected<void, InsertPileupErr> insert_pileup (
 
   auto stmt = prepare_insert_reads_stmt (db);
 
-  // manually begin/commit transaction for perf
+  // manually begin/commit transaction.
   if (const auto rc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
@@ -580,6 +581,14 @@ std::expected<void, InsertPileupErr> insert_pileup (
     bind_pileup_fields (stmt, readI);
 
     if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
+      if ((rc & 0xFF) == SQLITE_CONSTRAINT) {
+        APB_UNREACHABLE (
+            fmt::format (
+                "read insert violated a schema constraint: {}",
+                sqlite3_errmsg (db)
+            )
+        );
+      }
       return std::unexpected (
           InsertPileupErr{.code = InsertPileupErr::sqlFail, .sqlRc = rc}
       );
@@ -608,7 +617,15 @@ std::expected<void, InsertPileupErr> insert_pileup (
   /*
     insert the pileup locus into the database's single metadata row.
     Uses automatic transaction handling, not necessary to begin/end transaction.
+
+    CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
   */
+  APB_ASSERT (!contigName.empty());
+  APB_ASSERT (pileupSpan.valid());
+  APB_ASSERT (pileupPos >= 0);
+  APB_ASSERT (pileupPos >= pileupSpan.start);
+  APB_ASSERT (pileupPos <= pileupSpan.end);
+
   SqliteStmt stmt;
   if (const auto rc = sqlite3_prepare_v2 (
           db, schema::sqlInsertMetadata.data(),
@@ -626,46 +643,46 @@ std::expected<void, InsertPileupErr> insert_pileup (
 
   // NOTE: TIED TO SCHEMA ORDER. BE CAREFUL!
   int col = 1;
-  int rc;
-  if (rc = sqlite3_bind_text (
-          stmt, col++, APB_VERSION, -1, SQLITE_TRANSIENT
+  auto bindOK = [&] (int rc) {
+    if (rc != SQLITE_OK) {
+      // fixed column count/order against a fixed SQL literal - a
+      // bind failure here can only mean the two have drifted apart,
+      // i.e. an apb bug.
+      APB_UNREACHABLE (
+          fmt::format ("bind failed: {}", sqlite3_errstr (rc))
       );
-      rc != SQLITE_OK) {
-    return rc;
-  }
-  if (rc = sqlite3_bind_text (
-          stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
-      );
-      rc != SQLITE_OK) {
-    return rc;
-  }
-  if (rc = sqlite3_bind_int64 (stmt, col++, pileupPos); rc != SQLITE_OK) {
-    return rc;
-  }
-  if ((rc = sqlite3_bind_int64 (stmt, col++, pileupSpan.start)) !=
-      SQLITE_OK) {
-    return rc;
-  }
-  if ((rc = sqlite3_bind_int64 (stmt, col++, pileupSpan.end)) !=
-      SQLITE_OK) {
-    return rc;
-  }
-  if (!refSlice) {
-    if (rc = sqlite3_bind_null (stmt, col++); rc != SQLITE_OK) {
-      return rc;
     }
+  };
+
+  bindOK (
+      sqlite3_bind_text (stmt, col++, APB_VERSION, -1, SQLITE_TRANSIENT)
+  );
+  bindOK (sqlite3_bind_text (
+      stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
+  ));
+  bindOK (sqlite3_bind_int64 (stmt, col++, pileupPos + 1));
+  bindOK (sqlite3_bind_int64 (stmt, col++, pileupSpan.start + 1));
+  bindOK (sqlite3_bind_int64 (stmt, col++, pileupSpan.end));
+  if (!refSlice) {
+    bindOK (sqlite3_bind_null (stmt, col++));
   }
   else {
-    if (rc = sqlite3_bind_text (
-            stmt, col++, (*refSlice).c_str(),
-            static_cast<int> ((*refSlice).size()), SQLITE_TRANSIENT
-        );
-        rc != SQLITE_OK) {
-      return rc;
-    }
+    APB_ASSERT (!(*refSlice).empty());
+    bindOK (sqlite3_bind_text (
+        stmt, col++, (*refSlice).c_str(),
+        static_cast<int> ((*refSlice).size()), SQLITE_TRANSIENT
+    ));
   }
 
-  if (rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
+  if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
+    if ((rc & 0xFF) == SQLITE_CONSTRAINT) {
+      APB_UNREACHABLE (
+          fmt::format (
+              "metadata insert violated a schema constraint: {}",
+              sqlite3_errmsg (db)
+          )
+      );
+    }
     return rc;
   }
   return {};
@@ -705,6 +722,9 @@ bool fill_fields (
   const auto* br_cig = bam_get_cigar (br_b1);
 
   pf.qPos = br_p1->qpos;
+  pf.start = br_b1->core.pos;
+  pf.mStart = br_b1->core.mpos;  // <0 == unaligned (or no mate)
+
   pf.indel = br_p1->indel;
   pf.isDel = br_p1->is_del;
   pf.isHead = br_p1->is_head;
@@ -714,10 +734,8 @@ bool fill_fields (
   // so assignment safe.
   pf.qName = bam_get_qname (br_b1);
   pf.flag = br_b1->core.flag;
-  pf.start = br_b1->core.pos;
   pf.mapQ = br_b1->core.qual;
   pf.mtidName = mTidName != NULL ? mTidName : "";
-  pf.mStart = br_b1->core.mpos;  // <0 == unaligned (or no mate)
   pf.rawCig = {br_cig, br_cig + nCig};
   pf.nCig = br_b1->core.n_cigar;
 
@@ -771,14 +789,21 @@ bool fill_fields (
     }
   }
 
+  APB_ASSERT (pf.valid());
   return true;
 }
 
 // Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads. Binding never evaluates table constraints
-// so a bind failure is always an invariant violation.
+// stmt_str_InsertReads. Binding does not evaluate table constraints
+// so bind failures are always an invariant violation.
+//
+// CONVERTS FROM 0-INDEXED PileupFields TO 1-INDEXED DB REPRESENTATION
 void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf)
 {
+  // backstop against callers (e.g. demo.cpp) that build PileupFields
+  // by hand rather than via fill_fields.
+  APB_ASSERT (pf.valid());
+
   // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
   int col = 1;
   auto bindOK = [&] (int rc) {
@@ -794,12 +819,12 @@ void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf)
       SQLITE_TRANSIENT
   ));
   bindOK (sqlite3_bind_int (stmt, col++, pf.flag));
-  bindOK (sqlite3_bind_int64 (stmt, col++, pf.start));
+  bindOK (sqlite3_bind_int64 (stmt, col++, pf.start + 1));
   bindOK (sqlite3_bind_int64 (stmt, col++, pf.end));
   bindOK (sqlite3_bind_int (stmt, col++, pf.mapQ));
   bindOK (sqlite3_bind_text (stmt, col++, &pf.base, 1, SQLITE_TRANSIENT));
   bindOK (sqlite3_bind_int (stmt, col++, pf.baseQual));
-  bindOK (sqlite3_bind_int64 (stmt, col++, pf.qPos));
+  bindOK (sqlite3_bind_int64 (stmt, col++, pf.qPos + 1));
   bindOK (sqlite3_bind_int (stmt, col++, pf.indel));
   bindOK (sqlite3_bind_int (stmt, col++, static_cast<int> (pf.isDel)));
   bindOK (sqlite3_bind_int (stmt, col++, static_cast<int> (pf.isHead)));
@@ -830,7 +855,7 @@ void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf)
     bindOK (sqlite3_bind_null (stmt, col++));
   }
   else {
-    bindOK (sqlite3_bind_int64 (stmt, col++, pf.mStart));
+    bindOK (sqlite3_bind_int64 (stmt, col++, pf.mStart + 1));
   }
   if (pf.auxJson.empty()) {
     bindOK (sqlite3_bind_null (stmt, col++));

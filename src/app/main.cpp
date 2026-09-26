@@ -8,7 +8,6 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,7 +15,6 @@
 #include "app/event.hpp"
 #include "app/manual.hpp"
 #include "app/state.hpp"
-#include "argparse/argparse.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
@@ -29,7 +27,9 @@
 // CLI definition. Must regularly check they
 // have not drifted.
 static constexpr std::string_view cliHelp =
-    R"txt(usage: apb [options] MODE [FILE] [LOCI] [REF]
+    R"txt(usage: apb [options] ALN LOCUS [REF]
+       apb [options] --demo
+       apb [options] --db DB
 
  apb is an terminal-based genome browser designed for viewing
  and querying pileup loci. It features an easy-to-navigate
@@ -39,32 +39,32 @@ static constexpr std::string_view cliHelp =
 
  Type `help` and press enter in the TUI for in-app help.
 
-modes:
-  locus  FILE LOCUS [REF]   view a single locus.
-                            FILE   alignment file (sam/bam/cram)
-                            LOCUS  genomic locus, e.g. chr1:12345
-                            REF    reference fasta (optional)
-  db     DB                 load from a dumped db.
-                            DB     path to db dump
-  demo                      view demo data.
+arguments:
+  ALN     alignment file (sam/bam/cram).
+  LOCUS   genomic locus, e.g. chr1:12345 (1-based)
+  REF     reference fasta (optional)
 
 options:
   -h, --help          show this help message and exit.
   -v, --version       print version information and exit.
+  --demo              view demo data, in place of
+                      FILE/LOCUS/REF.
+  --db DB             load from a dumped db, in place of
+                      FILE/LOCUS/REF. DB path to db dump.
+                      (mutually exclusive with --demo)
   --dump PATH         convert pileup to sqlite3 database,
-                      dump to disk, and exit. PATH may be
-                      - to dump to stdout.
-                      (invalid in db mode)
+                      dump to disk, and exit.
+                      (invalid with --db)
   --manual            Print the apb manual to stdout and exit.
   --schema            Print the apb SQL schema to stdout and exit.
   --log PATH          log debug output to file.
+  -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
+                      file) instead of 1-based. Not valid
+                      with --demo/--db.
 
  **IMPORTANT**:
-  apb displays all coordinate data in 0-based half-open
-  coordinates, matching the internal representation of htslib.
-  The sole exception is the locus argument to locus mode,
-  which is 1-based to match samtools, and the
-  representation of loci in VCF.
+  apb displays all coordinate data, including LOCUS, in
+  1-based closed coordinates.
 
  On startup your cursor will be focused at the in-app
  command line at the bottom of the TUI. In the TUI,
@@ -85,6 +85,7 @@ struct ApbCliArgs {
   std::string refPath;
   std::string dumpPath;
   std::string logPath;
+  bool zeroBased = false;
 };
 
 static std::expected<ApbCliArgs, std::string> setup_cli (
@@ -94,7 +95,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 [[nodiscard]] static std::expected<void, std::string>
 populate_db_mode_locus (
     PileupDB& db, std::string_view alnPath, std::string_view locus,
-    std::optional<std::string_view> refPath
+    std::optional<std::string_view> refPath, bool zeroBased
 );
 
 // Formats an sqlite3 return code into a user-facing error.
@@ -170,7 +171,8 @@ int main (int argc, char** argv)
       if (const auto popRet = populate_db_mode_locus (
               db, args.alnPath, args.locus,
               (args.refPath.empty()) ? std::nullopt
-                                     : std::optional (args.refPath)
+                                     : std::optional (args.refPath),
+              args.zeroBased
           );
           !popRet) {
         std::cerr << "Error: " << popRet.error() << std::endl;
@@ -234,41 +236,19 @@ int main (int argc, char** argv)
 
 
   if (!args.dumpPath.empty()) {
-    if (args.dumpPath == "-") {
-      switch (const auto dumpStatus = query::dump_to_stdout (db);
-              dumpStatus.code) {
-        case query::StdoutDumpStatus::success:
-          break;
-        case query::StdoutDumpStatus::sqliteSerialiseFail:
-          std::cerr << fmt::format (
-                           "Error: failed to serialise "
-                           "database. Please "
-                           "report this to the maintainer."
-                       )
-                    << std::endl;
-          return EXIT_FAILURE;
-        case query::StdoutDumpStatus::writeFail:
-          std::cerr << "Error: failed to write database to "
-                       "stdout. Output may be corrupted."
-                    << std::endl;
-          return EXIT_FAILURE;
-      }
-    }
-    else {
-      switch (const auto dumpStatus =
-                  query::dump_to_disk (db, args.dumpPath);
-              dumpStatus.code) {
-        case query::DiskDumpStatus::success:
-          break;
-        case query::DiskDumpStatus::fail:
-          std::cerr << "Error: "
-                    << describe_sqlite_failure (
-                           dumpStatus.sqlRc.value(),
-                           "dump database to disk", dumpStatus.dumpDbMsg
-                       )
-                    << std::endl;
-          return EXIT_FAILURE;
-      }
+    switch (const auto dumpStatus =
+                query::dump_to_disk (db, args.dumpPath);
+            dumpStatus.code) {
+      case query::DiskDumpStatus::success:
+        break;
+      case query::DiskDumpStatus::fail:
+        std::cerr << "Error: "
+                  << describe_sqlite_failure (
+                         dumpStatus.sqlRc.value(), "dump database to disk",
+                         dumpStatus.dumpDbMsg
+                     )
+                  << std::endl;
+        return EXIT_FAILURE;
     }
     // dump succeeded, don't launch TUI.
     return EXIT_SUCCESS;
@@ -312,7 +292,8 @@ int main (int argc, char** argv)
       }
   };
   state.ui.cmd.msgBuf =
-      "Welcome to apb! All coordinate data is 0-indexed.";
+      "Welcome to apb! All coordinate data is in 1-based closed "
+      "coordinates.";
 
   if (setlocale (LC_ALL, "") == nullptr) {
     std::cerr << "Warning: could not set locale from environment; "
@@ -491,98 +472,138 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
     int argc, char** argv
 )
 {
-  argparse::ArgumentParser cli (
-      "apb", APB_VERSION, argparse::default_arguments::none
-  );
-  std::string logPath;
-
   // NOTE: helptext NOT built from
   // CLI; see helptext above. Confirm
-  // they match when making changes
-  // NOTE: some args perform an action and immediately exit
-  // the program.
-  cli.add_argument ("-h", "--help")
-      .action ([] (const auto&) {
-        std::cout << cliHelp << "\n";
-        std::exit (0);
-      })
-      .flag();
-  cli.add_argument ("-v", "--version")
-      .action ([] (const auto&) {
-        std::cout << APB_VERSION << "\n";
-        std::exit (0);
-      })
-      .flag();
-  cli.add_argument ("--manual").flag().action ([] (const auto&) {
-    std::cout << get_manual();
-    std::exit (EXIT_SUCCESS);
-  });
-  cli.add_argument ("--schema").flag().action ([] (const auto&) {
-    std::cout << schema::sqlCreateReadsTable;
-    std::exit (EXIT_SUCCESS);
-  });
+  // they match when making changes.
 
-  cli.add_argument ("--dump").metavar ("PATH");
-  cli.add_argument ("--log").nargs (1).metavar ("PATH").store_into (
-      logPath
-  );
+  std::string dumpPath;
+  std::string dbPath;
+  std::string logPath;
+  bool zeroBased = false;
+  bool demoRequested = false;
+  bool dbRequested = false;
+  bool dumpRequested = false;
+  std::vector<std::string> argPack;
 
-  cli.add_argument ("MODE").choices ("locus", "db", "demo");
-  cli.add_argument ("ARGS").nargs (0, 3).default_value (
-      std::vector<std::string>{}
-  );
+  auto parseFail = [] (std::string msg) -> std::unexpected<std::string> {
+    return std::unexpected (fmt::format ("{}\n{}\n", msg, cliHelp));
+  };
 
-  try {
-    cli.parse_args (argc, argv);
+  auto takeValue = [&] (
+                       int& i, std::string_view flag
+                   ) -> std::expected<std::string, std::string> {
+    if (i + 1 >= argc) {
+      return std::unexpected (
+          fmt::format ("{}: expected one argument", flag)
+      );
+    }
+    return std::string (argv[++i]);
+  };
+
+  for (int i = 1; i < argc; ++i) {
+    std::string_view arg = argv[i];
+
+    if (arg == "-h" || arg == "--help") {
+      std::cout << cliHelp << "\n";
+      std::exit (0);
+    }
+    else if (arg == "-v" || arg == "--version") {
+      std::cout << APB_VERSION << "\n";
+      std::exit (0);
+    }
+    else if (arg == "--manual") {
+      std::cout << get_manual();
+      std::exit (EXIT_SUCCESS);
+    }
+    else if (arg == "--schema") {
+      std::cout << schema::sqlCreateReadsTable;
+      std::exit (EXIT_SUCCESS);
+    }
+    else if (arg == "-0" || arg == "--zero-based") {
+      zeroBased = true;
+    }
+    else if (arg == "--demo") {
+      demoRequested = true;
+    }
+    else if (arg == "--dump") {
+      auto val = takeValue (i, "--dump");
+      if (!val) {
+        return parseFail (val.error());
+      }
+      dumpPath = *val;
+      dumpRequested = true;
+    }
+    else if (arg == "--log") {
+      auto val = takeValue (i, "--log");
+      if (!val) {
+        return parseFail (val.error());
+      }
+      logPath = *val;
+    }
+    else if (arg == "--db") {
+      auto val = takeValue (i, "--db");
+      if (!val) {
+        return parseFail (val.error());
+      }
+      dbPath = *val;
+      dbRequested = true;
+    }
+    else if (arg.starts_with ("-")) {
+      return parseFail (fmt::format ("unrecognized argument: {}", arg));
+    }
+    else {
+      argPack.emplace_back (arg);
+    }
   }
-  catch (const std::exception& ex) {
-    std::ostringstream oss;
-    oss << ex.what() << "\n" << cliHelp << "\n";
-    return std::unexpected (oss.str());
+
+  if (demoRequested && dbRequested) {
+    return parseFail ("arguments --db and --demo are mutually exclusive");
   }
 
   ApbCliArgs parsedArgs;
   parsedArgs.logPath = logPath;
 
-  const auto& mode = cli.get<std::string> ("MODE");
-  const auto& argPack = cli.get<std::vector<std::string>> ("ARGS");
-  if (mode == "locus") {
-    if (argPack.size() < 2 || argPack.size() > 3) {
-      return std::unexpected ("locus mode expects FILE LOCUS [REF]");
+  if (demoRequested) {
+    if (!argPack.empty()) {
+      return std::unexpected ("--demo takes no positional arguments");
     }
-    parsedArgs.mode = ApbMode::locus, parsedArgs.alnPath = argPack[0],
+    if (zeroBased) {
+      return std::unexpected ("-0/--zero-based is not valid with --demo");
+    }
+    parsedArgs.mode = ApbMode::demo;
+    if (dumpRequested) {
+      parsedArgs.dumpPath = dumpPath;
+    }
+  }
+  else if (dbRequested) {
+    if (!argPack.empty()) {
+      return std::unexpected ("--db takes no positional arguments");
+    }
+    if (dumpRequested) {
+      return std::unexpected ("--dump is not valid with --db");
+    }
+    if (zeroBased) {
+      return std::unexpected ("-0/--zero-based is not valid with --db");
+    }
+    parsedArgs.mode = ApbMode::db;
+    parsedArgs.dbPath = dbPath;
+  }
+  else {
+    if (argPack.size() < 2 || argPack.size() > 3) {
+      return std::unexpected (
+          "expected ALN LOCUS [REF] (or pass --demo / --db PATH)"
+      );
+    }
+    parsedArgs.mode = ApbMode::locus;
+    parsedArgs.alnPath = argPack[0];
     parsedArgs.locus = argPack[1];
     if (argPack.size() == 3) {
       parsedArgs.refPath = argPack[2];
     }
-    if (const auto& dumpPath = cli.present<std::string> ("--dump")) {
-      parsedArgs.dumpPath = *dumpPath;
+    if (dumpRequested) {
+      parsedArgs.dumpPath = dumpPath;
     }
-  }
-  else if (mode == "demo") {
-    if (!argPack.empty()) {
-      return std::unexpected ("demo mode takes no arguments");
-    }
-    parsedArgs.mode = ApbMode::demo;
-    if (const auto& dumpPath = cli.present<std::string> ("--dump")) {
-      parsedArgs.dumpPath = *dumpPath;
-    }
-  }
-  else if (mode == "db") {
-    if (argPack.empty()) {
-      return std::unexpected ("db mode expects DB");
-    }
-    if (argPack.size() > 1) {
-      return std::unexpected ("db mode expects only a single DB argument");
-    }
-    if (cli.present<std::string> ("--dump")) {
-      return std::unexpected ("--dump is not valid in db mode");
-    }
-    parsedArgs.mode = ApbMode::db;
-    parsedArgs.dbPath = argPack[0];
-  }
-  else {
-    APB_UNREACHABLE ("unrecognised mode");
+    parsedArgs.zeroBased = zeroBased;
   }
 
   return parsedArgs;
@@ -591,7 +612,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 // separated into fn for readability
 static std::expected<void, std::string> populate_db_mode_locus (
     PileupDB& db, std::string_view alnPath, std::string_view locus,
-    std::optional<std::string_view> refPath
+    std::optional<std::string_view> refPath, bool zeroBased
 )
 {
   PLOGD << "Opening alignment file";
@@ -646,6 +667,13 @@ static std::expected<void, std::string> populate_db_mode_locus (
             locus
         )
     );
+  }
+  if (zeroBased) {
+    // hts_parse_region always treats the input as 1-based and
+    // subtracts 1; add it back to recover a caller-supplied 0-based
+    // position (e.g. a BED file's start column). pend is unused past
+    // this point, so it doesn't need the same adjustment.
+    pos += 1;
   }
 
   std::string contigName;

@@ -20,9 +20,9 @@ CREATE TABLE metadata (
     id     INTEGER PRIMARY KEY CHECK (id = 1),  -- one row only; one locus per db
     apb_version TEXT NOT NULL,
     contig TEXT NOT NULL CHECK (contig <> ''),
-    pos    INTEGER NOT NULL, -- 0-based pileup position
-    start  INTEGER NOT NULL CHECK (start >= 0),
-    end    INTEGER NOT NULL CHECK (start < end),
+    pos    INTEGER NOT NULL CHECK (pos > 0), -- 1-based pileup position
+    start  INTEGER NOT NULL CHECK (start > 0),
+    end    INTEGER NOT NULL CHECK (start <= end),
     ref    TEXT,             -- reference slice spanned by pileup
     CHECK (pos >= start AND pos <= end)
 )
@@ -60,14 +60,14 @@ CREATE TABLE reads (
     -- pileup position fields
     qname       TEXT,  -- Query template NAME
     flag        INTEGER NOT NULL,  -- bitwise FLAG
-    rstart      INTEGER NOT NULL,  -- 0-based leftmost mapping pos
-    rend        INTEGER NOT NULL,  -- 0-based righmost mapping pos
-    mapq        INTEGER NOT NULL,  -- MAPping Quality
+    rstart      INTEGER NOT NULL CHECK (rstart > 0),       -- 1-based leftmost mapping pos
+    rend        INTEGER NOT NULL CHECK (rend >= rstart),   -- 1-based righmost mapping pos
+    mapq        INTEGER NOT NULL CHECK (mapq >= 0 AND mapq <= 255),  -- MAPping Quality
 
     base        CHAR(1) NOT NULL CHECK (length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
-    basequal    INTEGER NOT NULL,  -- query base quality
-    qpos        INTEGER NOT NULL,  -- 0-based offset into seq/qual at this position
-    indel       INTEGER NOT NULL,  -- indel length to the next position (0 none, >0 ins, <0 del) NOTE: best format?
+    basequal    INTEGER NOT NULL CHECK (basequal >= 0),  -- query base quality
+    qpos        INTEGER NOT NULL CHECK (qpos > 0),  -- 1-based offset into seq/qual at this position
+    indel       INTEGER NOT NULL,  -- indel length to the next position (0 none, >0 ins, <0 del)
     is_del      INTEGER NOT NULL CHECK (is_del IN (0, 1)),
     is_head     INTEGER NOT NULL CHECK (is_head IN (0, 1)),
     is_tail     INTEGER NOT NULL CHECK (is_tail IN (0, 1)),
@@ -79,7 +79,7 @@ CREATE TABLE reads (
     qual        TEXT NOT NULL,  -- ASCII of Phred-scaled base QUALity+33
 
     mtid        TEXT,  -- Ref name of the mate/next read ('=' if same as tid per spec)
-    mstart      INTEGER,  -- 0-based leftmost mappig position of the mate/next read, can be null
+    mstart      INTEGER CHECK (mstart IS NULL OR mstart > 0),  -- 1-based leftmost mapping position of the mate/next read, can be null
 
     -- Aux tags serialized as a JSON
     -- e.g. {"NM":2,"MD":"76","RG":"sample1"}. Query individual tags with
@@ -95,12 +95,20 @@ CREATE TABLE reads (
 );
 )sql";
 
-inline constexpr std::string_view sqlInsertReads = R"sql(
-INSERT INTO reads (
-  qname, flag, rstart, rend, mapq,
-  base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
-  cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+// cross-table invariant a CHECK constraint can't express.
+inline constexpr std::string_view sqlCreateReadSpanTrigger =
+    R"sql(
+CREATE TRIGGER validate_read_span
+AFTER INSERT ON reads
+FOR EACH ROW
+BEGIN
+  SELECT RAISE (ABORT, 'read span/position inconsistent with locus metadata')
+  FROM metadata
+  WHERE NEW.rstart < metadata.start
+     OR NEW.rend   > metadata.end
+     OR NEW.rstart > metadata.pos
+     OR NEW.rend   < metadata.pos;
+END;
 )sql";
 
 struct ReadTableSelect {
@@ -139,5 +147,12 @@ struct ReadTableSelect {
       R"sql(SELECT COUNT(*) FROM reads)sql";
 };
 
+inline constexpr std::string_view sqlInsertReads = R"sql(
+INSERT INTO reads (
+  qname, flag, rstart, rend, mapq,
+  base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
+  cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+)sql";
 
 }  // namespace schema

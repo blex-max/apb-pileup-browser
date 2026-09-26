@@ -82,9 +82,10 @@ enum class RowIterStatus : uint8_t { rowAvail, exhausted };
 std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt);
 
 // locus metadata as extracted from db.
+// 1-indexed!
 struct PileupMetadata {
   std::string contig;
-  int64_t pos;  // 0-based pileup position, per loci.pos
+  int64_t pos;  // 1-based pileup position, per loci.pos
   int64_t start;
   int64_t end;
   std::optional<std::string> refSlice;
@@ -93,7 +94,7 @@ struct PileupMetadata {
   // (schema.hpp) - kept as a backstop.
   bool valid() const noexcept
   {
-    return !contig.empty() && start >= 0 && start < end && pos >= start &&
+    return !contig.empty() && start > 0 && end >= start && pos >= start &&
            pos <= end;
   }
 };
@@ -118,18 +119,6 @@ struct DiskDumpStatus {
     const PileupDB& db, std::string_view path
 );
 
-// Serialize the in-memory database and write the raw bytes to
-// stdout, for `--dump -`.
-struct StdoutDumpStatus {
-  enum Code : uint8_t {
-    success,
-    sqliteSerialiseFail,
-    writeFail,
-  };
-  Code code;
-};
-[[nodiscard]] StdoutDumpStatus dump_to_stdout (const PileupDB& db);
-
 
 }  // namespace query
 
@@ -142,7 +131,8 @@ struct InsertPileupErr {
   std::optional<int> sqlRc = std::nullopt;
   std::optional<int> htsRc = std::nullopt;
 };
-// insert reads at pileup position into database
+// insert reads at pileup position into database.
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
     PileupDB& db, const PileupIterator& pileupIter,
     const std::string& contigName, const sam_hdr_t* br_alnHdr,
@@ -151,6 +141,7 @@ struct InsertPileupErr {
 
 // insert pileup locus info into single-row metadata table.
 // Returns void or int sqlite3 error code
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] int insert_metadata (
     PileupDB& db, const std::string& contigName, int64_t pileupPos,
     const GenomicSpan& pileupSpan,
@@ -165,6 +156,10 @@ SqliteStmt prepare_insert_reads_stmt (PileupDB& db);
 // flat layout of htslib data to be entered
 // into the database for a single read.
 struct PileupFields {
+  // 0-INDEXED: MATCHES RAW HTSLIB REPRESENTATION.
+  // Shifted to the DB's 1-indexed representation at bind time,
+  // in bind_pileup_fields (hts_sql.cpp).
+
   // NOTE: layout as table schema
   std::string qName;
   uint16_t flag;
@@ -189,6 +184,13 @@ struct PileupFields {
 
   std::vector<uint32_t> rawCig;
   size_t nCig;
+
+  bool valid() const noexcept
+  {
+    return start >= 0 && end > start && qPos >= 0 &&
+           seqBases.size() == qualAscii.size() && nCig == rawCig.size() &&
+           !rawCig.empty();
+  }
 };
 
 // convert to database-facing interface type

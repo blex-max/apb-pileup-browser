@@ -42,9 +42,6 @@ add_library(plog INTERFACE)
 add_library(plog::plog ALIAS plog)
 target_include_directories(plog SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/plog/include")
 
-add_library(argparse INTERFACE)
-target_include_directories(argparse SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/argparse/include")
-
 add_library(fmt-header-only INTERFACE)
 add_library(fmt::fmt-header-only ALIAS fmt-header-only)
 target_include_directories(fmt-header-only SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/fmt/include")
@@ -118,7 +115,6 @@ target_link_libraries(apb
   PRIVATE
   termbox2
   plog::plog
-  argparse
   fmt::fmt-header-only
   ${HTSLIB_TARGET}
   PkgConfig::DEPS

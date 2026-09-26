@@ -9,13 +9,11 @@
 #include <string>
 
 struct GenomicSpan {
+  // 0-indexed htslib-side span
   hts_pos_t start;
   hts_pos_t end;
 
-  bool valid() const noexcept
-  {
-    return start >= 0 && end >= 0 && end > start;
-  }
+  bool valid() const noexcept { return start >= 0 && end > start; }
 };
 
 // resolve tid to name
