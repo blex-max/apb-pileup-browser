@@ -164,13 +164,15 @@ A dump is a small, self-contained sqlite3 file with just the reads at the specif
 - Sharing - send a colleague exactly the reads you're looking at, at a fraction of the size, without them needing the original BAM/CRAM, reference genome, or even apb if they're happy just to use `sqlite3`.
 - Debugging (for developers) - a dump is a stable snapshot of exactly what got loaded, inspectable without the original alignment file or TUI. Mostly relevant if you're developing apb itself rather than just using it.
 
+Note that coordinate data within the dump is 1-based, matching the display.
+
 6) A Word on Indexing Systems
 
 htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 0-based half-open and 1-based closed coordinate systems. This can be tricky to navigate.
 
 apb uses 1-based closed coordinates throughtout, i.e coordinates start at 1, and coordinate ranges are [x-y] where both x and y are included. 1-based closed coordinates match the human-readable VCF and SAM format specs, and to `samtools` commands e.g. `samtools view ...`. Coordinates from these sources, i.e. a variant locus from a VCF, may be passed directly to the locus CLI argument at startup. Loci from 0-indexed sources, e.g. BED files, may be passed directly to the CLI argument if the `-0` flag is set, but the display and internal data will still be in 1-based closed coordinates. If extracting loci from unspecified or uncertain sources, make sure to confirm the coordinate system!
 
- The 1-based coordinates as displayed in apb also match the behaviour of both `IGV` and `jbrowse`.
+The 1-based coordinates as displayed in apb also match the behaviour of both `IGV` and `jbrowse`.
 
 ---
 
