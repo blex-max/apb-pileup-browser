@@ -8,6 +8,11 @@ Before merging to main/making a release, please run through [PRERELEASE.md](PRER
 
 See the roadmap in [README.md](README.md).
 
+### Query syntax relative locus syntax
+  - This could be implemented via a post-hoc filter on the returned sql rows,
+    or via an internal custom sql function (https://www.sqlite.org/appfunc.html).
+    The latter option is likely to compose better with future development.
+
 ## Open Non-Feature Work
 
 - Consistently assert invariants, preconditions, and postconditions in all functions,
