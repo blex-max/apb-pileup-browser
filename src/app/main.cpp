@@ -36,7 +36,9 @@ static constexpr std::string_view cliHelp =
  an easy-to-navigate interface and powerful SQL-based query
  syntax.
 
- Print the manual with `apb --manual` for extended help.
+ Print the manual with `apb --manual` for a complete, concise
+ guide to using apb. It is best read with a pager, e.g.
+ `apb --manual | less`.
 
  Type `help` and press enter in the TUI for in-app help.
 
