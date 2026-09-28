@@ -119,8 +119,8 @@ General suggestions regarding improvements to commands and navigation are also a
 ### Planned Features
 
 - Multiple alignment pileups.
-- More stats in the status bar; allele counts, VAF (when in variant driven mode), reference span complexity assessment (useful when
-  assessing artefactual variants).
+- More stats in the status bar; allele counts/VAF, reference span complexity (useful when
+  assessing artefactual variants), etc.
 - query syntax shorthand for referencing bases or CIGAR operations at loci in the pileup span other than the pileup locus itself,
   e.g. `where @at(+3, cigar, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
   This is not plausible in direct SQL. Exact syntax TBD!
