@@ -66,7 +66,7 @@ CREATE TABLE reads (
     mapq        INTEGER NOT NULL CHECK (mapq >= 0 AND mapq <= 255),  -- MAPping Quality
 
     base        CHAR(1) NOT NULL CHECK (length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
-    basequal    INTEGER NOT NULL CHECK (basequal >= 0),  -- query base quality
+    basequal    INTEGER NOT NULL CHECK (basequal > -10 AND basequal < 100),  -- query base quality. Bounds checks conservative, see base-quality-ranges.txt in repo.
     qpos        INTEGER NOT NULL CHECK (qpos > 0),  -- 1-based offset into seq/qual at this position
     indel       INTEGER NOT NULL,  -- indel length to the next position (0 none, >0 ins, <0 del)
     is_del      INTEGER NOT NULL CHECK (is_del IN (0, 1)),
