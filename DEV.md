@@ -18,7 +18,6 @@ See the roadmap in [README.md](README.md).
 - On a failure to parse an aux tag reported back to main.cpp, the qname of the read with the corrupt data
   should be reported.
 - Some light validation of user sql statements would be useful, e.g. ensuring no semicolons in statement.
-  - unlikely to cause issues in practice
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
 - Better handling of resizing to tiny sizes - see TODO comments in src/.
 - Add version-match checking to db load mode - if and when breaking changes apply
@@ -29,10 +28,10 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
 
 - Good error handling is paramount.
   - Prefer Err/Status types and/or expected<T, E> over exceptions.
-    Exceptions are really complicated and not really justified in a code base of this size, and can be tricky to reason about.
+    Exceptions have complex implications and not really justified in a code base of this size.
   - Prefer tightly-scoped error types over shared error types - the shared type
     just leads to pushing the error back up the chain without ever properly handling it.
-    Scoped types can feel a bit clunky but I think they're worthwhile.
+    Scoped types can feel a bit clunky at boundaries but I think they're worthwhile.
   - Where a function returns no result but could error, return a Status type of appropriate richness.
   - where a function returns a result but may error, use expected<T, E> with an E type of appropriate richness.
   - When wrapping calls to a c library where the error space is scoped to the error space of that c library,
@@ -49,12 +48,12 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
 - Add assertions and precondition checks to all functions.
   - This is a very revealing as a practice!
   - It's a lot easier to keep track of preconditions if you don't modularise/split large
-    functions unneccessarily.
+    functions unnecessarily.
   - Asserting what you believe to be true makes it much easier to implement your intention.
   - Regular use of assertions make debugging much easier.
 
 - Braces avoid issues with variable initialisation when jumping via goto or switch case (I forget this sometimes).
-  - default to using braces with case statments!
+  - default to using braces with case statements!
 
 I am almost certainly not using these reliably, but I do find them helpful.
 
