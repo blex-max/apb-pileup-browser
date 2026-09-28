@@ -73,10 +73,14 @@ Advantages:
 All features are subject to change. You may experience crashes or bugs - if so, please report them!
 Feedback and feature requests are very much appreciated.
 
+## Usage 
 For CLI/TUI usage, command syntax, and query examples, you can generate a manual specific to your version with `apb --manual > MANUAL.txt`
 (Check the helptext for exact instructions for manual generation).
+
 You may also read the copy of [MANUAL.txt](MANUAL.txt) shipped with the repository without building,
 but note that it may not exactly correspond to your version of the tool!
+
+If you are new to the tool, it is strongly recommend that you read the manual and play around with `apb --demo`. The manual is short and it's easy to miss some of the most powerful features otherwise!
 
 ## Install
 
