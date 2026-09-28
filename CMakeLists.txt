@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.22)
 
 project(apb
   LANGUAGES CXX
-  VERSION 0.0.1
+  VERSION 0.1.0
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -13,27 +13,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
 
-option(MAKE_TEST "Build the unit test binary" OFF)
-
 find_package(PkgConfig REQUIRED)
 # >=3.38: reads.tags relies on the built-in json_valid() (JSON support was
 # folded into core sqlite3 in 3.38; before that it required the JSON1
 # extension to be compiled in separately).
 pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3>=3.38)
 
-include(FetchContent)
-set(FETCHCONTENT_QUIET OFF)
-
-if(MAKE_TEST)
-  FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG        v3.8.1
-    GIT_SHALLOW    TRUE
-    SYSTEM
-  )
-  FetchContent_MakeAvailable(Catch2)
-endif()
+add_library(doctest INTERFACE)
+target_include_directories(doctest SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/doctest")
 
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/termbox2")
@@ -41,9 +28,6 @@ target_include_directories(termbox2 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor
 add_library(plog INTERFACE)
 add_library(plog::plog ALIAS plog)
 target_include_directories(plog SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/plog/include")
-
-add_library(argparse INTERFACE)
-target_include_directories(argparse SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/argparse/include")
 
 add_library(fmt-header-only INTERFACE)
 add_library(fmt::fmt-header-only ALIAS fmt-header-only)
@@ -81,15 +65,11 @@ endif()
 
 add_executable(apb
   src/app/main.cpp
-  src/app/orch.cpp
-  src/app/cli.cpp
-  src/app/subcommands.cpp
   src/app/widgets.cpp
   src/app/cmd.cpp
   src/app/manual.cpp
   src/app/event.cpp
-  src/backend/PileupDB.cpp
-  src/backend/pileup_ingest.cpp
+  src/backend/hts_sql.cpp
   src/backend/hts_types.cpp
   src/frontend/tb2_impl.cpp
   src/frontend/input.cpp
@@ -122,33 +102,42 @@ target_link_libraries(apb
   PRIVATE
   termbox2
   plog::plog
-  argparse
   fmt::fmt-header-only
   ${HTSLIB_TARGET}
   PkgConfig::DEPS
 )
 
-if(MAKE_TEST)
-  enable_testing()
-  add_executable(apb-tests
-    src/backend/PileupDB.cpp
-    src/backend/pileup_ingest.cpp
-    src/backend/hts_types.cpp
-    tests/test_stringify.cpp
-    tests/test_schema.cpp
-    tests/test_ingest.cpp
-    tests/test_query.cpp
-  )
-  target_include_directories(apb-tests PRIVATE src)
-  target_link_libraries(apb-tests
-    PRIVATE
-    Catch2::Catch2WithMain
-    fmt::fmt-header-only
-    ${HTSLIB_TARGET}
-    PkgConfig::DEPS
-    plog::plog
-  )
-  list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-  include(Catch)
-  catch_discover_tests(apb-tests)
-endif()
+# Test files are co-located with the module they test
+file(GLOB_RECURSE APB_TEST_SOURCES CONFIGURE_DEPENDS "src/*_test.cpp")
+
+add_executable(apb-tests
+  tests/main.cpp
+  src/backend/hts_sql.cpp
+  src/backend/hts_types.cpp
+  src/frontend/tb2_impl.cpp
+  ${APB_TEST_SOURCES}
+)
+target_compile_definitions(apb-tests PRIVATE
+  APB_VERSION="${PROJECT_VERSION}"
+  TB_OPT_EGC
+)
+target_include_directories(apb-tests PRIVATE src)
+target_link_libraries(apb-tests
+  PRIVATE
+  doctest
+  termbox2
+  fmt::fmt-header-only
+  ${HTSLIB_TARGET}
+  PkgConfig::DEPS
+  plog::plog
+)
+
+# tests run as part of build (and must pass).
+add_custom_command(
+  TARGET apb-tests
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E echo "---- running apb-tests ----"
+  COMMAND apb-tests
+  COMMENT "Running apb-tests"
+  VERBATIM
+)

@@ -1,27 +1,104 @@
 #pragma once
 
-#include "app/data_table_cols.hpp"
-#include "backend/PileupDB.hpp"
-#include "frontend/extb/extb.hpp"
+#include "backend/hts_sql.hpp"
+#include "backend/schema.hpp"
+#include "backend/sql_types.hpp"
 
+struct ColMetadata {
+  bool visible;
+  const std::string_view fieldName;
+  const uint16_t displayWidth;
+  const std::function<std::string (sqlite3_stmt*)> fn_retrieve_from_db;
+};
 
 struct AppConfig {
   bool run = true;
 
-  std::array<std::pair<bool, TableCol::ColMetadata*>, 11>
-      displayTableCols{
-          {{false, &TableCol::sh_colQPos},
-           {true, &TableCol::sh_colBaseQual},
-           {true, &TableCol::sh_colFlag},
-           {true, &TableCol::sh_colMapq},
-           {false, &TableCol::sh_colRstart},
-           {false, &TableCol::sh_colRend},
-           {true, &TableCol::sh_colCigar},
-           {false, &TableCol::sh_colQname},
-           {false, &TableCol::sh_colMTid},
-           {false, &TableCol::sh_colMStart},
-           {false, &TableCol::sh_colTags}}
-      };
+  std::array<ColMetadata, 11> displayTableCols{{
+      {false, "qpos", 6,
+       [] (sqlite3_stmt* row) {
+         return std::to_string (
+             sqlite3_column_int (row, schema::ReadTableSelect::qpos)
+         );
+       }},
+      {true, "basequal", 12,
+       [] (sqlite3_stmt* row) {
+         return std::to_string (
+             sqlite3_column_int (row, schema::ReadTableSelect::basequal)
+         );
+       }},
+      {true, "flag", 6,
+       [] (sqlite3_stmt* row) {
+         return std::to_string (
+             sqlite3_column_int (row, schema::ReadTableSelect::flag)
+         );
+       }},
+      {true, "mapq", 6,
+       [] (sqlite3_stmt* row) {
+         return std::to_string (
+             sqlite3_column_int (row, schema::ReadTableSelect::mapq)
+         );
+       }},
+      {false, "start", 14,
+       [] (sqlite3_stmt* row) {
+         return std::to_string (
+             sqlite3_column_int64 (row, schema::ReadTableSelect::start)
+         );
+       }},
+      {false, "end", 14,
+       [] (sqlite3_stmt* row) {
+         return std::to_string (
+             sqlite3_column_int64 (row, schema::ReadTableSelect::end)
+         );
+       }},
+      {true, "cigar", 16,
+       [] (sqlite3_stmt* row) {
+         const auto* p =
+             sqlite3_column_text (row, schema::ReadTableSelect::cigar);
+         const auto len =
+             sqlite3_column_bytes (row, schema::ReadTableSelect::cigar);
+         return std::string (
+             reinterpret_cast<const char*> (p), static_cast<size_t> (len)
+         );
+       }},
+      {false, "qname", 21,
+       [] (sqlite3_stmt* row) {
+         if (sqlite3_column_type (row, schema::ReadTableSelect::qname) ==
+             SQLITE_NULL) {
+           return std::string{"*"};
+         }
+         const auto* p =
+             sqlite3_column_text (row, schema::ReadTableSelect::qname);
+         const auto len =
+             sqlite3_column_bytes (row, schema::ReadTableSelect::qname);
+         return std::string (
+             reinterpret_cast<const char*> (p), static_cast<size_t> (len)
+         );
+       }},
+      {false, "mtid", 10,
+       [] (sqlite3_stmt* row) {
+         if (sqlite3_column_type (row, schema::ReadTableSelect::mtid) ==
+             SQLITE_NULL) {
+           return std::string{"*"};
+         }
+         const auto* p =
+             sqlite3_column_text (row, schema::ReadTableSelect::mtid);
+         const auto len =
+             sqlite3_column_bytes (row, schema::ReadTableSelect::mtid);
+         return std::string (
+             reinterpret_cast<const char*> (p), static_cast<size_t> (len)
+         );
+       }},
+      {false, "mstart", 14, [] (sqlite3_stmt* row) {
+         if (sqlite3_column_type (row, schema::ReadTableSelect::mstart) ==
+             SQLITE_NULL) {
+           return std::string ("*");
+         }
+         return std::to_string (
+             sqlite3_column_int64 (row, schema::ReadTableSelect::mstart)
+         );
+       }},
+  }};
 
   bool showOverlay = false;
   struct {
@@ -29,21 +106,16 @@ struct AppConfig {
     bool ins = true;
   } drawTrackSwitches;
   struct {
-    bool aln = true;
     bool table = true;
   } drawPaneSwitches;
 };
 
-struct AppMetadata {
-  tb_event lastEv{};
-};
-
 struct DBBundle {
   PileupDB db;
-  DynamicSelectReadsStmt stmt;
-  DynamicFragments userClause{};
+  query::DynamicFragments userClause{};
+  SqliteStmt selectStmt;
   uint32_t nStmtRows = 0;  // rows in current stmt
   int32_t stmtRowScrollOffset = 0;
-  PileupMetadata
-      locus;  // cached loci-table row; queried once at init(),
+  query::PileupMetadata
+      locusInfo;  // cached metadata-table row; queried once at init(),
 };

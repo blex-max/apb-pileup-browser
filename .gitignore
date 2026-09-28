@@ -1,8 +1,7 @@
 .cache/
 build/
 scratch/
-build/
 build-asan/
 .DS_Store
-TODO.md
 *screencap*.txt
+notes/

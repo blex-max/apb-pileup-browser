@@ -1,5 +1,6 @@
 #include "demo.hpp"
 
+#include <fmt/format.h>
 #include <htslib/sam.h>
 
 #include <algorithm>
@@ -8,11 +9,12 @@
 #include <random>
 #include <string>
 
-#include "backend/PileupDB.hpp"
-#include "backend/pileup_ingest.hpp"
-#include "shared/err.hpp"
+#include "backend/hts_sql.hpp"
+#include "backend/hts_types.hpp"
+#include "shared/apb_assert.hpp"
+#include "shared/cleanup.hpp"
 
-static const char sh_bases[] = "ACGT";
+static const char kBaseArray[] = "ACGT";
 
 // Deterministic reference sequence
 static std::string fixed_ref_seq (size_t len)
@@ -20,15 +22,15 @@ static std::string fixed_ref_seq (size_t len)
   std::string out;
   out.reserve (len);
   for (size_t i = 0; i < len; ++i) {
-    out += sh_bases[i % 4];
+    out += kBaseArray[i % 4];
   }
   return out;
 }
 
 static char random_base (std::mt19937& rng)
 {
-  std::uniform_int_distribution<size_t> pick (0, 3);
-  return sh_bases[pick (rng)];
+  std::uniform_int_distribution<uint8_t> pick (0, 3);
+  return kBaseArray[pick (rng)];
 }
 
 // A base guaranteed to differ from refBase, for injecting mismatches
@@ -42,29 +44,24 @@ static char mutate_base (char refBase, std::mt19937& rng)
   return b;
 }
 
-VoidOrErr insert_demo_data (
-    PileupDB& db, size_t regWidth, size_t nQuery,
-    hts_pos_t gOffset
+void generate_demo_data (
+    uint16_t regWidth, uint16_t nQuery, hts_pos_t gOffset,
+    DemoDataPack& out
 )
 {
-  std::mt19937 rng;
-
-  const hts_pos_t pileupPos =
-      static_cast<hts_pos_t> ((regWidth / 2) - 1);
+  const hts_pos_t pileupPos = static_cast<hts_pos_t> ((regWidth / 2) - 1);
   const auto qLen = static_cast<size_t> (pileupPos);
   auto refSeq = fixed_ref_seq (regWidth);
   refSeq[static_cast<size_t> (pileupPos)] =
       'A';  // known ref base at the variant site
 
   constexpr size_t maxDelLen = 4;
+
   // Headroom of maxDelLen reserved so start+qLen+delLen
   // can never exceed regWidth, whether or not a given read ends up with
   // a deletion.
-  //
   // Reserving start >= 1 keeps qPos in [0, qLen-1] for every read.
-  std::uniform_int_distribution<size_t> gstartGen (
-      1, qLen - maxDelLen
-  );
+  std::uniform_int_distribution<size_t> gstartGen (1, qLen - maxDelLen);
   constexpr double mismatchRate = 0.01;
   std::bernoulli_distribution mismatchDist (mismatchRate);
   constexpr double pileupVaf = 0.30;
@@ -75,7 +72,7 @@ VoidOrErr insert_demo_data (
   std::uniform_int_distribution<uint8_t> mapQGen (0, 60);
 
   // At most one of {deletion, insertion, leading clip, trailing clip}
-  // per read - eaiser to implement
+  // per read - eaiser to implement.
   enum class ReadVariant : uint8_t {
     None,
     Deletion,
@@ -87,37 +84,28 @@ VoidOrErr insert_demo_data (
       {0.55, 0.15, 0.10, 0.10, 0.10}
   );
 
-  // Generate all reads' fields up front (no DB calls yet), tracking the
-  // overall span so the loci row -- inserted below, before any reads
-  // that FK-reference it -- can carry real pos/start/end/refSlice
-  // instead of a placeholder.
-  std::vector<PileupFields> reads;
-  reads.reserve (nQuery);
   GenomicSpan span{INT64_MAX, 0};
-
+  std::mt19937 rng;
+  out.reads.reserve (nQuery);
   for (size_t i = 0; i < nQuery; ++i) {
-    PileupFields ru_pf;
-    ru_pf.flag = 0;
-    ru_pf.isDel = false;
-    ru_pf.isRefSkip = false;
-    ru_pf.mapQ = mapQGen (rng);
-    ru_pf.mStart = -1;
-    ru_pf.mtidName = '*';  // not present
-    ru_pf.qName = "read" + std::to_string (i);
+    hts2sql::PileupFields elemBuf;
+    elemBuf.flag = 0;
+    elemBuf.isDel = false;
+    elemBuf.isRefSkip = false;
+    elemBuf.mapQ = mapQGen (rng);
+    elemBuf.mStart = -1;
+    elemBuf.mtidName = "";  // not present
+    elemBuf.qName = "read" + std::to_string (i);
 
-    ru_pf.start = static_cast<hts_pos_t> (gstartGen (rng));
-    const auto qPos =
-        static_cast<int32_t> (pileupPos - ru_pf.start);
+    elemBuf.start = static_cast<hts_pos_t> (gstartGen (rng));
+    const auto qPos = static_cast<int32_t> (pileupPos - elemBuf.start);
 
-    // Every variant below needs at least one base of "room" past the
-    // pileup column to split/shrink the aligned run into -- same guard
-    // for all three, so qPos/isHead/isTail stay exactly the plain-read
-    // formulas below regardless of which variant (if any) got picked;
-    // only what's generated on either side of the pileup column changes.
+    // Every variant below needs at least one base past the
+    // pileup column to split/shrink the aligned run into.
     const bool hasRoom = qPos <= static_cast<int32_t> (qLen) - 2;
-    const auto variant =
-        hasRoom ? static_cast<ReadVariant> (variantDist (rng))
-                : ReadVariant::None;
+    const auto variant = hasRoom
+                             ? static_cast<ReadVariant> (variantDist (rng))
+                             : ReadVariant::None;
 
     size_t delLen = 0;
     size_t insLen = 0;
@@ -143,12 +131,9 @@ VoidOrErr insert_demo_data (
       case ReadVariant::LeadClip:
       case ReadVariant::TailClip: {
         constexpr size_t maxClipLen = 20;
-        const size_t maxClip = std::min (
-            maxClipLen, qLen - 1 - static_cast<size_t> (qPos)
-        );
-        std::uniform_int_distribution<size_t> clipGen (
-            1, maxClip
-        );
+        const size_t maxClip =
+            std::min (maxClipLen, qLen - 1 - static_cast<size_t> (qPos));
+        std::uniform_int_distribution<size_t> clipGen (1, maxClip);
         clipLen = clipGen (rng);
         break;
       }
@@ -156,38 +141,28 @@ VoidOrErr insert_demo_data (
         break;
     }
 
-    // indel is only nonzero when the event immediately follows the
-    // pileup base in THIS read (htslib bam_pileup1_t::indel semantics)
-    // -- not merely "this read contains an indel somewhere".
-    const bool indelAtPileup =
-        mSplit == static_cast<size_t> (qPos) + 1;
-    ru_pf.indel = indelAtPileup ? static_cast<int> (insLen) -
-                                      static_cast<int> (delLen)
-                                : 0;
+    const bool indelAtPileup = mSplit == static_cast<size_t> (qPos) + 1;
+    elemBuf.indel = indelAtPileup ? static_cast<int> (insLen) -
+                                        static_cast<int> (delLen)
+                                  : 0;
 
     const auto finalQPos =
         leadClip ? qPos + static_cast<int32_t> (clipLen) : qPos;
 
     // Insertions add query bases that aren't in the reference, so
-    // (unlike deletions, which only widen the ref span) the read's own
-    // seq/qual buffers grow by insLen; insLen is 0 for every other
-    // variant, so this is a no-op there.
+    // the read seq/qual buffers grow by insLen
     const size_t seqLen = qLen + insLen;
     std::string seq (seqLen, ' ');
     std::string qual (seqLen, ' ');
     std::array<char, 3> qualChars{'F', 'E', 'D'};
-    std::discrete_distribution<uint8_t> qualCharPicker (
-        {100, 20, 10}
-    );
+    std::discrete_distribution<uint8_t> qualCharPicker ({100, 20, 10});
     for (size_t j = 0; j < seqLen; ++j) {
       qual[j] = qualChars[qualCharPicker (rng)];
 
       if (j == static_cast<size_t> (finalQPos)) {
         constexpr char pileupAlt = 'T';
 
-        // Designed SNV at the pileup locus: a fixed alt base at a fixed
-        // VAF, distinct from (and not diluted by) the generic background
-        // mismatch roll below.
+        // fixed alt base at fixed VAF
         seq[j] = snvAlleleDist (rng)
                      ? pileupAlt
                      : refSeq[static_cast<size_t> (pileupPos)];
@@ -195,11 +170,8 @@ VoidOrErr insert_demo_data (
       }
 
       const bool inClip =
-          leadClip ? j < clipLen
-                   : (clipLen > 0 && j >= qLen - clipLen);
+          leadClip ? j < clipLen : (clipLen > 0 && j >= qLen - clipLen);
       if (inClip) {
-        // Clipped bases aren't aligned to any reference position --
-        // nothing to compare against, so they're plain random filler.
         seq[j] = random_base (rng);
         continue;
       }
@@ -207,8 +179,6 @@ VoidOrErr insert_demo_data (
       const bool inInsertion =
           insLen > 0 && j >= mSplit && j < mSplit + insLen;
       if (inInsertion) {
-        // Inserted bases aren't aligned to any reference position
-        // either -- same treatment as clipped bases.
         seq[j] = random_base (rng);
         continue;
       }
@@ -220,56 +190,41 @@ VoidOrErr insert_demo_data (
       else if (insLen > 0 && j >= mSplit + insLen) {
         alignedIdx = j - insLen;
       }
-      const size_t refOffset =
-          static_cast<size_t> (ru_pf.start) + alignedIdx +
-          (alignedIdx < mSplit ? 0 : delLen);
+      const size_t refOffset = static_cast<size_t> (elemBuf.start) +
+                               alignedIdx +
+                               (alignedIdx < mSplit ? 0 : delLen);
       const char refBase = refSeq[refOffset];
-      seq[j] = mismatchDist (rng) ? mutate_base (refBase, rng)
-                                  : refBase;
+      seq[j] = mismatchDist (rng) ? mutate_base (refBase, rng) : refBase;
     }
-    ru_pf.seqBases = std::move (seq);
-    ru_pf.qualAscii = std::move (qual);
+    elemBuf.seqBases = std::move (seq);
+    elemBuf.qualAscii = std::move (qual);
 
     std::vector<uint32_t> cigOps;
     if (leadClip) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (clipLen, BAM_CSOFT_CLIP)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (clipLen, BAM_CSOFT_CLIP))
       );
     }
     if (delLen > 0) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (mSplit, BAM_CMATCH))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (delLen, BAM_CDEL)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (delLen, BAM_CDEL))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (qLen - mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (qLen - mSplit, BAM_CMATCH))
       );
     }
     else if (insLen > 0) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (mSplit, BAM_CMATCH))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (insLen, BAM_CINS)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (insLen, BAM_CINS))
       );
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (qLen - mSplit, BAM_CMATCH)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (qLen - mSplit, BAM_CMATCH))
       );
     }
     else {
@@ -281,110 +236,103 @@ VoidOrErr insert_demo_data (
     }
     if (!leadClip && clipLen > 0) {
       cigOps.push_back (
-          static_cast<uint32_t> (
-              bam_cigar_gen (clipLen, BAM_CSOFT_CLIP)
-          )
+          static_cast<uint32_t> (bam_cigar_gen (clipLen, BAM_CSOFT_CLIP))
       );
     }
-    ru_pf.nCig = cigOps.size();
-    ru_pf.rawCig = std::move (cigOps);
-    ru_pf.cig =
-        stringify_cigar (ru_pf.rawCig.data(), ru_pf.nCig);
+    elemBuf.nCig = cigOps.size();
+    elemBuf.rawCig = std::move (cigOps);
+    elemBuf.cig =
+        hts2sql::stringify_cigar (elemBuf.rawCig.data(), elemBuf.nCig);
 
-    ru_pf.end =
-        ru_pf.start +
-        (delLen > 0 ? static_cast<hts_pos_t> (qLen + delLen)
-                    : static_cast<hts_pos_t> (qLen - clipLen));
+    elemBuf.end = elemBuf.start +
+                  (delLen > 0 ? static_cast<hts_pos_t> (qLen + delLen)
+                              : static_cast<hts_pos_t> (qLen - clipLen));
 
-    ru_pf.qPos = finalQPos;
-    ru_pf.base = ru_pf.seqBases[static_cast<size_t> (finalQPos)];
-    ru_pf.baseQual = static_cast<uint8_t> (
-        ru_pf.qualAscii[static_cast<size_t> (finalQPos)] - 33
+    elemBuf.qPos = finalQPos;
+    elemBuf.base = elemBuf.seqBases[static_cast<size_t> (finalQPos)];
+    elemBuf.baseQual = static_cast<uint8_t> (
+        elemBuf.qualAscii[static_cast<size_t> (finalQPos)] - 33
     );
-    ru_pf.isHead = (finalQPos == 0);
-    ru_pf.isTail =
-        (finalQPos == static_cast<int32_t> (qLen - 1));
+    elemBuf.isHead = (finalQPos == 0);
+    elemBuf.isTail = (finalQPos == static_cast<int32_t> (qLen - 1));
 
-    span.start = std::min (ru_pf.start, span.start);
-    span.end = std::max (ru_pf.end, span.end);
+    span.start = std::min (elemBuf.start, span.start);
+    span.end = std::max (elemBuf.end, span.end);
 
-    reads.push_back (std::move (ru_pf));
+    out.reads.push_back (std::move (elemBuf));
   }
 
   std::sort (
-      reads.begin(), reads.end(),
-      [] (const PileupFields& a, const PileupFields& b) {
+      out.reads.begin(), out.reads.end(),
+      [] (const hts2sql::PileupFields& a, const hts2sql::PileupFields& b) {
         return a.start < b.start;
       }
   );
 
-  const auto refSlice = refSeq.substr (
+  for (auto& readI : out.reads) {
+    // bump to a more common order of magnitude for a genomic position
+    readI.start += gOffset;
+    readI.end += gOffset;
+  }
+  out.pileupPos = pileupPos + gOffset;
+  out.pileupSpan = {span.start + gOffset, span.end + gOffset};
+  out.refSlice = refSeq.substr (
       static_cast<size_t> (span.start),
       static_cast<size_t> (span.end - span.start)
   );
+}
 
-  for (auto& ru_pf : reads) {
-    ru_pf.start += gOffset;
-    ru_pf.end += gOffset;
-  }
-  const hts_pos_t gPileupPos = pileupPos + gOffset;
-  const GenomicSpan gSpan{
-      span.start + gOffset, span.end + gOffset
-  };
-
-  // demo data has no real alignment file / contigs; placeholder
-  // metadata row just satisfies the reads table's loci_id FK chain.
-  const AlnFile dummyAln;
-  auto imRet = insert_metadata (db, dummyAln);
-  if (!imRet) {
-    return std::unexpected{imRet.error()};
+void insert_demo_data (PileupDB& db, const DemoDataPack& data)
+{
+  // all demo data is synthetic and apb-generated, so any failure below should be unreachable.
+  if (const auto rc = hts2sql::insert_metadata (
+          db, "demo-contig", data.pileupPos, data.pileupSpan, data.refSlice
+      );
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to insert demo metadata: {}", sqlite3_errstr (rc)
+        )
+    );
   }
 
-  auto ilRet = insert_loci (
-      db, make_locus_data ("demo", gPileupPos, gSpan, refSlice)
-  );
-  if (!ilRet) {
-    return std::unexpected{ilRet.error()};
-  }
-  const int lociId = *ilRet;
+  auto stmt = hts2sql::prepare_insert_reads_stmt (db);
 
-  auto stmtRet = prepare_insert_reads_stmt (db);
-  if (!stmtRet) {
-    return std::unexpected{stmtRet.error()};
+  if (const auto rc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to begin transaction: {}", sqlite3_errstr (rc)
+        )
+    );
   }
-  auto stmt{std::move (*stmtRet)};
+  Defer rollbackOnErr ([&]() {
+    sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
+  });
 
-  if (auto beginRet = begin_transaction (db); !beginRet) {
-    return std::unexpected{beginRet.error()};
-  }
+  for (const auto& readI : data.reads) {
+    bind_pileup_fields (stmt, readI);
 
-  for (const auto& ru_pf : reads) {
-    if (const int sqlRc =
-            bind_pileup_fields (stmt, lociId, ru_pf);
-        sqlRc != SQLITE_OK) {
-      Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
-      rollback_on_err (db, err);
-      return std::unexpected{err};
+    if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
+      // generate_demo_data never sets auxJson, so tags is always
+      // NULL here and the json_valid(tags) CHECK can't fire.
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to insert demo read: {}", sqlite3_errstr (rc)
+          )
+      );
     }
-
-    if (const int sqlRc = sqlite3_step (stmt);
-        sqlRc != SQLITE_DONE) {
-      Err err = make_sqlite3_err (sqlRc, sqlite3_errmsg (db));
-      rollback_on_err (db, err);
-      return std::unexpected{err};
-    }
-    sqlite3_reset (
-        stmt
-    );  // rc mirrors the step already checked above
-    sqlite3_clear_bindings (
-        stmt
-    );  // cannot fail per sqlite3 docs
+    sqlite3_reset (stmt);  // rc mirrors the step already checked above
+    sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs
   }
 
-  auto comRet = commit (db);
-  if (!comRet) {
-    return std::unexpected{comRet.error()};
+  if (const auto rc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to commit transaction: {}", sqlite3_errstr (rc)
+        )
+    );
   }
-
-  return {};
+  rollbackOnErr.cancel();  // committed; nothing left to roll back
 }

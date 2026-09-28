@@ -1,0 +1,231 @@
+#pragma once
+
+#include <htslib/sam.h>
+
+#include <cstdint>
+#include <expected>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "backend/hts_types.hpp"
+#include "backend/sql_types.hpp"
+
+struct PileupDB {
+  sqlite3* o_conn = nullptr;
+  operator sqlite3*() const { return o_conn; }
+
+  PileupDB() = default;
+  PileupDB (const PileupDB&) = delete;
+  PileupDB& operator= (const PileupDB&) = delete;
+
+  PileupDB (PileupDB&& other) noexcept : o_conn (other.o_conn)
+  {
+    other.o_conn = nullptr;
+  }
+  PileupDB& operator= (PileupDB&&) = delete;
+
+  ~PileupDB()
+  {
+    if (o_conn != nullptr) {
+      sqlite3_close_v2 (o_conn);
+    }
+  }
+
+  // Initialise db with pileup schema (see schema.hpp).
+  static PileupDB init();
+
+  struct LoadStatus {
+    enum Code : uint8_t {
+      success,
+      openFail,
+      copyFail,
+      contentCorrupt,
+      schemaMismatch
+    };
+    Code code;
+    std::optional<int> sqlRc = std::nullopt;
+    std::optional<std::string> sqlMsg = std::nullopt;
+  };
+  // Copy a database file on disk into an in-memory PileupDB,
+  // using sqlite3's online backup API.
+  static LoadStatus load_from_disk (PileupDB& db, std::string_view path);
+};
+
+namespace query {
+
+std::string build_where_clause (const std::vector<std::string>& fragments);
+
+struct DynamicFragments {
+  std::vector<std::string> where;
+  std::string orderBy;
+};
+// Compiles `prefix` with the WHERE/ORDER BY built from `frags` appended.
+// returns compiled sql statement object, or sqlite3 integer
+// return code on failure
+std::expected<SqliteStmt, int> prepare_select_reads (
+    const PileupDB& db, std::string_view prefix,
+    const DynamicFragments& frags
+);
+
+// Step `stmt` forward by one row.
+// returns status code, or sqlite3 integer return code in on failure.
+enum class RowIterStatus : uint8_t { rowAvail, exhausted };
+[[nodiscard]] std::expected<RowIterStatus, int> next_read (
+    sqlite3_stmt* stmt
+);
+
+// Steps `stmt` to exhaustion, counting rows.
+// Returns the row count, or the sqlite3 return code of the
+// first failing step.
+std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt);
+
+// locus metadata as extracted from db.
+// 1-indexed!
+struct PileupMetadata {
+  std::string contig;
+  int64_t pos;  // 1-based pileup position, per loci.pos
+  int64_t start;
+  int64_t end;
+  std::optional<std::string> refSlice;
+
+  // Should be redundant with metadata's schema CHECK constraints
+  // (schema.hpp) - kept as a backstop.
+  bool valid() const noexcept
+  {
+    return !contig.empty() && start > 0 && end >= start && pos >= start &&
+           pos <= end;
+  }
+};
+
+// Get locus metadata from db. Asserts internally; only call once
+// locus metadata is known to exist (post load_from_disk, or after
+// apb's own insert_pileup/insert_demo_data in the same process).
+PileupMetadata get_locus_data (const PileupDB& db);
+
+struct DiskDumpStatus {
+  enum Code : uint8_t {
+    success,
+    fail,
+  };
+  Code code;
+  std::optional<int> sqlRc = std::nullopt;
+  std::optional<std::string> dumpDbMsg = std::nullopt;
+};
+// Copy the in-memory database out to a file on disk, using
+// sqlite3's online backup API.
+[[nodiscard]] DiskDumpStatus dump_to_disk (
+    const PileupDB& db, std::string_view path
+);
+
+// Formats an sqlite3 return code into a user-facing error.
+std::string describe_sqlite_failure (
+    int rc, std::string_view context,
+    std::optional<std::string_view> dbMsg = std::nullopt
+);
+
+}  // namespace query
+
+namespace hts2sql {
+
+struct InsertPileupErr {
+  enum Code : uint8_t { sqlFail, auxParseFail, refFetchFail };
+
+  Code code;
+  std::optional<int> sqlRc = std::nullopt;
+  std::optional<int> htsRc = std::nullopt;
+};
+// insert reads at pileup position into database.
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+[[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
+    PileupDB& db, const PileupIterator& pileupIter,
+    const std::string& contigName, const sam_hdr_t* br_alnHdr,
+    const std::optional<FastaFile>& ff
+);
+
+// insert pileup locus info into single-row metadata table.
+// Returns void or int sqlite3 error code
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+[[nodiscard]] int insert_metadata (
+    PileupDB& db, const std::string& contigName, int64_t pileupPos,
+    const GenomicSpan& pileupSpan,
+    const std::optional<std::string>& refSlice
+);
+
+// Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
+// with bind_pileup_fields.
+// exposed for demo.cpp
+SqliteStmt prepare_insert_reads_stmt (PileupDB& db);
+
+// flat layout of htslib data to be entered
+// into the database for a single read.
+struct PileupFields {
+  // 0-INDEXED: MATCHES RAW HTSLIB REPRESENTATION.
+  // Shifted to the DB's 1-indexed representation at bind time,
+  // in bind_pileup_fields (hts_sql.cpp).
+
+  // NOTE: layout as table schema
+  std::string qName;
+  uint16_t flag;
+  hts_pos_t start;
+  hts_pos_t end;
+  uint8_t mapQ;
+
+  char base;
+  uint8_t baseQual;
+  int32_t qPos;
+  int indel;
+  bool isDel, isHead, isTail, isRefSkip;
+
+  std::string cig;
+  std::string seqBases;
+  std::string qualAscii;
+
+  std::string mtidName;
+  hts_pos_t mStart;
+
+  std::string auxJson;
+
+  std::vector<uint32_t> rawCig;
+  size_t nCig;
+
+  bool valid() const noexcept
+  {
+    return start >= 0 && end > start && qPos >= 0 &&
+           seqBases.size() == qualAscii.size() && nCig == rawCig.size() &&
+           !rawCig.empty();
+  }
+};
+
+// convert to database-facing interface type
+// returns true on success, false on failure
+// to parse an aux tag in br_p1->b1.
+[[nodiscard]] bool fill_fields (
+    PileupFields& pf, const bam_pileup1_t* br_p1, const char* mTidName
+);
+
+// Bind one pileup row's fields into `stmt`, in column order matching
+// stmt_str_InsertReads.
+void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf);
+
+// Render a CIGAR array as text (e.g. "151M").
+std::string stringify_cigar (const uint32_t* br_cig, size_t nCig);
+
+struct Aux1ToJsonErr {
+  enum Codes : uint8_t {
+    parseFail,
+  };
+};
+// converts single aux tag to a json entry
+// returns unexpected on failure to parse aux tag.
+std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
+    const uint8_t* aux1Start, const uint8_t* aux1End
+);
+
+// Escape a raw aux string value for embedding in a JSON string literal.
+void append_json_escaped (
+    const char* br_data, size_t len, std::string& out
+);
+
+}  // namespace hts2sql

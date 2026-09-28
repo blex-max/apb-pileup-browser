@@ -22,6 +22,6 @@ struct CmdView {
 
 CmdResult exec_cmd (std::string_view call, AppState& state);
 
-// registry exposed so manual.cpp can build
+// Exposed so manual.cpp can build
 // Command Reference table.
-std::span<const CmdView* const> get_cmd_registry();
+std::vector<std::string> build_cmd_ref_table();

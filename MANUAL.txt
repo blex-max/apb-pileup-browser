@@ -1,24 +1,9 @@
-#include "manual.hpp"
 
-#include <fmt/format.h>
-#include <fmt/ranges.h>
-
-#include <cstddef>
-#include <string>
-#include <string_view>
-
-#include "app/cmd.hpp"
-#include "app/helpblocks.hpp"
-#include "shared/version.hpp"
-
-// NOTE: write in single line paragraphs. The reader should use a word-wrapping pager.
-
-static constexpr std::string_view manualChunk1 = R"txt(
 apb Manual - A Pileup Browser
 
 **IMPORTANT**:
 The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
-This is the manual for apb version )txt" APB_VERSION R"txt(.
+This is the manual for apb version 0.1.0.
 
 It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
@@ -54,9 +39,22 @@ The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mo
 
 Navigation Keys:
 
-)txt";
-
-static constexpr std::string_view manualChunk2 = R"txt(
+ BROWSER PANE                                       
+  Up / Down         scroll one row                  
+  S-Left / S-Right  pan alignment view side-to-side 
+  PgUp / PgDn       scroll one page                 
+                                                    
+ COMMAND LINE                                       
+  Enter             run command                     
+  S-Up / S-Down     step command history            
+  Left / Right      move cursor                     
+  M-Left / M-Right  back / forward one word         
+  M-b / M-f         back / forward one word         
+  C-a / C-e         start / end of line             
+  Bksp / M-Bksp     delete char / whole line        
+  C-c               clear input, else quit apb      
+                                                    
+ M-: Alt | C-: Ctrl | S-: Shift                     
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
@@ -64,9 +62,78 @@ Ctrl-C clears the command line if any input is present, and exits the program ot
 
 Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use. This table is built directly from the command implementation in src and is also available via `help cmd` at the in-app command line.
 
-)txt";
+ COMMAND REFERENCE
+  `help [(nav|cmd|table)]`:
+    Show help for given topic, or general help with
+    no args.
+    alias: h, ?
 
-static constexpr std::string_view manualChunk3 = R"txt(
+  `quit`:
+    Exit the browser.
+    alias: q, exit
+
+  `where <clause>`:
+    Start a new WHERE clause, overwriting any
+    existing clause. For a reference of queryable
+    columns, check the manual or run `? table`.
+    alias: w, wh
+
+  `and <clause>`:
+    Extend current WHERE clause with an AND
+    condition.
+
+  `or <clause>`:
+    Extend the query with an OR condition.
+
+  `back`:
+    Drop the most recently added condition from the
+    query WHERE clause, or clear if only a single
+    condition is present.
+    alias: bk
+
+  `clear-where`:
+    Clear WHERE clause, retaining ORDER BY.
+    alias: cw
+
+  `order-by [clause]`:
+    Sort reads by ORDER BY expression. Clears order
+    by with no args, resetting to default ordering.
+    alias: order, ob, o
+
+  `clear`:
+    Clear current query.
+    alias: cl
+
+  `dump <path>`:
+    Write the in-memory database to a file. Takes a
+    single path. The current query is not preserved.
+
+  `show-table`:
+    Show/hide table pane
+    alias: st
+
+  `track [(quality|insertion)...]`:
+    Show/hide insertion and quality score tracks in
+    alignment pane, or reset to default with no
+    args. Any unambiguous substring of the track
+    name maybe used, e.g. `track qual`.
+    alias: t, tr
+
+  `col <field-name>...`:
+    Show/hide read data columns in the table
+    pane.For a list of available columns, check the
+    manual or run `? table`.
+    alias: c
+
+  `count [clause]`:
+    Count reads matching current query. If provided,
+    the optional clause will be AND-concatenated
+    onto the existing WHERE clause for the count
+    query. If no WHERE clause is present, the
+    optional clause will be used as the count WHERE
+    clause alone.
+    alias: ct
+
 
 3.3) Querying the Pileup
 
@@ -165,9 +232,61 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help table` at the in-app command line.
 
-)txt";
-
-static constexpr std::string_view manualChunk4 = R"txt(
+ TABLE REFERENCE                                
+                                                
+ All of the following columns may be referenced 
+ in query commands, e.g. `where`. The first 10  
+ may be displayed in the table pane with the    
+ `col` command. This reference is provided for  
+ convenience, but the best reference is the     
+ database schema as found in the src.           
+                                                
+  `qname`:                                      
+      read/template name                        
+  `flag`:                                       
+      SAM bitwise FLAG                          
+  `start`:                                      
+      1-based leftmost mapping position         
+  `end`:                                        
+      1-based rightmost mapping position        
+  `mapq`:                                       
+      mapping quality                           
+  `basequal`:                                   
+      Phred base quality at the pileup position 
+  `qpos`:                                       
+      1-based offset into `seq`/`qual` to reach 
+      pileup locus position                     
+  `cigar`:                                      
+      CIGAR string                              
+  `mtid`:                                       
+      reference name of the mate/next read      
+  `mstart`:                                     
+      mate/next read's leftmost mapping         
+      position                                  
+  `tags`:                                       
+      aux tags as JSON; able to be individually 
+      queried                                   
+  `base`:                                       
+      the read's base at the pileup position    
+  `indel`:                                      
+      indel length to the next mapped base in   
+      the read (0 none, >0 insertion,           
+      <0 deletion)                              
+  `is_del`:                                     
+      1 if this position is a deletion          
+  `is_head`:                                    
+      1 if this is the read's first aligned     
+      base                                      
+  `is_tail`:                                    
+      1 if this is the read's last aligned base 
+  `is_refskip`:                                 
+      1 if this position is a reference skip    
+  `seq`:                                        
+      the read sequence                         
+  `qual`:                                       
+      the read quality string in ASCII format   
+  `ncig`:                                       
+      number of CIGAR operations in the read    
 
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
 
@@ -199,15 +318,3 @@ The 1-based coordinates as displayed in apb also match the behaviour of both `IG
 ---
 
 See the README or the project GitHub (https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap, and other background.
-)txt";
-
-std::string_view get_manual()
-{
-  static const std::string manual = fmt::format (
-      "{}{}{}{}{}{}{}", manualChunk1,
-      fmt::join (helpblocks::navigation, "\n"), manualChunk2,
-      fmt::join (build_cmd_ref_table(), "\n"), manualChunk3,
-      fmt::join (helpblocks::tableColumns, "\n"), manualChunk4
-  );
-  return manual;
-}

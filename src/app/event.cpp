@@ -4,29 +4,13 @@
 
 #include "app/cmd.hpp"
 #include "app/widgets.hpp"
+#include "frontend/extb/extb.hpp"
 #include "plog/Log.h"
-
-static VoidOrErr handle_resize (
-    UIBundle& ui, SizeBrowserPaneSwitches switches
-)
-{
-  auto calcRet = size_widgets (ui, switches);
-  if (!calcRet) {
-    return std::unexpected (calcRet.error());
-  }
-
-  return {};
-}
-
-static void handle_character_entry (
-    AppState& state, const tb_event& ev
-)
-{
-  insert (state.ui.cmd.inputBuf, static_cast<char> (ev.ch));
-}
 
 static bool handle_nav (AppState& state, const tb_event& ev)
 {
+  constexpr auto sideScrollIncrement = 3;
+
   auto& bWgt = state.ui.browsr;
   auto& cWgt = state.ui.cmd;
   const auto& db = state.db;
@@ -54,11 +38,22 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       break;
 
     case TB_KEY_ARROW_LEFT:
-      move_left (cWgt.inputBuf);
+      if ((ev.mod & TB_MOD_SHIFT) != 0) {
+        // side scroll aln pane
+        state.ui.browsr.userPanOffset -= sideScrollIncrement;
+      }
+      else {
+        move_left (cWgt.inputBuf);
+      }
       break;
 
     case TB_KEY_ARROW_RIGHT:
-      move_right (cWgt.inputBuf);
+      if ((ev.mod & TB_MOD_SHIFT) != 0) {
+        state.ui.browsr.userPanOffset += sideScrollIncrement;
+      }
+      else {
+        move_right (cWgt.inputBuf);
+      }
       break;
 
     case TB_KEY_CTRL_A:
@@ -151,7 +146,7 @@ static void handle_key_event (
       PLOGD << fmt::format (
           "Recieved character input event: {}", ev.ch
       );
-      handle_character_entry (state, ev);
+      insert (state.ui.cmd.inputBuf, static_cast<char> (ev.ch));
     }
   }
   else {
@@ -167,16 +162,15 @@ static void nav_overlay (AppState& state, const tb_event& ev)
   if (ev.ch != 0) {
     if (ev.ch == 'q') {
       state.conf.showOverlay = false;
-      state.ui.help.contentLnOffset = 0;
+      state.ui.overlay.contentLnOffset = 0;
     }
   }
   else if (ev.key != 0) {
-    auto& lnOff = state.ui.help.contentLnOffset;
+    auto& lnOff = state.ui.overlay.contentLnOffset;
     const auto contentLines =
-        static_cast<int> (state.ui.help.content.size());
-    auto maxScroll = std::max (
-        0, contentLines - height (state.ui.help.contentBox)
-    );
+        static_cast<int> (state.ui.overlay.content.size());
+    auto maxScroll =
+        std::max (0, contentLines - height (state.ui.overlay.contentBox));
     switch (ev.key) {
       case TB_KEY_ARROW_DOWN:
         lnOff = std::min (maxScroll, lnOff + 1);
@@ -190,12 +184,9 @@ static void nav_overlay (AppState& state, const tb_event& ev)
   }
 }
 
-// Does this need to access the
-// whole appstate struct?
-// (the only reason to care is sprawl
-// and maintainability)
-// TODO: probably not
-VoidOrErr handle_event (AppState& state, const tb_event& ev)
+// Probably doesn't need access to the whole of appstate,
+// if I was feeling rigid.
+WidgetStatus handle_event (AppState& state, const tb_event& ev)
 {
   PLOGD << "Recieved event";
   if (ev.type == TB_EVENT_KEY) {
@@ -208,15 +199,10 @@ VoidOrErr handle_event (AppState& state, const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    const auto& switches = state.conf.drawPaneSwitches;
-    auto rszRet = handle_resize (
-        state.ui,
-        {.showAln = switches.aln, .showTable = switches.table}
-    );
-    if (!rszRet) {
-      return std::unexpected (rszRet.error());
+    if (!size_widgets (state.ui)) {
+      return WidgetStatus{WidgetStatus::insufficientSz};
     }
   }
 
-  return {};
+  return {.code = WidgetStatus::success};
 }

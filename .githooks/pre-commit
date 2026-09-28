@@ -13,8 +13,8 @@ if [ "$current_branch" = "main" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|
     cmake -S . -B build
   fi
   cmake --build build -j
-  build/apb --manual > MANUAL.md
-  git add MANUAL.md
+  build/apb --manual > MANUAL.txt
+  git add MANUAL.txt
 fi
 
 if ! command -v clang-format >/dev/null 2>&1; then
