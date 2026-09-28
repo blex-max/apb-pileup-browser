@@ -44,11 +44,11 @@ A text screencap of the TUI. Line wrapping may break this screencap!
 `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
 
 Advantages:
+- Powerful SQL-backed query syntax for fast investigation.
 - Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
 - Easily installed, including on compute cluster nodes.
 - Fast; no network IO, responsive UI.
 - UI optimised for one job - inspecting pileup loci - rather than general-purpose genome browsing.
-- Powerful SQL-backed query syntax for fast exploration.
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!
