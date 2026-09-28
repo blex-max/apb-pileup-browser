@@ -44,7 +44,7 @@ A text screencap of the TUI. Line wrapping may break this screencap!
 `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
 
 Advantages:
-- Powerful SQL-backed query syntax for fast investigation.
+- Powerful SQL-based query syntax for fast investigation.
 - Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
 - Easily installed, including on compute cluster nodes.
 - Fast; no network IO, responsive UI.
