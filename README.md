@@ -124,7 +124,7 @@ These are items that I think might be useful and could implement, but am unlikel
   - At very high depth it could give better performance as it would allow caching databases per locus if the user
     is likely to revisit each locus more than once within a session.
 - Allow saving queries and returning to them within the same session, without having to type them out again.
-- Optionally use unicode block characters to draw the quality string as a "sparkline" for reading at a glance,
+- Optionally use unicode block characters to draw the quality string as a sparkline graph for reading at a glance,
   like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
 - Display of reads aligned to adjacent bases at the specified locus.

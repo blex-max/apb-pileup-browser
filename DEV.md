@@ -11,7 +11,6 @@ See the roadmap in [README.md](README.md).
 ### Query syntax relative locus syntax
   - This could be implemented via a post-hoc filter on the returned sql rows,
     or via an internal custom sql function (https://www.sqlite.org/appfunc.html).
-    The latter option is likely to compose better with future development.
 
 ## Open Non-Feature Work
 
@@ -25,7 +24,10 @@ See the roadmap in [README.md](README.md).
 - Some light validation of user sql statements would be useful, e.g. ensuring no semicolons in statement.
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
 - Better handling of resizing to tiny sizes - see TODO comments in src/.
-- Add version-match checking to db load mode - if and when breaking changes apply
+- Add version-match checking to db load mode - if and when breaking changes apply.
+- There's some wasted computation since all user input will naively redraw the entire screen.
+  There's not been any perf impact, but it would be more economical to only recompute and redraw
+  whatever is specifically necessary.
 
 ## Development Adages
 
