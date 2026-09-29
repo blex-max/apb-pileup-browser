@@ -22,6 +22,7 @@
 #include "shared/apb_assert.hpp"
 #include "shared/bounds.hpp"
 #include "shared/cleanup.hpp"
+#include "shared/log.hpp"
 #include "shared/version.hpp"
 
 // NOTE: helptext is not constructed from
@@ -104,6 +105,16 @@ populate_db_mode_locus (
 
 int main (int argc, char** argv)
 {
+  // TODO: use local logger
+  // log::init ("test.txt", '\n');
+  // Defer log_cleanup ([]() { log::deinit(); });
+  // log::push ("Begin apb");
+  // log::push ("msg1");
+  // log::push ("msg2");
+  // log::flush();
+  // log::push ("msg3");
+  // log::push ("msg4");
+  // log::flush();
   /* setup */
   auto argRet = setup_cli (argc, argv);
   if (!argRet) {
@@ -139,7 +150,7 @@ int main (int argc, char** argv)
              "will be invalid";
   }
 #ifdef HAVE_HEAP_LIM
-  if (const auto rc = sqlite3_hard_heap_limit64 (kMaxDbBytes);
+  if (const auto rc = sqlite3_hard_heap_limit64 (kMaxSqliteHeapBytes);
       rc != SQLITE_OK) {
     PLOGD << "Hard heap limit failed, database size uncapped";
   }

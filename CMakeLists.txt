@@ -84,6 +84,7 @@ add_executable(apb
   src/frontend/input.cpp
   src/frontend/history.cpp
   src/demo/demo.cpp
+  src/shared/log.cpp
 )
 target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS})
 target_compile_options(apb
