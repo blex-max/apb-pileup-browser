@@ -3,6 +3,7 @@
 #include <cstdint>
 
 // pileup max depth
-constexpr int32_t kMaxReads = 50000;
+constexpr int32_t kMaxReads = 100000;
 
-constexpr int64_t kMaxDbBytes = 100000000;
+// max memory usage for sqlite
+constexpr int64_t kMaxSqliteHeapBytes = 100000000;
