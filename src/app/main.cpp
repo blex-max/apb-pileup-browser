@@ -20,6 +20,7 @@
 #include "backend/schema.hpp"
 #include "demo/demo.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/bounds.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/version.hpp"
 
@@ -103,6 +104,7 @@ populate_db_mode_locus (
 
 int main (int argc, char** argv)
 {
+  /* setup */
   auto argRet = setup_cli (argc, argv);
   if (!argRet) {
     std::cerr << argRet.error() << std::endl;
@@ -124,8 +126,26 @@ int main (int argc, char** argv)
   }
 
   plog::init (
-      plog::debug, args.logPath.c_str(), 10000000 /* 10mb limit */, 1
+      plog::debug, args.logPath.c_str(), 1000000 /* 1mb limit */, 1
   );
+  PLOGD << "Log initialised";
+
+  /* config */
+  // must configure before sqlite3 is initialised (which will happen
+  // when database is initalised).
+  if (const auto rc = sqlite3_config (SQLITE_CONFIG_MEMSTATUS, 1);
+      rc != SQLITE_OK) {
+    PLOGD << "Could not enable sqlite3 memory reporting. Memory stats "
+             "will be invalid";
+  }
+#ifdef HAVE_HEAP_LIM
+  if (const auto rc = sqlite3_hard_heap_limit64 (kMaxDbBytes);
+      rc != SQLITE_OK) {
+    PLOGD << "Hard heap limit failed, database size uncapped";
+  }
+#else
+  PLOGD << "Hard heap limiting not available, database size uncapped";
+#endif
 
   auto db{PileupDB::init()};
 
@@ -429,6 +449,9 @@ int main (int argc, char** argv)
 
   std::cerr << "Bye!" << std::endl;
 
+  PLOGD << fmt::format (
+      "sqlite3 max memory usage: {} bytes", sqlite3_memory_highwater (0)
+  );
   return EXIT_SUCCESS;
 }
 

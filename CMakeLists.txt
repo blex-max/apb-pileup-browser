@@ -18,6 +18,10 @@ find_package(PkgConfig REQUIRED)
 # folded into core sqlite3 in 3.38; before that it required the JSON1
 # extension to be compiled in separately).
 pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sqlite3>=3.38)
+include(CheckSymbolExists)
+set(CMAKE_REQUIRED_INCLUDES ${DEPS_INCLUDE_DIRS})
+set(CMAKE_REQUIRED_LIBRARIES PkgConfig::DEPS)
+check_symbol_exists(sqlite3_hard_heap_limit64 "sqlite3.h" HAVE_HEAP_LIM)
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/doctest")
@@ -63,6 +67,11 @@ if(NOT HTSLIB_TARGET)
   )
 endif()
 
+set(APB_COMPILE_DEFINITIONS
+  APB_VERSION="${PROJECT_VERSION}"
+  TB_OPT_EGC
+)
+
 add_executable(apb
   src/app/main.cpp
   src/app/widgets.cpp
@@ -76,10 +85,7 @@ add_executable(apb
   src/frontend/history.cpp
   src/demo/demo.cpp
 )
-target_compile_definitions(apb PRIVATE
-  APB_VERSION="${PROJECT_VERSION}"
-  TB_OPT_EGC
-)
+target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS})
 target_compile_options(apb
   PRIVATE
   -Wall
@@ -117,10 +123,7 @@ add_executable(apb-tests
   src/frontend/tb2_impl.cpp
   ${APB_TEST_SOURCES}
 )
-target_compile_definitions(apb-tests PRIVATE
-  APB_VERSION="${PROJECT_VERSION}"
-  TB_OPT_EGC
-)
+target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
 target_include_directories(apb-tests PRIVATE src)
 target_link_libraries(apb-tests
   PRIVATE

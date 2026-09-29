@@ -2,8 +2,10 @@
 
 #include <fmt/format.h>
 #include <htslib/faidx.h>
+#include <htslib/sam.h>
 
 #include "plog/Log.h"
+#include "shared/bounds.hpp"
 
 std::expected<AlnFile, AlnFile::LoadErrCodes> AlnFile::load_aln (
     const std::string& path
@@ -75,6 +77,7 @@ PileupIterator::prepare_pileup_iter (
   PLOGD << "Initialising bam_plp_t";
   out.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
   auto* o_plp = bam_plp_init (pileup_func, out.o_cap);
+  bam_plp_set_maxcnt (o_plp, kMaxReads);
   if (o_plp == NULL) {
     return std::unexpected (
         PileupIterator::ConstructErrCodes::pileupInitFail
