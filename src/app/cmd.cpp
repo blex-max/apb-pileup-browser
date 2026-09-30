@@ -3,7 +3,6 @@
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
-#include <plog/Log.h>
 
 #include <cstdint>
 #include <expected>
@@ -16,6 +15,7 @@
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/log.hpp"
 #include "shared/version.hpp"
 
 
@@ -81,7 +81,7 @@ static std::expected<void, CmdResult> cmd_validate_ntok (
     uint8_t maxNTok, const std::string_view usage
 )
 {
-  APB_ASSERT (maxNTok >= minNTok);
+  APB_ASSERT (maxNTok >= minNTok, maxNTok, minNTok);
   APB_ASSERT (!usage.empty());
 
   if (maxNTok == 0 && !argTok.empty()) {
@@ -270,10 +270,12 @@ struct WhereCmd {
     newClause.where.clear();
     newClause.where.emplace_back (args);
 
-    PLOGD << fmt::format (
-        "Attempting to compile statement with updated WHERE "
-        "clause {}",
-        args
+    APB_LOG_FN (
+        fmt::format (
+            "Compiling user statement with WHERE "
+            "clause: {}",
+            args
+        )
     );
 
     return try_apply_query_clause (
@@ -312,10 +314,12 @@ struct AndCmd {
 
     newClause.where.emplace_back (newCond);
 
-    PLOGD << fmt::format (
-        "Attempting to compile statement with updated WHERE "
-        "clause {}",
-        args
+    APB_LOG_FN (
+        fmt::format (
+            "Compiling user statement with WHERE "
+            "clause: {}",
+            args
+        )
     );
 
     // validates clause
@@ -353,10 +357,12 @@ struct OrCmd {
 
     newClause.where.emplace_back (newCond);
 
-    PLOGD << fmt::format (
-        "Attempting to compile statement with updated WHERE "
-        "clause {}",
-        args
+    APB_LOG_FN (
+        fmt::format (
+            "Compiling user statement with WHERE "
+            "clause: {}",
+            args
+        )
     );
 
     return try_apply_query_clause (
@@ -439,7 +445,13 @@ struct OrderCmd {
 
   static CmdResult operator() (std::string_view args, AppState& state)
   {
-    PLOGD << fmt::format ("User requesting sort: {}", args);
+    APB_LOG_FN (
+        fmt::format (
+            "Compiling user statement with ORDER BY"
+            "clause: {}",
+            args
+        )
+    );
 
     auto newClause = state.db.userClause;
     newClause.orderBy = args;

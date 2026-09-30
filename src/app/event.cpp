@@ -5,7 +5,6 @@
 #include "app/cmd.hpp"
 #include "app/widgets.hpp"
 #include "frontend/extb/extb.hpp"
-#include "plog/Log.h"
 
 static bool handle_nav (AppState& state, const tb_event& ev)
 {
@@ -21,8 +20,8 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       // execute user command
       if (!cWgt.inputBuf.text.empty()) {
         history_push (cWgt.history, cWgt.inputBuf.text);
-        cWgt.msgBuf = exec_cmd (cWgt.inputBuf.text, state)
-                          .msg;  // return msg
+        cWgt.msgBuf =
+            exec_cmd (cWgt.inputBuf.text, state).msg;  // return msg
         clear (cWgt.inputBuf);
       }
       break;
@@ -92,8 +91,7 @@ static bool handle_nav (AppState& state, const tb_event& ev)
         history_prev (cWgt.history, cWgt.inputBuf);
       }
       else {
-        stmtRowScrollOffset =
-            std::max (stmtRowScrollOffset - 1, 0);
+        stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);
       }
       break;
 
@@ -112,9 +110,8 @@ static bool handle_nav (AppState& state, const tb_event& ev)
     }
 
     case TB_KEY_PGDN: {
-      const auto lastRowOnscreen = static_cast<uint32_t> (
-          stmtRowScrollOffset + bWgt.nReadOnscreen
-      );
+      const auto lastRowOnscreen =
+          static_cast<uint32_t> (stmtRowScrollOffset + bWgt.nReadOnscreen);
       if (lastRowOnscreen < db.nStmtRows) {
         stmtRowScrollOffset += bWgt.nReadOnscreen;
       }
@@ -128,31 +125,21 @@ static bool handle_nav (AppState& state, const tb_event& ev)
   return true;
 }
 
-static void handle_key_event (
-    AppState& state, const tb_event& ev
-)
+static void handle_key_event (AppState& state, const tb_event& ev)
 {
   if (ev.key == 0 && ev.ch != 0) {
     // annoyingly, outside of handle_nav
     if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'b') {
-      PLOGD << "Recieved alt-b (word-left) event";
       move_word_left (state.ui.cmd.inputBuf);
     }
     else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'f') {
-      PLOGD << "Recieved alt-f (word-right) event";
       move_word_right (state.ui.cmd.inputBuf);
     }
     else {
-      PLOGD << fmt::format (
-          "Recieved character input event: {}", ev.ch
-      );
       insert (state.ui.cmd.inputBuf, static_cast<char> (ev.ch));
     }
   }
   else {
-    PLOGD << fmt::format (
-        "Recieved navigation event: {}", ev.key
-    );
     handle_nav (state, ev);
   }
 }
@@ -188,7 +175,6 @@ static void nav_overlay (AppState& state, const tb_event& ev)
 // if I was feeling rigid.
 WidgetStatus handle_event (AppState& state, const tb_event& ev)
 {
-  PLOGD << "Recieved event";
   if (ev.type == TB_EVENT_KEY) {
     if (!state.conf.showOverlay) {
       handle_key_event (state, ev);

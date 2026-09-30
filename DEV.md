@@ -82,7 +82,6 @@ Dependencies will be properly credited in the README in future.
 | sqlite3 | ≥3.38 | system, `pkg-config` |
 | htslib | ≥1.17 | system, `pkg-config` (or `-DHTSLIB_INCLUDE_DIR`/`-DHTSLIB_LIBRARY`) |
 | termbox2 | 605398fa | Vendored |
-| plog | v1.1.10 | Vendored |
 | fmt | v12.2.0 | Vendored |
 | doctest | v2.5.3 | Vendored |
 

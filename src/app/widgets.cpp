@@ -2,7 +2,6 @@
 
 #include <fmt/format.h>
 #include <htslib/sam.h>
-#include <plog/Log.h>
 
 #include <cctype>
 #include <cmath>
@@ -17,6 +16,7 @@
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/log.hpp"
 
 // --- helpers --- //
 
@@ -56,8 +56,8 @@ bool size_and_set_overlay_widget (
 )
 {
   /* set overlay widget, dynamically sizing to content */
-  APB_ASSERT (screenW > 0);
-  APB_ASSERT (screenH > 0);
+  APB_ASSERT (screenW > 0, screenW);
+  APB_ASSERT (screenH > 0, screenH);
   APB_ASSERT (!content.empty());
 
   // dynamically sized to content
@@ -97,7 +97,7 @@ bool size_and_set_overlay_widget (
 
 bool size_widgets (UIBundle& ui)
 {
-  PLOGD << "Calculating widget size";
+  APB_LOG_FN_ENTRY();
 
   const auto screenW = ui.screenW = tb_width();
   const auto screenH = ui.screenH = tb_height();
@@ -108,10 +108,6 @@ bool size_widgets (UIBundle& ui)
   // vertical sectioning of terminal
   const e2::Span mainY{screenY.first, screenY.last - CmdWgt::widgetHeight};
   const e2::Span cmdY{mainY.last, mainY.last + CmdWgt::widgetHeight};
-
-  PLOGD << "screen y last: " << screenY.last;
-  PLOGD << "cmd y first: " << cmdY.first;
-  PLOGD << "cmd y last: " << cmdY.last;
 
   if (!e2::valid (screenY) || !e2::valid (screenX) || !e2::valid (mainY) ||
       !e2::valid (cmdY)) {
@@ -179,9 +175,7 @@ static void header (
     const e2::HLine& headerLine, const std::span<const ColMetadata*> cols
 )
 {
-  PLOGD << "Drawing table header";
-
-  APB_ASSERT (valid (headerLine));
+  APB_ASSERT (valid (headerLine), headerLine);
 
   const int xLim = last (headerLine.xspan);
   e2::GlobalCell writeHead{
@@ -245,6 +239,7 @@ struct Row1FixedArgs {
     return writeXStart <= writeXLimit;
   }
 };
+
 static void row1 (int writeY, sqlite3_stmt* br_dbRow, Row1FixedArgs fa)
 {
   auto writeX = fa.writeXStart;
@@ -272,6 +267,23 @@ static void row1 (int writeY, sqlite3_stmt* br_dbRow, Row1FixedArgs fa)
 }
 
 }  // namespace draw_table
+
+template <>
+struct fmt::formatter<draw_table::Row1FixedArgs>
+    : fmt::formatter<std::string> {
+  auto format (
+      const draw_table::Row1FixedArgs& fa, format_context& ctx
+  ) const
+  {
+    return fmt::formatter<std::string>::format (
+        fmt::format (
+            "Row1FixedArgs{{writeXStart: {}, writeXLimit: {}}}",
+            fa.writeXStart, fa.writeXLimit
+        ),
+        ctx
+    );
+  }
+};
 
 namespace draw_aln {
 
@@ -327,8 +339,9 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
             );
             APB_ASSERT (
                 rawNCig >= 0 &&
-                static_cast<uint64_t> (rawNCig) * sizeof (uint32_t) <=
-                    static_cast<uint64_t> (cigBytes)
+                    static_cast<uint64_t> (rawNCig) * sizeof (uint32_t) <=
+                        static_cast<uint64_t> (cigBytes),
+                rawNCig, cigBytes
             );
             return static_cast<uint64_t> (rawNCig);
           }()
@@ -352,6 +365,7 @@ struct Seq1FixedArgs {
            e2::valid (writeLimits);
   }
 };
+
 static e2::Delta seq1 (
     const int16_t yStart, sqlite3_stmt* br_dbRow,
     const std::optional<std::string>& ref, const Seq1FixedArgs& fa
@@ -626,6 +640,25 @@ static e2::Delta seq1 (
 
 }  // namespace draw_aln
 
+template <>
+struct fmt::formatter<draw_aln::Seq1FixedArgs>
+    : fmt::formatter<std::string> {
+  auto format (
+      const draw_aln::Seq1FixedArgs& fa, format_context& ctx
+  ) const
+  {
+    return fmt::formatter<std::string>::format (
+        fmt::format (
+            "Seq1FixedArgs{{writeStartX: {}, writeStartXGPos: {}, "
+            "pileupSpanGStart: {}, writeLimits: ({}, {})}}",
+            fa.writeStartX, fa.writeStartXGPos, fa.pileupSpanGStart,
+            fa.writeLimits.x, fa.writeLimits.y
+        ),
+        ctx
+    );
+  }
+};
+
 namespace draw_query_data {
 
 static WidgetStatus draw_query_data (
@@ -633,14 +666,12 @@ static WidgetStatus draw_query_data (
 )
 {
   // draw reads and data table
-  PLOGD << "Drawing browser child panes";
-
   if (!valid (bWgt.frame) || size (bWgt.frame.xspan) < 4 ||
       size (bWgt.frame.yspan) < 8) {
     // bounds slightly approximate
     return {WidgetStatus::insufficientSz};
   }
-  APB_ASSERT (db.locusInfo.valid());
+  APB_ASSERT (db.locusInfo.valid(), db.locusInfo);
 
   sqlite3_reset (db.selectStmt);
 
@@ -685,11 +716,20 @@ static WidgetStatus draw_query_data (
         splitAbsX, construct_relative (frameY, 0, size (frameY) - 1)
     };
 
-    APB_ASSERT (valid (bWgt.tablePaneHeaderLine));
-    APB_ASSERT (size (bWgt.tablePaneHeaderLine) > 0);
-    APB_ASSERT (valid (bWgt.tablePaneDataBox));
-    APB_ASSERT (height (bWgt.tablePaneDataBox) > 0);
-    APB_ASSERT (width (bWgt.tablePaneDataBox) > 0);
+    APB_ASSERT (
+        valid (bWgt.tablePaneHeaderLine), bWgt.tablePaneHeaderLine
+    );
+    APB_ASSERT (
+        size (bWgt.tablePaneHeaderLine) > 0,
+        size (bWgt.tablePaneHeaderLine)
+    );
+    APB_ASSERT (valid (bWgt.tablePaneDataBox), bWgt.tablePaneDataBox);
+    APB_ASSERT (
+        height (bWgt.tablePaneDataBox) > 0, height (bWgt.tablePaneDataBox)
+    );
+    APB_ASSERT (
+        width (bWgt.tablePaneDataBox) > 0, width (bWgt.tablePaneDataBox)
+    );
   }
   else {
     bWgt.tablePaneHeaderLine = {};  // invalid
@@ -699,9 +739,13 @@ static WidgetStatus draw_query_data (
     bWgt.alnPaneRefLine = {contentX, first (contentY)};
     bWgt.alnPaneDataBox = {contentX, dataY};
   }
-  APB_ASSERT (valid (bWgt.alnPaneDataBox));
-  APB_ASSERT (height (bWgt.alnPaneDataBox) > 0);
-  APB_ASSERT (width (bWgt.alnPaneDataBox) > 0);
+  APB_ASSERT (valid (bWgt.alnPaneDataBox), bWgt.alnPaneDataBox);
+  APB_ASSERT (
+      height (bWgt.alnPaneDataBox) > 0, height (bWgt.alnPaneDataBox)
+  );
+  APB_ASSERT (
+      width (bWgt.alnPaneDataBox) > 0, width (bWgt.alnPaneDataBox)
+  );
   /* end size widgets */
 
   /* configure/validate draw coordinates */
@@ -721,7 +765,7 @@ static WidgetStatus draw_query_data (
   );
   const auto alnPaneLeftmostGPos =
       db.locusInfo.pos - alnPaneHalfWidth + bWgt.userPanOffset;
-  APB_ASSERT (alnPaneLeftmostGPos >= 0);
+  APB_ASSERT (alnPaneLeftmostGPos >= 0, alnPaneLeftmostGPos);
   /* end coordinates */
 
   if (db.locusInfo.refSlice) {
@@ -769,13 +813,13 @@ static WidgetStatus draw_query_data (
       .drawQualTrack = conf.drawTrackSwitches.qual,
       .drawInsTrack = conf.drawTrackSwitches.ins,
   };
-  APB_ASSERT (seq1Fixed.valid());
+  APB_ASSERT (seq1Fixed.valid(), seq1Fixed);
   const draw_table::Row1FixedArgs row1Fixed{
       .writeXStart = first (bWgt.tablePaneDataBox.xspan),
       .writeXLimit = last (bWgt.tablePaneDataBox.xspan),
       .cols = activeCols,
   };
-  APB_ASSERT (row1Fixed.valid());
+  APB_ASSERT (row1Fixed.valid(), row1Fixed);
   if (db.nStmtRows > 0) {
     uint16_t nReadDrawn = 0;
     for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
@@ -868,7 +912,6 @@ WidgetStatus draw_main_ui (
   // NOTE: set order does matter,
   // since some places just overwrite
   // previous draw calls
-  PLOGD << "Drawing widgets";
   APB_ASSERT (validate::ui_is_valid (ui));
 
   {
@@ -876,8 +919,8 @@ WidgetStatus draw_main_ui (
     const auto& bWgt = ui.browsr;
     // preconds
     // TODO: these should not be asserts!
-    APB_ASSERT (width (bWgt.frame) > 1);
-    APB_ASSERT (height (bWgt.frame) > 1);
+    APB_ASSERT (width (bWgt.frame) > 1, width (bWgt.frame));
+    APB_ASSERT (height (bWgt.frame) > 1, height (bWgt.frame));
 
     const auto& bFrame = bWgt.frame;
     set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
@@ -906,8 +949,8 @@ WidgetStatus draw_main_ui (
     // draw cmd chrome
     const auto& cWgt = ui.cmd;
     // preconds
-    APB_ASSERT (width (cWgt.frame) > 1);
-    APB_ASSERT (height (cWgt.frame) > 1);
+    APB_ASSERT (width (cWgt.frame) > 1, width (cWgt.frame));
+    APB_ASSERT (height (cWgt.frame) > 1, height (cWgt.frame));
 
     const auto& cFrame = cWgt.frame;
     set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
@@ -941,7 +984,7 @@ WidgetStatus draw_main_ui (
     const auto& bWgt = ui.browsr;
     const auto& locusData = db.locusInfo;
     // preconds
-    APB_ASSERT (locusData.valid());
+    APB_ASSERT (locusData.valid(), locusData);
 
     auto writeHead = first (bWgt.ambientLine);
     const auto lineEnd = last (bWgt.ambientLine.xspan);

@@ -1,7 +1,5 @@
 #include <fmt/format.h>
 #include <htslib/sam.h>
-#include <plog/Initializers/RollingFileInitializer.h>
-#include <plog/Log.h>
 
 #include <cstdlib>
 #include <expected>
@@ -105,16 +103,6 @@ populate_db_mode_locus (
 
 int main (int argc, char** argv)
 {
-  // TODO: use local logger
-  // log::init ("test.txt", '\n');
-  // Defer log_cleanup ([]() { log::deinit(); });
-  // log::push ("Begin apb");
-  // log::push ("msg1");
-  // log::push ("msg2");
-  // log::flush();
-  // log::push ("msg3");
-  // log::push ("msg4");
-  // log::flush();
   /* setup */
   auto argRet = setup_cli (argc, argv);
   if (!argRet) {
@@ -136,26 +124,31 @@ int main (int argc, char** argv)
     }
   }
 
-  plog::init (
-      plog::debug, args.logPath.c_str(), 1000000 /* 1mb limit */, 1
+  apb_log::init (
+      args.logPath.empty() ? std::nullopt : std::optional{args.logPath},
+      '\n'
   );
-  PLOGD << "Log initialised";
+  Defer log_cleanup ([]() { apb_log::deinit(); });
+  APB_LOG_FN ("Begin apb");
+  APB_LOG_FN ("Log initialised");
 
   /* config */
   // must configure before sqlite3 is initialised (which will happen
   // when database is initalised).
   if (const auto rc = sqlite3_config (SQLITE_CONFIG_MEMSTATUS, 1);
       rc != SQLITE_OK) {
-    PLOGD << "Could not enable sqlite3 memory reporting. Memory stats "
-             "will be invalid";
+    APB_LOG_FN (
+        "Could not enable sqlite3 memory reporting. Memory stats "
+        "will be invalid"
+    );
   }
 #ifdef HAVE_HEAP_LIM
   if (const auto rc = sqlite3_hard_heap_limit64 (kMaxSqliteHeapBytes);
       rc != SQLITE_OK) {
-    PLOGD << "Hard heap limit failed, database size uncapped";
+    APB_LOG_FN ("Hard heap limit failed, database size uncapped");
   }
 #else
-  PLOGD << "Hard heap limiting not available, database size uncapped";
+  APB_LOG_FN ("Hard heap limiting not available, database size uncapped");
 #endif
 
   auto db{PileupDB::init()};
@@ -454,14 +447,17 @@ int main (int argc, char** argv)
       return EXIT_FAILURE;
     }
 
-    PLOGD << "Processed frame";
+    APB_LOG_FN ("Processed frame");
   }
   tb_cleanup.invoke();
 
   std::cerr << "Bye!" << std::endl;
 
-  PLOGD << fmt::format (
-      "sqlite3 max memory usage: {} bytes", sqlite3_memory_highwater (0)
+  APB_LOG_FN (
+      fmt::format (
+          "sqlite3 max memory usage: {} bytes",
+          sqlite3_memory_highwater (0)
+      )
   );
   return EXIT_SUCCESS;
 }
@@ -614,7 +610,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
     std::optional<std::string_view> refPath, bool zeroBased
 )
 {
-  PLOGD << "Opening alignment file";
+  APB_LOG_FN ("Opening alignment file");
   auto alnRet = AlnFile::load_aln (std::string{alnPath});
   if (!alnRet) {
     switch (alnRet.error()) {
@@ -636,7 +632,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
   }
   auto aln = std::move (*alnRet);
 
-  PLOGD << "Parsing locus string";
+  APB_LOG_FN ("Parsing locus string");
   int32_t tid;
   hts_pos_t pos;
   hts_pos_t pend;
@@ -695,7 +691,6 @@ static std::expected<void, std::string> populate_db_mode_locus (
 
   std::optional<FastaFile> ff;
   if (refPath) {
-    PLOGD << "Opening reference fasta file";
     auto ffResult = FastaFile::load_fasta (std::string{*refPath}.c_str());
     if (!ffResult) {
       return std::unexpected (
@@ -705,7 +700,6 @@ static std::expected<void, std::string> populate_db_mode_locus (
     ff = std::move (*ffResult);
   }
 
-  PLOGD << "Inserting pileup";
   auto prepareResult = PileupIterator::prepare_pileup_iter (aln, tid, pos);
   if (!prepareResult) {
     switch (prepareResult.error()) {

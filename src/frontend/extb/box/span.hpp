@@ -1,6 +1,9 @@
 #pragma once
 
+#include <fmt/format.h>
+
 #include <ranges>
+#include <string>
 
 #include "frontend/extb/extb.hpp"
 
@@ -178,3 +181,27 @@ inline VLine body (const VLine& l) noexcept
 // --- END IMPLEMENTATION --- //
 
 }  // end namespace extb
+
+// --- FMT FORMATTERS --- //
+
+template <>
+struct fmt::formatter<extb::Span> : fmt::formatter<std::string> {
+  auto format (const extb::Span& s, format_context& ctx) const
+  {
+    return fmt::formatter<std::string>::format (
+        fmt::format ("[{}, {}]", s.first, s.last), ctx
+    );
+  }
+};
+
+template <>
+struct fmt::formatter<extb::HLine> : fmt::formatter<std::string> {
+  auto format (const extb::HLine& l, format_context& ctx) const
+  {
+    return fmt::formatter<std::string>::format (
+        fmt::format ("HLine{{xspan: {}, y: {}}}", l.xspan, l.y), ctx
+    );
+  }
+};
+
+// --- END FMT FORMATTERS --- //

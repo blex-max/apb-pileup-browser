@@ -4,8 +4,8 @@
 #include <htslib/faidx.h>
 #include <htslib/sam.h>
 
-#include "plog/Log.h"
 #include "shared/bounds.hpp"
+#include "shared/log.hpp"
 
 std::expected<AlnFile, AlnFile::LoadErrCodes> AlnFile::load_aln (
     const std::string& path
@@ -65,16 +65,16 @@ PileupIterator::prepare_pileup_iter (
     and even in future there is no expected pattern to loci at which pileups
     might be needed, hence little advantage to keeping the iterator alive between calls.
   */
-  PLOGD << "Begin prepare_pileup";
+  APB_LOG_FN_ENTRY();
   PileupIterator out;
 
-  PLOGD << "Initalising sam_itr_queryi";
+  APB_LOG ("Initalising sam_itr_queryi");
   auto* o_alnIter = sam_itr_queryi (aln.o_idx, tid, pos, pos + 1);
   if (o_alnIter == NULL) {
     return std::unexpected (PileupIterator::ConstructErrCodes::samItrFail);
   }
 
-  PLOGD << "Initialising bam_plp_t";
+  APB_LOG ("Initialising bam_plp_t");
   out.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
   auto* o_plp = bam_plp_init (pileup_func, out.o_cap);
   bam_plp_set_maxcnt (o_plp, kMaxReads);
@@ -89,7 +89,7 @@ PileupIterator::prepare_pileup_iter (
   int plpTid = -1;
   int nPlp = -1;
   const bam_pileup1_t* br_plpArr;
-  PLOGD << "Iterating pileup";
+  APB_LOG ("Iterating pileup via auto interface");
   while ((br_plpArr =
               bam_plp64_auto (out.o_plp, &plpTid, &plpPos, &nPlp)) != 0) {
     if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
@@ -100,7 +100,6 @@ PileupIterator::prepare_pileup_iter (
     if (plpPos < pos) {
       continue;  // doesn't cover locus
     }
-    PLOGD << "Position found";
     if (nPlp == 0) {
       // I don't believe this to be possible,
       // but harmless guard.

@@ -29,10 +29,6 @@ target_include_directories(doctest SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/
 add_library(termbox2 INTERFACE)
 target_include_directories(termbox2 SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/termbox2")
 
-add_library(plog INTERFACE)
-add_library(plog::plog ALIAS plog)
-target_include_directories(plog SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/plog/include")
-
 add_library(fmt-header-only INTERFACE)
 add_library(fmt::fmt-header-only ALIAS fmt-header-only)
 target_include_directories(fmt-header-only SYSTEM INTERFACE "${CMAKE_SOURCE_DIR}/vendor/fmt/include")
@@ -108,7 +104,6 @@ target_include_directories(apb
 target_link_libraries(apb
   PRIVATE
   termbox2
-  plog::plog
   fmt::fmt-header-only
   ${HTSLIB_TARGET}
   PkgConfig::DEPS
@@ -122,6 +117,7 @@ add_executable(apb-tests
   src/backend/hts_sql.cpp
   src/backend/hts_types.cpp
   src/frontend/tb2_impl.cpp
+  src/shared/log.cpp
   ${APB_TEST_SOURCES}
 )
 target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
@@ -133,7 +129,6 @@ target_link_libraries(apb-tests
   fmt::fmt-header-only
   ${HTSLIB_TARGET}
   PkgConfig::DEPS
-  plog::plog
 )
 
 # tests run as part of build (and must pass).

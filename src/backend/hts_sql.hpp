@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fmt/format.h>
 #include <htslib/sam.h>
 
 #include <cstdint>
@@ -127,6 +128,21 @@ std::string describe_sqlite_failure (
 
 }  // namespace query
 
+template <>
+struct fmt::formatter<query::PileupMetadata>
+    : fmt::formatter<std::string> {
+  auto format (const query::PileupMetadata& m, format_context& ctx) const
+  {
+    return fmt::formatter<std::string>::format (
+        fmt::format (
+            "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}",
+            m.contig, m.pos, m.start, m.end
+        ),
+        ctx
+    );
+  }
+};
+
 namespace hts2sql {
 
 struct InsertPileupErr {
@@ -229,3 +245,20 @@ void append_json_escaped (
 );
 
 }  // namespace hts2sql
+
+template <>
+struct fmt::formatter<hts2sql::PileupFields>
+    : fmt::formatter<std::string> {
+  auto format (const hts2sql::PileupFields& pf, format_context& ctx) const
+  {
+    return fmt::formatter<std::string>::format (
+        fmt::format (
+            "PileupFields{{start: {}, end: {}, qPos: {}, seqBases.size: "
+            "{}, qualAscii.size: {}, nCig: {}, rawCig.size: {}}}",
+            pf.start, pf.end, pf.qPos, pf.seqBases.size(),
+            pf.qualAscii.size(), pf.nCig, pf.rawCig.size()
+        ),
+        ctx
+    );
+  }
+};

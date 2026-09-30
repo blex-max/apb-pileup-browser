@@ -10,9 +10,9 @@
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
 #include "backend/sql_types.hpp"
-#include "plog/Log.h"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
+#include "shared/log.hpp"
 
 // Error handling convention for sqlite3 calls in this file:
 //
@@ -323,6 +323,7 @@ std::expected<SqliteStmt, int> prepare_select_reads (
     const DynamicFragments& frags
 )
 {
+  APB_LOG_FN_ENTRY();
   APB_ASSERT (prefix.back() != ';');
 
   SqliteStmt stmt;
@@ -341,8 +342,6 @@ std::expected<SqliteStmt, int> prepare_select_reads (
   }
 
   rsql_builtStmt.append (";");  // end stmt
-
-  PLOGD << "Compiling user query: " + rsql_builtStmt;
 
   // If these fail, then the user statement is not valid,
   // hence they are not unreachable
@@ -537,10 +536,13 @@ std::expected<void, InsertPileupErr> insert_pileup (
     const std::optional<FastaFile>& ff
 )
 {
-  APB_ASSERT (pileupIter.span.valid());
-  APB_ASSERT (pileupIter.pos >= 0);
-  APB_ASSERT (pileupIter.tid >= 0);
-  APB_ASSERT (pileupIter.nPlp > 0);
+  APB_LOG_FN_ENTRY();
+  APB_ASSERT (
+      pileupIter.span.valid(), pileupIter.span.start, pileupIter.span.end
+  );
+  APB_ASSERT (pileupIter.pos >= 0, pileupIter.pos);
+  APB_ASSERT (pileupIter.tid >= 0, pileupIter.tid);
+  APB_ASSERT (pileupIter.nPlp > 0, pileupIter.nPlp);
   APB_ASSERT (!contigName.empty());
 
   std::optional<std::string> refSlice;
@@ -583,7 +585,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
         )
     );
   }
-  PLOGD << "Inserting reads";
 
   for (size_t i = 0; i < pileupIter.nPlp; ++i) {
     PileupFields readI;
@@ -659,10 +660,10 @@ std::expected<void, InsertPileupErr> insert_pileup (
     CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
   */
   APB_ASSERT (!contigName.empty());
-  APB_ASSERT (pileupSpan.valid());
-  APB_ASSERT (pileupPos >= 0);
-  APB_ASSERT (pileupPos >= pileupSpan.start);
-  APB_ASSERT (pileupPos <= pileupSpan.end);
+  APB_ASSERT (pileupSpan.valid(), pileupSpan.start, pileupSpan.end);
+  APB_ASSERT (pileupPos >= 0, pileupPos);
+  APB_ASSERT (pileupPos >= pileupSpan.start, pileupPos, pileupSpan.start);
+  APB_ASSERT (pileupPos <= pileupSpan.end, pileupPos, pileupSpan.end);
 
   SqliteStmt stmt;
   if (const auto rc = sqlite3_prepare_v2 (
@@ -827,7 +828,7 @@ bool fill_fields (
     }
   }
 
-  APB_ASSERT (pf.valid());
+  APB_ASSERT (pf.valid(), pf);
   return true;
 }
 
@@ -840,7 +841,7 @@ void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf)
 {
   // backstop against callers (e.g. demo.cpp) that build PileupFields
   // by hand rather than via fill_fields.
-  APB_ASSERT (pf.valid());
+  APB_ASSERT (pf.valid(), pf);
 
   // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
   int col = 1;
