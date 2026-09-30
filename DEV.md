@@ -85,8 +85,3 @@ Dependencies will be properly credited in the README in future.
 | fmt | v12.2.0 | Vendored |
 | doctest | v2.5.3 | Vendored |
 
-## AI Usage
-
-This repo has been developed by hand, with some use of AI tools for extraneous work like implementing githooks etc.
-The design and implementation of all core types and logic are made by the maintainer.
-Contributions are more than welcome, but would ideally follow this standard.
