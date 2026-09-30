@@ -431,8 +431,6 @@ int main (int argc, char** argv)
   }
   tb_cleanup.invoke();
 
-  std::cerr << "Bye!" << std::endl;
-
   if (verboseLog) {
     std::cerr << fmt::format (
                      "sqlite3 max memory usage: {} bytes",
@@ -440,6 +438,8 @@ int main (int argc, char** argv)
                  )
               << std::endl;
   }
+
+  std::cerr << "Bye!" << std::endl;
 
   return EXIT_SUCCESS;
 }
