@@ -80,7 +80,6 @@ add_executable(apb
   src/frontend/input.cpp
   src/frontend/history.cpp
   src/demo/demo.cpp
-  src/shared/log.cpp
 )
 target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS})
 target_compile_options(apb
@@ -117,7 +116,6 @@ add_executable(apb-tests
   src/backend/hts_sql.cpp
   src/backend/hts_types.cpp
   src/frontend/tb2_impl.cpp
-  src/shared/log.cpp
   ${APB_TEST_SOURCES}
 )
 target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})

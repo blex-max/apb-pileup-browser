@@ -3,7 +3,6 @@
 
 #include <cstdlib>
 #include <expected>
-#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -20,7 +19,6 @@
 #include "shared/apb_assert.hpp"
 #include "shared/bounds.hpp"
 #include "shared/cleanup.hpp"
-#include "shared/log.hpp"
 #include "shared/version.hpp"
 
 // NOTE: helptext is not constructed from
@@ -60,7 +58,8 @@ options:
                       (invalid with --db)
   --manual            Print the apb manual to stdout and exit.
   --schema            Print the apb SQL schema to stdout and exit.
-  --log PATH          log debug output to file.
+  --log               print extra startup/shutdown diagnostics to
+                      stderr.
   -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
                       file) instead of 1-based. Not valid
                       with --demo/--db.
@@ -87,7 +86,7 @@ struct ApbCliArgs {
   std::string locus;
   std::string refPath;
   std::string dumpPath;
-  std::string logPath;
+  bool verboseLog = false;
   bool zeroBased = false;
 };
 
@@ -110,45 +109,28 @@ int main (int argc, char** argv)
     return EXIT_FAILURE;
   }
   ApbCliArgs args = *argRet;
-
-  if (!args.logPath.empty()) {
-    if (std::ofstream logTest (args.logPath, std::ios::app); !logTest) {
-      std::cerr
-          << fmt::format (
-                 "Warning: could not open log file at {}; continuing "
-                 "without logging",
-                 args.logPath
-             )
-          << std::endl;
-      args.logPath.clear();
-    }
-  }
-
-  apb_log::init (
-      args.logPath.empty() ? std::nullopt : std::optional{args.logPath},
-      '\n'
-  );
-  Defer log_cleanup ([]() { apb_log::deinit(); });
-  APB_LOG_FN ("Begin apb");
-  APB_LOG_FN ("Log initialised");
+  const bool verboseLog = args.verboseLog;
 
   /* config */
   // must configure before sqlite3 is initialised (which will happen
   // when database is initalised).
   if (const auto rc = sqlite3_config (SQLITE_CONFIG_MEMSTATUS, 1);
-      rc != SQLITE_OK) {
-    APB_LOG_FN (
-        "Could not enable sqlite3 memory reporting. Memory stats "
-        "will be invalid"
-    );
+      verboseLog && rc != SQLITE_OK) {
+    std::cerr << "Could not enable sqlite3 memory reporting. Memory "
+                 "stats will be invalid"
+              << std::endl;
   }
 #ifdef HAVE_HEAP_LIM
   if (const auto rc = sqlite3_hard_heap_limit64 (kMaxSqliteHeapBytes);
-      rc != SQLITE_OK) {
-    APB_LOG_FN ("Hard heap limit failed, database size uncapped");
+      verboseLog && rc != SQLITE_OK) {
+    std::cerr << "Hard heap limit failed, database size uncapped"
+              << std::endl;
   }
 #else
-  APB_LOG_FN ("Hard heap limiting not available, database size uncapped");
+  if (verboseLog) {
+    std::cerr << "Hard heap limiting not available, database size uncapped"
+              << std::endl;
+  }
 #endif
 
   auto db{PileupDB::init()};
@@ -446,19 +428,19 @@ int main (int argc, char** argv)
       std::cerr << "Error: " << msg << std::endl;
       return EXIT_FAILURE;
     }
-
-    APB_LOG_FN ("Processed frame");
   }
   tb_cleanup.invoke();
 
   std::cerr << "Bye!" << std::endl;
 
-  APB_LOG_FN (
-      fmt::format (
-          "sqlite3 max memory usage: {} bytes",
-          sqlite3_memory_highwater (0)
-      )
-  );
+  if (verboseLog) {
+    std::cerr << fmt::format (
+                     "sqlite3 max memory usage: {} bytes",
+                     sqlite3_memory_highwater (0)
+                 )
+              << std::endl;
+  }
+
   return EXIT_SUCCESS;
 }
 
@@ -473,7 +455,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 
   std::string dumpPath;
   std::string dbPath;
-  std::string logPath;
+  bool verboseLog = false;
   bool zeroBased = false;
   bool demoRequested = false;
   bool dbRequested = false;
@@ -529,11 +511,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
       dumpRequested = true;
     }
     else if (arg == "--log") {
-      auto val = takeValue (i, "--log");
-      if (!val) {
-        return parseFail (val.error());
-      }
-      logPath = *val;
+      verboseLog = true;
     }
     else if (arg == "--db") {
       auto val = takeValue (i, "--db");
@@ -556,7 +534,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   }
 
   ApbCliArgs parsedArgs;
-  parsedArgs.logPath = logPath;
+  parsedArgs.verboseLog = verboseLog;
 
   if (demoRequested) {
     if (!argPack.empty()) {
@@ -610,7 +588,6 @@ static std::expected<void, std::string> populate_db_mode_locus (
     std::optional<std::string_view> refPath, bool zeroBased
 )
 {
-  APB_LOG_FN ("Opening alignment file");
   auto alnRet = AlnFile::load_aln (std::string{alnPath});
   if (!alnRet) {
     switch (alnRet.error()) {
@@ -632,7 +609,6 @@ static std::expected<void, std::string> populate_db_mode_locus (
   }
   auto aln = std::move (*alnRet);
 
-  APB_LOG_FN ("Parsing locus string");
   int32_t tid;
   hts_pos_t pos;
   hts_pos_t pend;

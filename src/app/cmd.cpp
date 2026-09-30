@@ -15,7 +15,6 @@
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
 #include "shared/apb_assert.hpp"
-#include "shared/log.hpp"
 #include "shared/version.hpp"
 
 
@@ -270,14 +269,6 @@ struct WhereCmd {
     newClause.where.clear();
     newClause.where.emplace_back (args);
 
-    APB_LOG_FN (
-        fmt::format (
-            "Compiling user statement with WHERE "
-            "clause: {}",
-            args
-        )
-    );
-
     return try_apply_query_clause (
         state, std::move (newClause), CMD_GENERIC_SUCCESS
     );
@@ -314,14 +305,6 @@ struct AndCmd {
 
     newClause.where.emplace_back (newCond);
 
-    APB_LOG_FN (
-        fmt::format (
-            "Compiling user statement with WHERE "
-            "clause: {}",
-            args
-        )
-    );
-
     // validates clause
     return try_apply_query_clause (
         state, std::move (newClause), CMD_GENERIC_SUCCESS
@@ -356,14 +339,6 @@ struct OrCmd {
     newCond.append (args);
 
     newClause.where.emplace_back (newCond);
-
-    APB_LOG_FN (
-        fmt::format (
-            "Compiling user statement with WHERE "
-            "clause: {}",
-            args
-        )
-    );
 
     return try_apply_query_clause (
         state, std::move (newClause), CMD_GENERIC_SUCCESS
@@ -445,14 +420,6 @@ struct OrderCmd {
 
   static CmdResult operator() (std::string_view args, AppState& state)
   {
-    APB_LOG_FN (
-        fmt::format (
-            "Compiling user statement with ORDER BY"
-            "clause: {}",
-            args
-        )
-    );
-
     auto newClause = state.db.userClause;
     newClause.orderBy = args;
 

@@ -16,7 +16,6 @@
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
-#include "shared/log.hpp"
 
 // --- helpers --- //
 
@@ -97,8 +96,6 @@ bool size_and_set_overlay_widget (
 
 bool size_widgets (UIBundle& ui)
 {
-  APB_LOG_FN_ENTRY();
-
   const auto screenW = ui.screenW = tb_width();
   const auto screenH = ui.screenH = tb_height();
 
