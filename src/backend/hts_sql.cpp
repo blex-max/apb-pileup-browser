@@ -513,6 +513,12 @@ std::string describe_sqlite_failure (
           "Failed to {}: a disk I/O error occurred ({}).", context,
           sqlite3_errstr (rc)
       );
+    case SQLITE_NOMEM:
+      return fmt::format (
+          "Failed to {}: out of memory. Were you trying to load a very "
+          "large pileup?",
+          context
+      );
     default:
       return fmt::format (
           "Failed to {}, reporting code {} and status {} - "
