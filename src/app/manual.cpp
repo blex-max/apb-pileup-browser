@@ -221,7 +221,7 @@ std::string_view get_manual()
       + fmt::format (
             "The version of apb from which this manual was generated will "
             "cap maximum memory used for storing read at {} mb",
-            kMaxDbBytes / 1'000'000
+            kMaxSqliteHeapBytes / 1'000'000
         );
 #else
       ;

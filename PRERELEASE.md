@@ -9,5 +9,6 @@ check the following:
 - The fixed in-app help messages (helpblocks.cpp) must be in sync with
   the navigation (event.cpp), cli (main.cpp) and manual (manual.cpp).
 - README.md is updated, including the readme roadmap.
+- The docker images build on amd64 and arm64.
 - The app builds and runs!
 - The tests pass!

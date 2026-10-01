@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.22)
 
 project(apb
   LANGUAGES CXX
-  VERSION 0.1.0
+  VERSION 0.1.1
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -67,6 +67,9 @@ set(APB_COMPILE_DEFINITIONS
   APB_VERSION="${PROJECT_VERSION}"
   TB_OPT_EGC
 )
+if(HAVE_HEAP_LIM)
+  list(APPEND APB_COMPILE_DEFINITIONS HAVE_HEAP_LIM)
+endif()
 
 add_executable(apb
   src/app/main.cpp
