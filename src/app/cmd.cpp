@@ -219,7 +219,7 @@ static CmdResult try_apply_query_clause (
 )
 {
   auto prepResult = query::prepare_select_reads (
-      state.db.db, schema::ReadTableSelect::sqlPrefix, newClause
+      state.db.db, schema::UserReadViewSelect::sqlPrefix, newClause
   );
   if (!prepResult) {
     return {
@@ -461,7 +461,7 @@ struct CountCmd {
     }
 
     auto stmtResult = query::prepare_select_reads (
-        state.db.db, schema::ReadTableSelect::sqlCountPrefix,
+        state.db.db, schema::UserReadViewSelect::sqlCountPrefix,
         {.where = where, .orderBy = {}}
     );
     if (!stmtResult) {

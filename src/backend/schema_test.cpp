@@ -74,6 +74,7 @@ int insert_raw_read (PileupDB& db, int64_t start, int64_t end)
       stmt, col++, cigBlob, 4, SQLITE_STATIC
   );  // cig_uint32
   sqlite3_bind_int (stmt, col++, 1);  // ncig
+  sqlite3_bind_int64 (stmt, col++, 1);  // path_id
 
   return sqlite3_step (stmt);
 }
@@ -96,6 +97,13 @@ TEST_CASE (
 )
 {
   PileupDB db = PileupDB::init();
+  REQUIRE (
+      sqlite3_exec (
+          db,
+          "INSERT INTO alignment_files (id, path) VALUES (1, 'test.bam');",
+          nullptr, nullptr, nullptr
+      ) == SQLITE_OK
+  );
   REQUIRE (insert_raw_metadata (db, 150, 100, 200) == SQLITE_DONE);
 
   SUBCASE ("span within locus bounds is accepted")

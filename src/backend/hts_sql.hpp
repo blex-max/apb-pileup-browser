@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <htslib/sam.h>
 
+#include <climits>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -46,8 +47,8 @@ struct PileupDB {
       schemaMismatch
     };
     Code code;
-    std::optional<int> sqlRc = std::nullopt;
-    std::optional<std::string> sqlMsg = std::nullopt;
+    std::optional<int> rc = std::nullopt;
+    std::optional<std::string> msg = std::nullopt;
   };
   // Copy a database file on disk into an in-memory PileupDB,
   // using sqlite3's online backup API.
@@ -149,20 +150,20 @@ struct InsertPileupErr {
   enum Code : uint8_t { sqlFail, auxParseFail, refFetchFail };
 
   Code code;
-  std::optional<int> sqlRc = std::nullopt;
-  std::optional<int> htsRc = std::nullopt;
+  std::optional<int> rc = std::nullopt;
 };
 // insert reads at pileup position into database.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
     PileupDB& db, const PileupIterator& pileupIter,
     const std::string& contigName, const sam_hdr_t* br_alnHdr,
-    const std::optional<FastaFile>& ff
+    sqlite3_int64 aln_id, const std::optional<FastaFile>& ff
 );
 
 // insert pileup locus info into single-row metadata table.
 // Returns void or int sqlite3 error code
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+// FIXME: what error space can this actually return?
 [[nodiscard]] int insert_metadata (
     PileupDB& db, const std::string& contigName, int64_t pileupPos,
     const GenomicSpan& pileupSpan,
@@ -182,33 +183,33 @@ struct PileupFields {
   // in bind_pileup_fields (hts_sql.cpp).
 
   // NOTE: layout as table schema
-  std::string qName;
-  uint16_t flag;
-  hts_pos_t start;
-  hts_pos_t end;
-  uint8_t mapQ;
+  std::string qName = "?";
+  uint16_t flag = UINT16_MAX;
+  hts_pos_t start = -1;
+  hts_pos_t end = -1;
+  uint8_t mapQ = UINT8_MAX;
 
-  char base;
-  uint8_t baseQual;
-  int32_t qPos;
-  int indel;
-  bool isDel, isHead, isTail, isRefSkip;
+  std::optional<char> base;
+  std::optional<uint8_t> baseQual = UINT8_MAX;
+  int32_t qPos = -1;
+  int indel = INT_MAX;
+  bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
 
   std::string cig;
   std::string seqBases;
   std::string qualAscii;
 
   std::string mtidName;
-  hts_pos_t mStart;
+  hts_pos_t mStart = -1;
 
   std::string auxJson;
 
   std::vector<uint32_t> rawCig;
-  size_t nCig;
+  size_t nCig = SIZE_T_MAX;
 
   bool valid() const noexcept
   {
-    return start >= 0 && end > start && qPos >= 0 &&
+    return start >= 0 && end > start && qPos >= 0 && !seqBases.empty() &&
            seqBases.size() == qualAscii.size() && nCig == rawCig.size() &&
            !rawCig.empty();
   }
@@ -223,7 +224,9 @@ struct PileupFields {
 
 // Bind one pileup row's fields into `stmt`, in column order matching
 // stmt_str_InsertReads.
-void bind_pileup_fields (SqliteStmt& stmt, const PileupFields& pf);
+void bind_read_data (
+    SqliteStmt& stmt, const PileupFields& pf, sqlite3_int64 aln_id
+);
 
 // Render a CIGAR array as text (e.g. "151M").
 std::string stringify_cigar (const uint32_t* br_cig, size_t nCig);

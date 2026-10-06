@@ -204,6 +204,17 @@ hts2sql::PileupFields make_basic_fields (hts_pos_t mStart = -1)
   return pf;
 }
 
+
+// alignment_files row that per-record inserts reference via path_id.
+constexpr sqlite3_int64 k_testFileId = 1;
+
+void seed_file (PileupDB& db)
+{
+  const char* sql =
+      "INSERT INTO alignment_files (id, path) VALUES (1, 'test.bam');";
+  REQUIRE (sqlite3_exec (db, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+}
+
 }  // namespace
 
 TEST_CASE (
@@ -255,12 +266,13 @@ TEST_CASE (
 )
 {
   PileupDB db = PileupDB::init();
+  seed_file (db);
 
   SUBCASE ("mStart >= 0 shifts to a 1-indexed mstart")
   {
     auto stmt = hts2sql::prepare_insert_reads_stmt (db);
     auto pf = make_basic_fields (49);
-    hts2sql::bind_pileup_fields (stmt, pf);
+    hts2sql::bind_read_data (stmt, pf, k_testFileId);
     REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
 
     sqlite3_stmt* o_stmt = NULL;
@@ -273,20 +285,21 @@ TEST_CASE (
     REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
 
     CHECK (
-        sqlite3_column_int64 (o_stmt, schema::ReadTableSelect::start) ==
+        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::start) ==
         pf.start + 1
     );
     CHECK (
-        sqlite3_column_int64 (o_stmt, schema::ReadTableSelect::end) ==
+        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::end) ==
         pf.end
     );
     CHECK (
-        sqlite3_column_int64 (o_stmt, schema::ReadTableSelect::qpos) ==
+        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::qpos) ==
         pf.qPos + 1
     );
     CHECK (
-        sqlite3_column_int64 (o_stmt, schema::ReadTableSelect::mstart) ==
-        pf.mStart + 1
+        sqlite3_column_int64 (
+            o_stmt, schema::UserReadViewSelect::mstart
+        ) == pf.mStart + 1
     );
     sqlite3_finalize (o_stmt);
   }
@@ -295,7 +308,7 @@ TEST_CASE (
   {
     auto stmt = hts2sql::prepare_insert_reads_stmt (db);
     auto pf = make_basic_fields (-1);
-    hts2sql::bind_pileup_fields (stmt, pf);
+    hts2sql::bind_read_data (stmt, pf, k_testFileId);
     REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
 
     sqlite3_stmt* o_stmt = NULL;
@@ -308,7 +321,7 @@ TEST_CASE (
     REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
 
     CHECK (
-        sqlite3_column_type (o_stmt, schema::ReadTableSelect::mstart) ==
+        sqlite3_column_type (o_stmt, schema::UserReadViewSelect::mstart) ==
         SQLITE_NULL
     );
     sqlite3_finalize (o_stmt);
@@ -321,13 +334,14 @@ TEST_CASE (
 )
 {
   PileupDB db = PileupDB::init();
+  seed_file (db);
 
   SUBCASE ("valid JSON is accepted")
   {
     auto stmt = hts2sql::prepare_insert_reads_stmt (db);
     auto pf = make_basic_fields();
     pf.auxJson = "{\"XY\":[1,2,3]}";
-    hts2sql::bind_pileup_fields (stmt, pf);
+    hts2sql::bind_read_data (stmt, pf, k_testFileId);
     CHECK (sqlite3_step (stmt) == SQLITE_DONE);
   }
 
@@ -339,7 +353,7 @@ TEST_CASE (
     auto stmt = hts2sql::prepare_insert_reads_stmt (db);
     auto pf = make_basic_fields();
     pf.auxJson = "{\"XY\":[1,2,3,]}";  // trailing comma -- malformed
-    hts2sql::bind_pileup_fields (stmt, pf);
+    hts2sql::bind_read_data (stmt, pf, k_testFileId);
     const int rc = sqlite3_step (stmt);
     CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
   }
@@ -356,6 +370,7 @@ struct SeededDb {
 SeededDb make_seeded_db()
 {
   PileupDB db = PileupDB::init();
+  seed_file (db);
   REQUIRE (
       hts2sql::insert_metadata (
           db, "chr1", 149, GenomicSpan{.start = 99, .end = 200},
@@ -400,7 +415,7 @@ SeededDb make_seeded_db()
       row ("readC", 99, 45, 140, 200),
   };
   for (const auto& pf : rows) {
-    hts2sql::bind_pileup_fields (stmt, pf);
+    hts2sql::bind_read_data (stmt, pf, k_testFileId);
     REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
     sqlite3_reset (stmt);
     sqlite3_clear_bindings (stmt);
@@ -427,7 +442,7 @@ TEST_CASE ("prepare_select_reads with no fragments returns every row")
   auto seeded = make_seeded_db();
 
   auto stmtRet = query::prepare_select_reads (
-      seeded.db, schema::ReadTableSelect::sqlPrefix, {}
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, {}
   );
   REQUIRE (stmtRet);
   auto stmt{std::move (*stmtRet)};
@@ -444,7 +459,7 @@ TEST_CASE ("prepare_select_reads filters on WHERE fragments")
   {
     query::DynamicFragments frags{.where = {"flag = 99"}, .orderBy = ""};
     auto stmtRet = query::prepare_select_reads (
-        seeded.db, schema::ReadTableSelect::sqlPrefix, frags
+        seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
     );
     REQUIRE (stmtRet);
     auto stmt{std::move (*stmtRet)};
@@ -459,7 +474,7 @@ TEST_CASE ("prepare_select_reads filters on WHERE fragments")
         .where = {"flag = 99", "AND mapq > 50"}, .orderBy = ""
     };
     auto stmtRet = query::prepare_select_reads (
-        seeded.db, schema::ReadTableSelect::sqlPrefix, frags
+        seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
     );
     REQUIRE (stmtRet);
     auto stmt{std::move (*stmtRet)};
@@ -475,7 +490,7 @@ TEST_CASE ("prepare_select_reads honours ORDER BY")
 
   query::DynamicFragments frags{.where = {}, .orderBy = "start DESC"};
   auto stmtRet = query::prepare_select_reads (
-      seeded.db, schema::ReadTableSelect::sqlPrefix, frags
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
   );
   REQUIRE (stmtRet);
   auto stmt{std::move (*stmtRet)};
@@ -484,21 +499,21 @@ TEST_CASE ("prepare_select_reads honours ORDER BY")
   REQUIRE (r1);
   REQUIRE (*r1 == query::RowIterStatus::rowAvail);
   CHECK (
-      sqlite3_column_int64 (stmt, schema::ReadTableSelect::start) == 140
+      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 140
   );  // readC
 
   auto r2 = query::next_read (stmt);
   REQUIRE (r2);
   REQUIRE (*r2 == query::RowIterStatus::rowAvail);
   CHECK (
-      sqlite3_column_int64 (stmt, schema::ReadTableSelect::start) == 120
+      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 120
   );  // readB
 
   auto r3 = query::next_read (stmt);
   REQUIRE (r3);
   REQUIRE (*r3 == query::RowIterStatus::rowAvail);
   CHECK (
-      sqlite3_column_int64 (stmt, schema::ReadTableSelect::start) == 100
+      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 100
   );  // readA
 }
 
@@ -511,7 +526,7 @@ TEST_CASE (
 
   query::DynamicFragments frags{.where = {"flag ="}, .orderBy = ""};
   auto stmtRet = query::prepare_select_reads (
-      seeded.db, schema::ReadTableSelect::sqlPrefix, frags
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
   );
   REQUIRE_FALSE (stmtRet);
 }
@@ -523,8 +538,9 @@ TEST_CASE (
 {
   auto seeded = make_seeded_db();
 
-  auto stmtRet =
-      query::prepare_select_reads (seeded.db, "DELETE FROM reads", {});
+  auto stmtRet = query::prepare_select_reads (
+      seeded.db, "DELETE FROM per_record_data", {}
+  );
   REQUIRE_FALSE (stmtRet);
   CHECK (stmtRet.error() == SQLITE_READONLY);
 }
@@ -540,7 +556,7 @@ TEST_CASE (
       .where = {"1=1; DELETE FROM reads"}, .orderBy = ""
   };
   auto stmtRet = query::prepare_select_reads (
-      seeded.db, schema::ReadTableSelect::sqlPrefix, frags
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
   );
   REQUIRE (stmtRet);
   auto stmt{std::move (*stmtRet)};

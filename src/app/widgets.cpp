@@ -298,13 +298,15 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
 {
   // NOTE: currently does no error checking
   return {
-      .rStart = sqlite3_column_int64 (row, schema::ReadTableSelect::start),
+      .rStart =
+          sqlite3_column_int64 (row, schema::UserReadViewSelect::start),
       .seq =
           [&row]() {
             const auto* p =
-                sqlite3_column_text (row, schema::ReadTableSelect::seq);
-            const auto len =
-                sqlite3_column_bytes (row, schema::ReadTableSelect::seq);
+                sqlite3_column_text (row, schema::UserReadViewSelect::seq);
+            const auto len = sqlite3_column_bytes (
+                row, schema::UserReadViewSelect::seq
+            );
             return std::string (
                 reinterpret_cast<const char*> (p),
                 static_cast<size_t> (len)
@@ -312,10 +314,12 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
           }(),
       .qual =
           [&row]() {
-            const auto* br_p =
-                sqlite3_column_text (row, schema::ReadTableSelect::qual);
-            const auto len =
-                sqlite3_column_bytes (row, schema::ReadTableSelect::qual);
+            const auto* br_p = sqlite3_column_text (
+                row, schema::UserReadViewSelect::qual
+            );
+            const auto len = sqlite3_column_bytes (
+                row, schema::UserReadViewSelect::qual
+            );
             return std::string (
                 reinterpret_cast<const char*> (br_p),
                 static_cast<size_t> (len)
@@ -324,15 +328,15 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
       .cig_br =
           [&row]() {
             return static_cast<const uint32_t*> (sqlite3_column_blob (
-                row, schema::ReadTableSelect::cig_uint32
+                row, schema::UserReadViewSelect::cig_uint32
             ));
           }(),
       .nCig =
           [&row]() {
             const auto rawNCig =
-                sqlite3_column_int (row, schema::ReadTableSelect::ncig);
+                sqlite3_column_int (row, schema::UserReadViewSelect::ncig);
             const auto cigBytes = sqlite3_column_bytes (
-                row, schema::ReadTableSelect::cig_uint32
+                row, schema::UserReadViewSelect::cig_uint32
             );
             APB_ASSERT (
                 rawNCig >= 0 &&
@@ -829,7 +833,7 @@ static WidgetStatus draw_query_data (
         APB_UNREACHABLE (
             fmt::format (
                 "failed to step query during render: {}",
-                sqlite3_errstr (iterStatus.error())
+                sqlite3_errmsg (db.db)
             )
         );
       }

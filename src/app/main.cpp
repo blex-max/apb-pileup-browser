@@ -57,7 +57,6 @@ options:
                       dump to disk, and exit.
                       (invalid with --db)
   --manual            Print the apb manual to stdout and exit.
-  --schema            Print the apb SQL schema to stdout and exit.
   --log               print extra startup/shutdown diagnostics to
                       stderr.
   -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
@@ -166,16 +165,16 @@ int main (int argc, char** argv)
                            "msg: "
                            "{}",
                            args.dbPath,
-                           sqlite3_errstr (loadStatus.sqlRc.value()),
-                           loadStatus.sqlMsg.value()
+                           sqlite3_errstr (loadStatus.rc.value()),
+                           loadStatus.msg.value()
                        )
                     << std::endl;
           return EXIT_FAILURE;
         case PileupDB::LoadStatus::copyFail:
           std::cerr << "Error: "
                     << query::describe_sqlite_failure (
-                           loadStatus.sqlRc.value(), "load database",
-                           loadStatus.sqlMsg
+                           loadStatus.rc.value(), "load database",
+                           loadStatus.msg
                        )
                     << std::endl;
           return EXIT_FAILURE;
@@ -183,7 +182,7 @@ int main (int argc, char** argv)
           std::cerr << fmt::format (
                            "Error: database at {} appears to be "
                            "corrupt:\n{}",
-                           args.dbPath, loadStatus.sqlMsg.value()
+                           args.dbPath, loadStatus.msg.value()
                        )
                     << std::endl;
           return EXIT_FAILURE;
@@ -225,7 +224,7 @@ int main (int argc, char** argv)
 
   auto locusInfo = query::get_locus_data (db);
   auto prepResult = query::prepare_select_reads (
-      db, schema::ReadTableSelect::sqlPrefix, {}
+      db, schema::UserReadViewSelect::sqlPrefix, {}
   );
   if (!prepResult) {
     APB_UNREACHABLE (
@@ -492,10 +491,6 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
       std::cout << get_manual();
       std::exit (EXIT_SUCCESS);
     }
-    else if (arg == "--schema") {
-      std::cout << schema::sqlCreateReadsTable;
-      std::exit (EXIT_SUCCESS);
-    }
     else if (arg == "-0" || arg == "--zero-based") {
       zeroBased = true;
     }
@@ -697,15 +692,49 @@ static std::expected<void, std::string> populate_db_mode_locus (
   }
   auto pileupIter{std::move (*prepareResult)};
 
-  auto irRet =
-      hts2sql::insert_pileup (db, pileupIter, contigName, aln.o_hdr, ff);
+  // FIXME: a TRY_SQL macro would be great
+  sqlite3_stmt* fileInsertStmt;
+  if (const auto rc = sqlite3_prepare_v2 (
+          db, schema::sqlInsertFile.data(), schema::sqlInsertFile.size(),
+          &fileInsertStmt, NULL
+      );
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to prepare file insert statement: {}",
+            sqlite3_errmsg (db)
+        )
+    );
+  }
+  if (const auto rc = sqlite3_bind_text (
+          fileInsertStmt, 1, alnPath.data(),
+          static_cast<int> (alnPath.size()), SQLITE_TRANSIENT
+      );
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format (
+            "failed to bind path to file table insert statement: {}",
+            sqlite3_errstr (rc)
+        )
+    );
+  }
+  if (const auto rc = sqlite3_step (fileInsertStmt); rc != SQLITE_DONE) {
+    APB_UNREACHABLE (
+        fmt::format ("File table insert failed: {}", sqlite3_errmsg (db))
+    );
+  }
+
+  auto irRet = hts2sql::insert_pileup (
+      db, pileupIter, contigName, aln.o_hdr,
+      sqlite3_last_insert_rowid (db), ff
+  );
   if (!irRet) {
     const auto err = irRet.error();
     switch (err.code) {
       case hts2sql::InsertPileupErr::sqlFail:
         return std::unexpected (
             query::describe_sqlite_failure (
-                err.sqlRc.value(), "transform/insert alignment data",
+                err.rc.value(), "transform/insert alignment data",
                 sqlite3_errmsg (db)
             )
         );

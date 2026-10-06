@@ -44,6 +44,7 @@ static char mutate_base (char refBase, std::mt19937& rng)
   return b;
 }
 
+// FIXME: should build a htslib type and go via insert_pileup
 void generate_demo_data (
     uint16_t regWidth, uint16_t nQuery, hts_pos_t gOffset,
     DemoDataPack& out
@@ -291,10 +292,22 @@ void insert_demo_data (PileupDB& db, const DemoDataPack& data)
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
         fmt::format (
-            "failed to insert demo metadata: {}", sqlite3_errstr (rc)
+            "failed to insert demo metadata: {}", sqlite3_errmsg (db)
         )
     );
   }
+
+  // per-record rows reference a file row via path_id
+  if (const auto rc = sqlite3_exec (
+          db, "INSERT INTO alignment_files (path) VALUES ('demo');", NULL,
+          NULL, NULL
+      );
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE (
+        fmt::format ("failed to insert demo file: {}", sqlite3_errmsg (db))
+    );
+  }
+  const auto fileId = sqlite3_last_insert_rowid (db);
 
   auto stmt = hts2sql::prepare_insert_reads_stmt (db);
 
@@ -302,23 +315,19 @@ void insert_demo_data (PileupDB& db, const DemoDataPack& data)
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
         fmt::format (
-            "failed to begin transaction: {}", sqlite3_errstr (rc)
+            "failed to begin transaction: {}", sqlite3_errmsg (db)
         )
     );
   }
-  Defer rollbackOnErr ([&]() {
-    sqlite3_exec (db, "ROLLBACK;", NULL, NULL, NULL);
-  });
-
   for (const auto& readI : data.reads) {
-    bind_pileup_fields (stmt, readI);
+    bind_read_data (stmt, readI, fileId);
 
     if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
       // generate_demo_data never sets auxJson, so tags is always
       // NULL here and the json_valid(tags) CHECK can't fire.
       APB_UNREACHABLE (
           fmt::format (
-              "failed to insert demo read: {}", sqlite3_errstr (rc)
+              "failed to insert demo read: {}", sqlite3_errmsg (db)
           )
       );
     }
@@ -330,9 +339,8 @@ void insert_demo_data (PileupDB& db, const DemoDataPack& data)
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
         fmt::format (
-            "failed to commit transaction: {}", sqlite3_errstr (rc)
+            "failed to commit transaction: {}", sqlite3_errmsg (db)
         )
     );
   }
-  rollbackOnErr.cancel();  // committed; nothing left to roll back
 }
