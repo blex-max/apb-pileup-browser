@@ -78,8 +78,7 @@ void operator+= (C& c, const Delta& d) noexcept;
 template <typename R>
 concept GlobalCellRange =
     std::ranges::input_range<R> &&
-    std::convertible_to<
-        std::ranges::range_value_t<R>, GlobalCell>;
+    std::convertible_to<std::ranges::range_value_t<R>, GlobalCell>;
 
 template <typename T>
 concept ConvertsToGlobalCellRange = requires (T&& t) {
@@ -93,21 +92,16 @@ concept GlobalCellSource =
 
 // for styling cells
 struct Style {
-  uintattr_t fg;
-  uintattr_t bg;
-
-  Style (uintattr_t fg, uintattr_t bg) : fg (fg), bg (bg) {}
-  Style (uintattr_t attr) : fg (attr), bg (attr) {}
-  Style() = delete;
+  uintattr_t fg = 0;
+  uintattr_t bg = 0;
 };
-
 // Draw a character to cell/s.
 template <GlobalCellSource S>
-int set (S&& gcs, uint32_t ch, const Style& style = {0});
+int set (S&& gcs, uint32_t ch, const Style& style = {0, 0});
 #ifdef TB_OPT_EGC
 // overload for EGC
 template <GlobalCellSource S>
-int set (S&& gcs, std::span<uint32_t> ech, const Style& = {0});
+int set (S&& gcs, std::span<uint32_t> ech, const Style& = {0, 0});
 
 // add grapheme to cell
 template <GlobalCellSource S>
@@ -144,11 +138,11 @@ int clear_attrs (S&& gcs);
 // returns number of chars written.
 int write_string (
     GlobalCell start, int xlim, std::string_view s,
-    const Style& style = {0}
+    const Style& style = {0, 0}
 );
 int write_string (
     GlobalCell start, int xlim, std::u32string_view s,
-    const Style& style = {0}
+    const Style& style = {0, 0}
 );
 // in future, maybe:
 // set/write_string overload for span of codepoints and span of styles
@@ -183,15 +177,13 @@ inline decltype (auto) as_global_cell_range (T&& t)
 namespace internal {
 
 inline int mod_attr_egc (
-    int x, int y, const tb_cell* br_tbc, uintattr_t fg,
-    uintattr_t bg
+    int x, int y, const tb_cell* br_tbc, uintattr_t fg, uintattr_t bg
 )
 {
   int rc = TB_OK;
 #ifdef TB_OPT_EGC
   if (br_tbc->nech > 0) {
-    rc =
-        tb_set_cell_ex (x, y, br_tbc->ech, br_tbc->nech, fg, bg);
+    rc = tb_set_cell_ex (x, y, br_tbc->ech, br_tbc->nech, fg, bg);
   }
   else {
     rc = tb_set_cell (x, y, br_tbc->ch, fg, bg);
@@ -244,8 +236,7 @@ template <GlobalCellSource S>
 int set (S&& gcs, uint32_t ch, const Style& style)
 {
   for (const auto gc : as_global_cell_range (gcs)) {
-    const auto rc =
-        tb_set_cell (gc.x, gc.y, ch, style.fg, style.bg);
+    const auto rc = tb_set_cell (gc.x, gc.y, ch, style.fg, style.bg);
     if (rc != TB_OK) {
       return rc;
     };
@@ -300,9 +291,7 @@ int set_attr (S&& gcs, const Style& style)
     }
     const uintattr_t fg_attr = style.fg ? style.fg : br_tbc->fg;
     const uintattr_t bg_attr = style.bg ? style.bg : br_tbc->bg;
-    rc = internal::mod_attr_egc (
-        gc.x, gc.y, br_tbc, fg_attr, bg_attr
-    );
+    rc = internal::mod_attr_egc (gc.x, gc.y, br_tbc, fg_attr, bg_attr);
     if (rc != TB_OK) {
       return rc;
     }
@@ -322,9 +311,7 @@ int add_attr (S&& gcs, const Style& style)
     }
     const uintattr_t fg_attr = br_tbc->fg | style.fg;
     const uintattr_t bg_attr = br_tbc->bg | style.bg;
-    rc = internal::mod_attr_egc (
-        gc.x, gc.y, br_tbc, fg_attr, bg_attr
-    );
+    rc = internal::mod_attr_egc (gc.x, gc.y, br_tbc, fg_attr, bg_attr);
     if (rc != TB_OK) {
       return rc;
     }
@@ -344,9 +331,7 @@ int rm_attr (S&& gcs, const Style& style)
     }
     const uintattr_t fg_attr = br_tbc->fg & ~style.fg;
     const uintattr_t bg_attr = br_tbc->bg & ~style.bg;
-    rc = internal::mod_attr_egc (
-        gc.x, gc.y, br_tbc, fg_attr, bg_attr
-    );
+    rc = internal::mod_attr_egc (gc.x, gc.y, br_tbc, fg_attr, bg_attr);
     if (rc != TB_OK) {
       return rc;
     }
@@ -382,10 +367,8 @@ int check_attr_all_back (S&& gcs, const Style& style)
     if (rc != TB_OK) {
       return false;  // misleading?
     }
-    const bool has_fg =
-        style.fg ? (br_tbc->fg & style.fg) : true;
-    const bool has_bg =
-        style.bg ? (br_tbc->bg & style.bg) : true;
+    const bool has_fg = style.fg ? (br_tbc->fg & style.fg) : true;
+    const bool has_bg = style.bg ? (br_tbc->bg & style.bg) : true;
     if (!has_fg || !has_bg) {
       return false;
     }
@@ -399,22 +382,19 @@ inline bool valid (const Cell& c) noexcept
 }
 
 inline int write_string (
-    GlobalCell start, int xlim, std::string_view s,
-    const Style& style
+    GlobalCell start, int xlim, std::string_view s, const Style& style
 )
 {
   if (!valid (start) || s.empty() || xlim <= start.x) {
     return 0;
   }
 
-  const auto xlimDerived = std::min<size_t> (
-      s.size(), static_cast<size_t> (xlim - start.x)
-  );
+  const auto xlimDerived =
+      std::min<size_t> (s.size(), static_cast<size_t> (xlim - start.x));
 
   int nout = 0;
   for (size_t x = 0; x < xlimDerived; ++x) {
-    const auto rc =
-        set (start, static_cast<unsigned char> (s[x]), style);
+    const auto rc = set (start, static_cast<unsigned char> (s[x]), style);
     if (rc != TB_OK) {
       break;
     }
@@ -425,22 +405,19 @@ inline int write_string (
 }
 
 inline int write_string (
-    GlobalCell start, int xlim, std::u32string_view s,
-    const Style& style
+    GlobalCell start, int xlim, std::u32string_view s, const Style& style
 )
 {
   if (!valid (start) || s.empty() || xlim <= start.x) {
     return 0;
   }
 
-  const auto xlimDerived = std::min<size_t> (
-      s.size(), static_cast<size_t> (xlim - start.x)
-  );
+  const auto xlimDerived =
+      std::min<size_t> (s.size(), static_cast<size_t> (xlim - start.x));
 
   int nout = 0;
   for (size_t x = 0; x < xlimDerived; ++x) {
-    const auto rc =
-        set (start, static_cast<uint32_t> (s[x]), style);
+    const auto rc = set (start, static_cast<uint32_t> (s[x]), style);
     if (rc != TB_OK) {
       break;
     }

@@ -84,7 +84,7 @@ add_executable(apb
   src/frontend/history.cpp
   src/demo/demo.cpp
 )
-target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS})
+target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS} DOCTEST_CONFIG_DISABLE)
 target_compile_options(apb
   PRIVATE
   -Wall
@@ -111,15 +111,14 @@ target_link_libraries(apb
   PkgConfig::DEPS
 )
 
-# Test files are co-located with the module they test
-file(GLOB_RECURSE APB_TEST_SOURCES CONFIGURE_DEPENDS "src/*_test.cpp")
-
+# Tests are co-located with the code they test and compiled out of apb.
+# Any source containing tests must be listed here, or they won't run.
 add_executable(apb-tests
-  tests/main.cpp
+  tests/test.cpp
   src/backend/hts_sql.cpp
   src/backend/hts_types.cpp
+  src/backend/schema.cpp
   src/frontend/tb2_impl.cpp
-  ${APB_TEST_SOURCES}
 )
 target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
 target_include_directories(apb-tests PRIVATE src)

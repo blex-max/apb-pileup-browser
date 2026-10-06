@@ -470,12 +470,12 @@ static e2::Delta seq1 (
         // modify anchor base
         const auto anchorCell = writeHead - e2::dX (1);
         e2::clear_attrs (anchorCell);
-        e2::extend (anchorCell, markch::ringAbove);
+        e2::extend (anchorCell, indicators::insRingAbove);
 
         if (enableInsTrack) {
           auto opInsWriteHead = anchorCell + e2::dY (trackYOffsetIns);
           if (opInsWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsWriteHead, '^', TB_DIM);
+            e2::set (opInsWriteHead, indicators::insAt);
             opInsWriteHead.x++;
           }
           for (size_t i = 0;
@@ -490,14 +490,14 @@ static e2::Delta seq1 (
         }
         else {
           // extra highlight if bases not unfolded
-          e2::set_attr (anchorCell, TB_UNDERLINE);
+          e2::set_attr (anchorCell, {.fg = TB_UNDERLINE});
         }
 
         if (enableQualTrack) {
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
           if (opInsQualWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsQualWriteHead, '^', TB_DIM);
+            e2::set (opInsQualWriteHead, indicators::insAt);
             opInsQualWriteHead.x++;
           }
           for (size_t i = 0;
@@ -505,7 +505,8 @@ static e2::Delta seq1 (
                ++i, ++opInsQualWriteHead.x) {
             set (
                 opInsQualWriteHead,
-                static_cast<uint32_t> (readFields.qual[iQuery + i]), TB_DIM
+                static_cast<uint32_t> (readFields.qual[iQuery + i]),
+                {.fg = TB_DIM}
             );
           }
         }
@@ -525,7 +526,7 @@ static e2::Delta seq1 (
         const auto drawnSz = static_cast<int> (clipLabel.size());
         e2::write_string (
             writeHead - e2::dX (drawnSz), fa.writeLimits.x, clipLabel,
-            TB_DIM
+            {.fg = TB_DIM}
         );
       }
 
@@ -533,7 +534,9 @@ static e2::Delta seq1 (
         // soft clipping at end of read
         std::string clipLabel = "s(" + std::to_string (opSz) + ")";
         // if no space left, no-op
-        e2::write_string (writeHead, fa.writeLimits.x, clipLabel, TB_DIM);
+        e2::write_string (
+            writeHead, fa.writeLimits.x, clipLabel, {.fg = TB_DIM}
+        );
       }
 
       iQuery += opSz;
@@ -546,7 +549,7 @@ static e2::Delta seq1 (
       for (size_t i = skipOffscreenBases;
            i < opSz && writeHead.x < fa.writeLimits.x;
            ++i, ++writeHead.x) {
-        set (writeHead, 'x', TB_UNDERLINE);
+        set (writeHead, 'x', {.fg = TB_UNDERLINE});
       }
       iRef += opSz;
       iGc += opSz;
@@ -560,7 +563,7 @@ static e2::Delta seq1 (
       // draw tracks
       for (size_t i = 0; i < opLenRemain && writeHead.x < fa.writeLimits.x;
            ++i, ++writeHead.x) {
-        uintattr_t dispAttr = 0;
+        e2::Style dispStyle;
         auto dispChar = readFields.seq[iQuery + i];
         // mask bases that match the reference with '='.
         if (ref && (std::toupper (static_cast<unsigned char> (dispChar)) ==
@@ -568,9 +571,9 @@ static e2::Delta seq1 (
                         static_cast<unsigned char> ((*ref)[iRef + i])
                     ))) {
           dispChar = '=';
-          dispAttr = TB_DIM;
+          dispStyle = {.fg = TB_DIM};
         }
-        set (writeHead, static_cast<uint32_t> (dispChar), dispAttr);
+        set (writeHead, static_cast<uint32_t> (dispChar), dispStyle);
         if (enableQualTrack) {
           qualDisplayBuf[static_cast<uint16_t> (
               static_cast<int16_t> (writeHead.x) - fa.writeStartX
@@ -595,14 +598,16 @@ static e2::Delta seq1 (
         const auto drawnSz = static_cast<int> (clipLabel.size());
         e2::write_string (
             writeHead - e2::dX (drawnSz), fa.writeLimits.x, clipLabel,
-            TB_DIM
+            {.fg = TB_DIM}
         );
       }
 
       if (opType == BAM_CHARD_CLIP && iOp == (readFields.nCig - 1)) {
         std::string clipLabel = "h(" + std::to_string (opSz) + ")";
         // if no space left, no-op
-        e2::write_string (writeHead, fa.writeLimits.x, clipLabel, TB_DIM);
+        e2::write_string (
+            writeHead, fa.writeLimits.x, clipLabel, {.fg = TB_DIM}
+        );
       }
     }
     else {
@@ -628,7 +633,7 @@ static e2::Delta seq1 (
     // for correctness and readability in some cases.
     e2::write_string (
         e2::GlobalCell{{.x = fa.writeStartX, .y = writeHead.y}},
-        fa.writeLimits.x, qualDisplayBuf, TB_DIM
+        fa.writeLimits.x, qualDisplayBuf, {.fg = TB_DIM}
     );
     writeHead.y++;
   }
@@ -797,9 +802,9 @@ static WidgetStatus draw_query_data (
     draw_table::header (bWgt.tablePaneHeaderLine, activeCols);
     draw_table::row_separators (bWgt.tablePaneDataBox, activeCols);
     /* draw pane separator */
-    set (body (bWgt.vSep), boxch::vertLine, TB_DIM);
-    set (first (bWgt.vSep), boxch::downTConnect, TB_DIM);
-    set (last (bWgt.vSep), boxch::upTConnect, TB_DIM);
+    set (body (bWgt.vSep), boxch::vertLine, {.fg = TB_DIM});
+    set (first (bWgt.vSep), boxch::downTConnect, {.fg = TB_DIM});
+    set (last (bWgt.vSep), boxch::upTConnect, {.fg = TB_DIM});
   }
 
   /* iteratively draw query data */
@@ -873,13 +878,13 @@ static WidgetStatus draw_query_data (
       e2::VLine pileupCrosshair{
           pileupScreenXPos, bWgt.alnPaneDataBox.yspan
       };
-      add_attr (pileupCrosshair, TB_REVERSE);
+      add_attr (pileupCrosshair, {.fg = TB_REVERSE});
       // draw marker linking reference base and query position of pileup
       set (
           e2::GlobalCell{
               pileupScreenXPos, first (bWgt.alnPaneDataBox.yspan) - 1
           },
-          '|', TB_DIM
+          '|', {.fg = TB_DIM}
       );
     }
     /* end draw crosshair */
@@ -887,7 +892,7 @@ static WidgetStatus draw_query_data (
   else {
     e2::write_string (
         seqWriteHead, seqWriteLim.x, "no reads at locus for current query",
-        TB_DIM
+        {.fg = TB_DIM}
     );
   }
   /* end draw query data */
@@ -924,27 +929,27 @@ WidgetStatus draw_main_ui (
     APB_ASSERT (height (bWgt.frame) > 1, height (bWgt.frame));
 
     const auto& bFrame = bWgt.frame;
-    set (vertexA (bFrame), boxch::topLeftRoundCorner, TB_DIM);
-    set (vertexB (bFrame), boxch::topRightRoundCorner, TB_DIM);
+    set (vertexA (bFrame), boxch::topLeftRoundCorner, {.fg = TB_DIM});
+    set (vertexB (bFrame), boxch::topRightRoundCorner, {.fg = TB_DIM});
 
-    set (body (edgeAB (bFrame)), boxch::horzLine, TB_DIM);
+    set (body (edgeAB (bFrame)), boxch::horzLine, {.fg = TB_DIM});
     set (
         construct_relative (edgeDA (bFrame), 1, height (bFrame)),
-        boxch::vertLine, TB_DIM
+        boxch::vertLine, {.fg = TB_DIM}
     );
     set (
         construct_relative (edgeBC (bFrame), 1, height (bFrame)),
-        boxch::vertLine, TB_DIM
+        boxch::vertLine, {.fg = TB_DIM}
     );
 
-    set (body (bWgt.headerSep), boxch::horzLine, TB_DIM);
-    set (first (bWgt.headerSep), boxch::rightTConnect, TB_DIM);
+    set (body (bWgt.headerSep), boxch::horzLine, {.fg = TB_DIM});
+    set (first (bWgt.headerSep), boxch::rightTConnect, {.fg = TB_DIM});
 
-    set (body (bWgt.ambientSep), boxch::horzLine, TB_DIM);
-    set (first (bWgt.ambientSep), boxch::rightTConnect, TB_DIM);
-    set (last (bWgt.ambientSep), boxch::leftTConnect, TB_DIM);
+    set (body (bWgt.ambientSep), boxch::horzLine, {.fg = TB_DIM});
+    set (first (bWgt.ambientSep), boxch::rightTConnect, {.fg = TB_DIM});
+    set (last (bWgt.ambientSep), boxch::leftTConnect, {.fg = TB_DIM});
 
-    set (last (bWgt.headerSep), boxch::leftTConnect, TB_DIM);
+    set (last (bWgt.headerSep), boxch::leftTConnect, {.fg = TB_DIM});
   }
   {
     // draw cmd chrome
@@ -954,18 +959,18 @@ WidgetStatus draw_main_ui (
     APB_ASSERT (height (cWgt.frame) > 1, height (cWgt.frame));
 
     const auto& cFrame = cWgt.frame;
-    set (vertexA (cFrame), boxch::topLeftRoundCorner, TB_DIM);
-    set (vertexB (cFrame), boxch::topRightRoundCorner, TB_DIM);
-    set (vertexD (cFrame), boxch::bottomLeftRoundCorner, TB_DIM);
-    set (vertexC (cFrame), boxch::bottomRightRoundCorner, TB_DIM);
+    set (vertexA (cFrame), boxch::topLeftRoundCorner, {.fg = TB_DIM});
+    set (vertexB (cFrame), boxch::topRightRoundCorner, {.fg = TB_DIM});
+    set (vertexD (cFrame), boxch::bottomLeftRoundCorner, {.fg = TB_DIM});
+    set (vertexC (cFrame), boxch::bottomRightRoundCorner, {.fg = TB_DIM});
 
-    set (body (edgeAB (cFrame)), boxch::horzHeavy, TB_DIM);
-    set (body (edgeDA (cFrame)), boxch::vertLine, TB_DIM);
-    set (body (edgeBC (cFrame)), boxch::vertLine, TB_DIM);
-    set (body (cWgt.statusSep), boxch::horzLine, TB_DIM);
+    set (body (edgeAB (cFrame)), boxch::horzHeavy, {.fg = TB_DIM});
+    set (body (edgeDA (cFrame)), boxch::vertLine, {.fg = TB_DIM});
+    set (body (edgeBC (cFrame)), boxch::vertLine, {.fg = TB_DIM});
+    set (body (cWgt.statusSep), boxch::horzLine, {.fg = TB_DIM});
 
     set (cWgt.inputCaret, ':');
-    set (body (cWgt.sepLine), boxch::horzLine, TB_DIM);
+    set (body (cWgt.sepLine), boxch::horzLine, {.fg = TB_DIM});
   }
 
   // TODO here is the only point where insufficient size is used
@@ -990,23 +995,25 @@ WidgetStatus draw_main_ui (
     auto writeHead = first (bWgt.ambientLine);
     const auto lineEnd = last (bWgt.ambientLine.xspan);
     writeHead.x++;  // initial space
-    writeHead.x += e2::write_string (writeHead, lineEnd, "LOCUS:", TB_DIM);
+    writeHead.x +=
+        e2::write_string (writeHead, lineEnd, "LOCUS:", {.fg = TB_DIM});
     writeHead.x++;  // space
     writeHead.x += e2::write_string (
         writeHead, lineEnd,
         fmt::format ("{}:{}", locusData.contig, locusData.pos)
     );
     writeHead.x++;  // space
-    set (writeHead, boxch::vertLine, TB_DIM);
+    set (writeHead, boxch::vertLine, {.fg = TB_DIM});
     writeHead.x += 2;  // past bar, then space
-    writeHead.x += e2::write_string (writeHead, lineEnd, "SPAN:", TB_DIM);
+    writeHead.x +=
+        e2::write_string (writeHead, lineEnd, "SPAN:", {.fg = TB_DIM});
     writeHead.x++;  // space
     writeHead.x += e2::write_string (
         writeHead, lineEnd,
         fmt::format ("{}-{}", locusData.start, locusData.end)
     );
     writeHead.x++;  // space
-    set (writeHead, boxch::vertLine, TB_DIM);
+    set (writeHead, boxch::vertLine, {.fg = TB_DIM});
   }
   {
     // draw cmd
@@ -1019,10 +1026,11 @@ WidgetStatus draw_main_ui (
     auto cursorCell = first (cWgt.inputLine) +
                       e2::dX (static_cast<int> (cWgt.inputBuf.curs));
     if (cursorCell.x < last (cWgt.inputLine).x) {
-      e2::add_attr (cursorCell, TB_REVERSE);
+      e2::add_attr (cursorCell, {.fg = TB_REVERSE});
     }
     e2::write_string (
-        first (cWgt.msgLine), last (cWgt.msgLine).x, cWgt.msgBuf, TB_DIM
+        first (cWgt.msgLine), last (cWgt.msgLine).x, cWgt.msgBuf,
+        {.fg = TB_DIM}
     );
 
     // stringify query
@@ -1041,7 +1049,7 @@ WidgetStatus draw_main_ui (
 
     e2::write_string (
         first (cWgt.queryStatusLine), last (cWgt.queryStatusLine).x,
-        userClauseString, TB_DIM
+        userClauseString, {.fg = TB_DIM}
     );
   }
 
@@ -1079,12 +1087,15 @@ void draw_overlay (const OverlayWgt& oWgt)
 
   auto writeHead = vertexA (frame);
   writeHead.x += 1;
-  writeHead.x +=
-      e2::write_string (writeHead, xEnd, " q: close overlay ", TB_DIM);
+  writeHead.x += e2::write_string (
+      writeHead, xEnd, " q: close overlay ", {.fg = TB_DIM}
+  );
   writeHead.x += 3;
   const auto lnN = height (box);
   if (lnN < std::ssize (content)) {
-    e2::write_string (writeHead, xEnd, "Up / Down: scroll", TB_DIM);
+    e2::write_string (
+        writeHead, xEnd, "Up / Down: scroll", {.fg = TB_DIM}
+    );
   }
 
   const auto maxLnOff =

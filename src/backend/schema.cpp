@@ -16,12 +16,11 @@ int insert_raw_metadata (
     PileupDB& db, int64_t pos, int64_t start, int64_t end
 )
 {
-  SqliteStmt stmt;
+  sqlite3_stmt* stmt;
   REQUIRE (
       sqlite3_prepare_v2 (
           db, schema::sqlInsertMetadata.data(),
-          static_cast<int> (schema::sqlInsertMetadata.size()),
-          &stmt.o_stmt, NULL
+          static_cast<int> (schema::sqlInsertMetadata.size()), &stmt, NULL
       ) == SQLITE_OK
   );
 
@@ -39,12 +38,11 @@ int insert_raw_metadata (
 // partially fixed values for read table insertion
 int insert_raw_read (PileupDB& db, int64_t start, int64_t end)
 {
-  SqliteStmt stmt;
+  sqlite3_stmt* stmt;
   REQUIRE (
       sqlite3_prepare_v2 (
           db, schema::sqlInsertReads.data(),
-          static_cast<int> (schema::sqlInsertReads.size()), &stmt.o_stmt,
-          NULL
+          static_cast<int> (schema::sqlInsertReads.size()), &stmt, NULL
       ) == SQLITE_OK
   );
 

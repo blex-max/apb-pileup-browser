@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string_view>
 
+// Tests for this header live in schema.cpp (a test-only TU).
+
 // NOTE: sqlite3 bind indexing is 1-based, select indexing
 // is 0-based, so enum can only be used with select
 

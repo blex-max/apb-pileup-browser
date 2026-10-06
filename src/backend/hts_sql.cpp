@@ -2,14 +2,17 @@
 
 #include <fmt/format.h>
 #include <htslib/sam.h>
+#include <sqlite3.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <expected>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
-#include "backend/sql_types.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 
@@ -25,41 +28,6 @@
 //   are considered unreachable
 // - Returned/propagated error where failures are not within the control
 //   of apb - i.e. user input/ouput, out of memory, etc.
-
-namespace {
-// -- internal helpers --
-
-// returns a fingerprint of the schema of the input database,
-std::string schema_fingerprint (sqlite3* db)
-{
-  sqlite3_stmt* o_stmt = NULL;
-  if (const auto rc = sqlite3_prepare_v2 (
-          db,
-          "SELECT type || ':' || name || ':' || sql FROM "
-          "sqlite_master "
-          "WHERE sql IS NOT NULL ORDER BY type, name;",
-          -1, &o_stmt, NULL
-      );
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE ("could not prepare schema fingerprint statement");
-  }
-  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
-
-  std::string fingerprint;
-  int rc;
-  while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
-    fingerprint +=
-        reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0));
-    fingerprint += '\n';
-  }
-  if (rc != SQLITE_DONE) {
-    APB_UNREACHABLE ("failure during stepping of schema fingerprint rows");
-  }
-  return fingerprint;
-}
-
-}  // namespace
-
 
 PileupDB PileupDB::init()
 {
@@ -143,6 +111,36 @@ PileupDB PileupDB::init()
   }
 
   return db;
+}
+
+
+// returns a fingerprint of the schema of the input database,
+static std::string schema_fingerprint (sqlite3* db)
+{
+  sqlite3_stmt* o_stmt = NULL;
+  if (const auto rc = sqlite3_prepare_v2 (
+          db,
+          "SELECT type || ':' || name || ':' || sql FROM "
+          "sqlite_master "
+          "WHERE sql IS NOT NULL ORDER BY type, name;",
+          -1, &o_stmt, NULL
+      );
+      rc != SQLITE_OK) {
+    APB_UNREACHABLE ("could not prepare schema fingerprint statement");
+  }
+  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+  std::string fingerprint;
+  int rc;
+  while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+    fingerprint +=
+        reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0));
+    fingerprint += '\n';
+  }
+  if (rc != SQLITE_DONE) {
+    APB_UNREACHABLE ("failure during stepping of schema fingerprint rows");
+  }
+  return fingerprint;
 }
 
 PileupDB::LoadStatus PileupDB::load_from_disk (
@@ -342,14 +340,14 @@ std::string build_where_clause (const std::vector<std::string>& fragments)
   return out;
 }
 
-std::expected<SqliteStmt, int> prepare_select_reads (
+std::expected<sqlite3_stmt*, int> prepare_select_reads (
     const PileupDB& db, std::string_view prefix,
     const DynamicFragments& frags
 )
 {
   APB_ASSERT (prefix.back() != ';');
 
-  SqliteStmt stmt;
+  sqlite3_stmt* stmt;
 
   std::string rsql_builtStmt{prefix};
 
@@ -371,7 +369,7 @@ std::expected<SqliteStmt, int> prepare_select_reads (
   int rc;
   if (rc = sqlite3_prepare_v2 (
           db, rsql_builtStmt.c_str(),
-          static_cast<int> (rsql_builtStmt.size()), &stmt.o_stmt, NULL
+          static_cast<int> (rsql_builtStmt.size()), &stmt, NULL
       );
       rc != SQLITE_OK) {
     return std::unexpected (rc);
@@ -557,6 +555,118 @@ std::string describe_sqlite_failure (
 
 namespace hts2sql {
 
+/* TAG CONVERSION */
+
+/* -- internal helpers -- */
+
+// Escape a raw aux string value for embedding in a JSON string literal.
+// SAM 'A'/'Z' values are drawn from [ !-~]+, which permits '"' and '\'
+// unescaped. Thererfore without this, valid tags can produce malformed JSON
+// and trip the `reads.tags` CHECK(json_valid(tags)) constraint.
+static void append_json_escaped (
+    const char* br_data, size_t len, std::string& out
+)
+{
+  static const char hexDigits[] = "0123456789abcdef";
+  for (size_t i = 0; i < len; ++i) {
+    const auto ch = static_cast<unsigned char> (br_data[i]);
+    switch (ch) {
+      case '"':
+        out += "\\\"";
+        break;
+      case '\\':
+        out += "\\\\";
+        break;
+      default:
+        if (ch < 0x20) {
+          out += "\\u00";
+          out += hexDigits[(ch >> 4) & 0xF];
+          out += hexDigits[ch & 0xF];
+        }
+        else {
+          out += static_cast<char> (ch);
+        }
+    }
+  }
+}
+
+struct Aux1ToJsonErr {
+  enum Codes : uint8_t {
+    parseFail,
+  };
+};
+// converts single aux tag to json entry
+// returns unexpected on failure to parse aux tag.
+static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
+    const uint8_t* aux1Start, const uint8_t* aux1End
+)
+{
+  kstring_t o_kstr;
+  ks_initialize (&o_kstr);
+  Defer kstrCleanup ([&]() { ks_free (&o_kstr); });
+  if (sam_format_aux1 (
+          aux1Start - 2, *aux1Start, aux1Start + 1, aux1End, &o_kstr
+      ) == NULL) {
+    return std::unexpected (Aux1ToJsonErr::Codes::parseFail);
+  }
+  const char* br_str = ks_str (&o_kstr);
+
+  /* append key */
+  std::string out{'"'};  // open key quotes
+  out.append (br_str, 2);  // 2-ch tag
+  out += '"';  // close
+  out += ':';  // add key-val separator
+
+  /* append val */
+  const char typeCh = *(br_str + 3);
+  if (typeCh == 'B') {
+    // array aux tag
+    out += '[';  // open JSON array
+    // form "TAG:B:<subtype>" (2 + 1 + 2 + 1 = 6 chars);
+    constexpr auto arrayTagPrefixLen = 6;
+    if (ks_len (&o_kstr) > arrayTagPrefixLen) {
+      const char* payloadStartPtr = br_str + arrayTagPrefixLen + 1;
+      // all allowed array types are numeric
+      // no need to check type
+      ks_tokaux_t tokAux;
+      const char* tok;
+      bool firstTok = true;
+      for (tok = kstrtok (payloadStartPtr, ",", &tokAux); tok != nullptr;
+           tok = kstrtok (NULL, NULL, &tokAux)) {
+        const size_t tokLen = static_cast<size_t> (tokAux.p - tok);
+        if (!firstTok) {
+          out += ',';
+        }
+        out.append (tok, tokLen);
+        firstTok = false;
+      }
+    }
+    out += ']';  // close JSON array
+  }
+  else {
+    constexpr auto tagPrefixLen = 5;
+    const auto* payloadStartPtr = br_str + tagPrefixLen;
+    const size_t payloadLen = ks_len (&o_kstr) - tagPrefixLen;
+    switch (typeCh) {
+      case 'A':
+      case 'Z':
+      case 'H':
+        // payload as string
+        out += '"';
+        append_json_escaped (payloadStartPtr, payloadLen, out);
+        out += '"';
+        break;
+      default:
+        // payload as numeric
+        out.append (payloadStartPtr, payloadLen);
+        break;
+    }
+  }
+
+  return out;
+}
+
+
 // -- public API -- //
 
 std::expected<void, InsertPileupErr> insert_pileup (
@@ -598,7 +708,7 @@ std::expected<void, InsertPileupErr> insert_pileup (
     );
   }
 
-  auto stmt = prepare_insert_reads_stmt (db);
+  auto* stmt = prepare_insert_reads_stmt (db);
 
   // manually begin/commit transaction.
   if (const auto rc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
@@ -613,10 +723,6 @@ std::expected<void, InsertPileupErr> insert_pileup (
   for (size_t i = 0; i < pileupIter.nPlp; ++i) {
     PileupFields readI;
     const auto* p1 = &pileupIter.br_plpArr[i];
-
-    // get RG; SM sample name
-    // Mandatory
-    // FIXME: mid refactor to add sample name to reads table entries
 
     const char* mtidName = NULL;
     {
@@ -694,11 +800,10 @@ std::expected<void, InsertPileupErr> insert_pileup (
   APB_ASSERT (pileupPos >= pileupSpan.start, pileupPos, pileupSpan);
   APB_ASSERT (pileupPos <= pileupSpan.end, pileupPos, pileupSpan);
 
-  SqliteStmt stmt;
+  sqlite3_stmt* stmt;
   if (const auto rc = sqlite3_prepare_v2 (
           db, schema::sqlInsertMetadata.data(),
-          static_cast<int> (schema::sqlInsertMetadata.size()),
-          &stmt.o_stmt, NULL
+          static_cast<int> (schema::sqlInsertMetadata.size()), &stmt, NULL
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
@@ -708,6 +813,7 @@ std::expected<void, InsertPileupErr> insert_pileup (
         )
     );
   }
+  Defer finalise_stmt ([&stmt]() { sqlite3_finalize (stmt); });
 
   // NOTE: TIED TO SCHEMA ORDER. BE CAREFUL!
   int col = 1;
@@ -753,13 +859,12 @@ std::expected<void, InsertPileupErr> insert_pileup (
   return 0;
 }
 
-SqliteStmt prepare_insert_reads_stmt (PileupDB& db)
+sqlite3_stmt* prepare_insert_reads_stmt (PileupDB& db)
 {
-  SqliteStmt stmt;
+  sqlite3_stmt* stmt;
   if (const auto rc = sqlite3_prepare_v2 (
           db, schema::sqlInsertReads.data(),
-          static_cast<int> (schema::sqlInsertReads.size()), &stmt.o_stmt,
-          NULL
+          static_cast<int> (schema::sqlInsertReads.size()), &stmt, NULL
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
@@ -865,7 +970,7 @@ bool fill_fields (
 //
 // CONVERTS FROM 0-INDEXED PileupFields TO 1-INDEXED DB REPRESENTATION
 void bind_read_data (
-    SqliteStmt& stmt, const PileupFields& pf, sqlite3_int64 aln_id
+    sqlite3_stmt* stmt, const PileupFields& pf, sqlite3_int64 aln_id
 )
 {
   APB_ASSERT (pf.valid(), pf);
@@ -959,108 +1064,578 @@ std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
   return out;
 }
 
-/* TAG CONVERSION */
-
-// converts single aux tag to json entry
-// returns unexpected on failure to parse aux tag.
-std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
-    const uint8_t* aux1Start, const uint8_t* aux1End
-)
-{
-  kstring_t o_kstr;
-  ks_initialize (&o_kstr);
-  Defer kstrCleanup ([&]() { ks_free (&o_kstr); });
-  if (sam_format_aux1 (
-          aux1Start - 2, *aux1Start, aux1Start + 1, aux1End, &o_kstr
-      ) == NULL) {
-    return std::unexpected (Aux1ToJsonErr::Codes::parseFail);
-  }
-  const char* br_str = ks_str (&o_kstr);
-
-  /* append key */
-  std::string out{'"'};  // open key quotes
-  out.append (br_str, 2);  // 2-ch tag
-  out += '"';  // close
-  out += ':';  // add key-val separator
-
-  /* append val */
-  const char typeCh = *(br_str + 3);
-  if (typeCh == 'B') {
-    // array aux tag
-    out += '[';  // open JSON array
-    // form "TAG:B:<subtype>" (2 + 1 + 2 + 1 = 6 chars);
-    constexpr auto arrayTagPrefixLen = 6;
-    if (ks_len (&o_kstr) > arrayTagPrefixLen) {
-      const char* payloadStartPtr = br_str + arrayTagPrefixLen + 1;
-      // all allowed array types are numeric
-      // no need to check type
-      ks_tokaux_t tokAux;
-      const char* tok;
-      bool firstTok = true;
-      for (tok = kstrtok (payloadStartPtr, ",", &tokAux); tok != nullptr;
-           tok = kstrtok (NULL, NULL, &tokAux)) {
-        const size_t tokLen = static_cast<size_t> (tokAux.p - tok);
-        if (!firstTok) {
-          out += ',';
-        }
-        out.append (tok, tokLen);
-        firstTok = false;
-      }
-    }
-    out += ']';  // close JSON array
-  }
-  else {
-    constexpr auto tagPrefixLen = 5;
-    const auto* payloadStartPtr = br_str + tagPrefixLen;
-    const size_t payloadLen = ks_len (&o_kstr) - tagPrefixLen;
-    switch (typeCh) {
-      case 'A':
-      case 'Z':
-      case 'H':
-        // payload as string
-        out += '"';
-        append_json_escaped (payloadStartPtr, payloadLen, out);
-        out += '"';
-        break;
-      default:
-        // payload as numeric
-        out.append (payloadStartPtr, payloadLen);
-        break;
-    }
-  }
-
-  return out;
-}
-
-// Escape a raw aux string value for embedding in a JSON string literal.
-// SAM 'A'/'Z' values are drawn from [ !-~]+, which permits '"' and '\'
-// unescaped. Thererfore without this, valid tags can produce malformed JSON
-// and trip the `reads.tags` CHECK(json_valid(tags)) constraint.
-void append_json_escaped (
-    const char* br_data, size_t len, std::string& out
-)
-{
-  static const char hexDigits[] = "0123456789abcdef";
-  for (size_t i = 0; i < len; ++i) {
-    const auto ch = static_cast<unsigned char> (br_data[i]);
-    switch (ch) {
-      case '"':
-        out += "\\\"";
-        break;
-      case '\\':
-        out += "\\\\";
-        break;
-      default:
-        if (ch < 0x20) {
-          out += "\\u00";
-          out += hexDigits[(ch >> 4) & 0xF];
-          out += hexDigits[ch & 0xF];
-        }
-        else {
-          out += static_cast<char> (ch);
-        }
-    }
-  }
-}
-
 }  // namespace hts2sql
+
+#ifndef DOCTEST_CONFIG_DISABLE
+
+#include "doctest.h"
+
+/* ---- TESTS stringify_cigar ---- */
+
+TEST_CASE ("stringify_cigar renders CIGAR arrays as text")
+{
+  auto gen = [] (uint32_t len, uint32_t op) {
+    return bam_cigar_gen (len, op);
+  };
+
+  SUBCASE ("single op")
+  {
+    std::vector<uint32_t> cig{gen (50, BAM_CMATCH)};
+    CHECK (hts2sql::stringify_cigar (cig.data(), cig.size()) == "50M");
+  }
+
+  SUBCASE ("multi op")
+  {
+    std::vector<uint32_t> cig{
+        gen (10, BAM_CSOFT_CLIP), gen (40, BAM_CMATCH), gen (5, BAM_CINS),
+        gen (2, BAM_CDEL)
+    };
+    CHECK (
+        hts2sql::stringify_cigar (cig.data(), cig.size()) == "10S40M5I2D"
+    );
+  }
+
+  SUBCASE ("zero ops")
+  {
+    CHECK (hts2sql::stringify_cigar (nullptr, 0) == "");
+  }
+}
+
+/* ---- TESTS append_json_escaped ---- */
+
+TEST_CASE ("append_json_escaped escapes per JSON string rules")
+{
+  SUBCASE ("quote and backslash")
+  {
+    std::string out;
+    const std::string in = "A\"B";
+    hts2sql::append_json_escaped (in.data(), in.size(), out);
+    CHECK (out == "A\\\"B");
+
+    out.clear();
+    const std::string in2 = "A\\B";
+    hts2sql::append_json_escaped (in2.data(), in2.size(), out);
+    CHECK (out == "A\\\\B");
+  }
+
+  SUBCASE ("control characters escape to \\u00XX")
+  {
+    std::string out;
+    const char in[] = {static_cast<char> (0x01)};
+    hts2sql::append_json_escaped (in, 1, out);
+    CHECK (out == "\\u0001");
+
+    out.clear();
+    const char in2[] = {static_cast<char> (0x1f)};
+    hts2sql::append_json_escaped (in2, 1, out);
+    CHECK (out == "\\u001f");
+  }
+
+  SUBCASE (
+      "printable ASCII and non-ASCII bytes pass through "
+      "unchanged"
+  )
+  {
+    std::string out;
+    const std::string in = "hello";
+    hts2sql::append_json_escaped (in.data(), in.size(), out);
+    CHECK (out == "hello");
+
+    out.clear();
+    const char in2[] = {static_cast<char> (0xC3)};
+    hts2sql::append_json_escaped (in2, 1, out);
+    REQUIRE (out.size() == 1);
+    CHECK (static_cast<unsigned char> (out[0]) == 0xC3);
+  }
+
+  SUBCASE ("empty input appends nothing")
+  {
+    std::string out = "unchanged";
+    hts2sql::append_json_escaped (nullptr, 0, out);
+    CHECK (out == "unchanged");
+  }
+}
+
+// ---- TESTS aux1_to_json ---- //
+TEST_CASE ("aux1_to_json converts scalar/char/string tags")
+{
+  SUBCASE ("numeric scalar (type 'c', int8)")
+  {
+    uint8_t buf[] = {'N', 'M', 'c', 5};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"NM\":5");
+  }
+
+  SUBCASE ("char (type 'A')")
+  {
+    uint8_t buf[] = {'X', 'A', 'A', 'Q'};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"XA\":\"Q\"");
+  }
+
+  SUBCASE ("string (type 'Z')")
+  {
+    uint8_t buf[] = {'R', 'G', 'Z', 's', 'a', 'm',
+                     'p', 'l', 'e', '1', '\0'};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"RG\":\"sample1\"");
+  }
+
+  SUBCASE ("string value containing '\"' and '\\' gets escaped")
+  {
+    uint8_t buf[] = {'Z', 'Z', 'Z', 'a', '"', 'b', '\\', 'c', '\0'};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+
+    std::string expectedVal = "a";
+    expectedVal += '\\';
+    expectedVal += '"';
+    expectedVal += "b";
+    expectedVal += '\\';
+    expectedVal += '\\';
+    expectedVal += "c";
+    std::string expected = "\"ZZ\":\"";
+    expected += expectedVal;
+    expected += "\"";
+    CHECK (*r == expected);
+  }
+}
+
+TEST_CASE (
+    "aux1_to_json handles zero-, one-, and multi-element 'B' "
+    "arrays"
+)
+{
+  SUBCASE ("zero elements")
+  {
+    uint8_t buf[] = {'X', 'Y', 'B', 'c', 0, 0, 0, 0};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"XY\":[]");
+  }
+
+  SUBCASE ("single element")
+  {
+    uint8_t buf[] = {'X', 'Y', 'B', 'c', 1, 0, 0, 0, 5};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"XY\":[5]");
+  }
+
+  SUBCASE ("three elements")
+  {
+    uint8_t buf[] = {'X', 'Y', 'B', 'c', 3, 0, 0, 0, 1, 2, 3};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"XY\":[1,2,3]");
+  }
+}
+
+namespace test {
+
+hts2sql::PileupFields make_basic_fields (hts_pos_t mStart = -1)
+{
+  hts2sql::PileupFields pf{};
+  pf.qName = "read0";
+  pf.flag = 99;
+  pf.start = 99;  // 0-indexed input -> db start == 100
+  pf.end = 170;  // unshifted -> db end == 170
+  pf.mapQ = 60;
+  pf.base = 'A';
+  pf.baseQual = 37;
+  pf.qPos = 4;  // 0-indexed input -> db qpos == 5
+  pf.indel = 0;
+  pf.isDel = false;
+  pf.isHead = false;
+  pf.isTail = false;
+  pf.isRefSkip = false;
+  pf.cig = "50M";
+  pf.seqBases = "ACGTACGTAC";
+  pf.qualAscii = "IIIIIIIIII";
+  pf.mtidName = "";
+  pf.mStart = mStart;
+  pf.auxJson = "";
+  pf.rawCig = {static_cast<uint32_t> (bam_cigar_gen (50, BAM_CMATCH))};
+  pf.nCig = pf.rawCig.size();
+  return pf;
+}
+
+
+// alignment_files row that per-record inserts reference via path_id.
+constexpr sqlite3_int64 k_testFileId = 1;
+
+void seed_file (PileupDB& db)
+{
+  const char* sql =
+      "INSERT INTO alignment_files (id, path) VALUES (1, 'test.bam');";
+  REQUIRE (sqlite3_exec (db, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+}
+
+}  // namespace test
+
+TEST_CASE (
+    "insert_metadata converts 0-indexed input to 1-indexed locus "
+    "data"
+)
+{
+  PileupDB db = PileupDB::init();
+
+  SUBCASE ("with a reference slice")
+  {
+    REQUIRE (
+        hts2sql::insert_metadata (
+            db, "chr1", 99, GenomicSpan{.start = 99, .end = 200},
+            std::make_optional<std::string> ("ACGTACGT")
+        ) == SQLITE_OK
+    );
+
+    auto locus = query::get_locus_data (db);
+    CHECK (locus.contig == "chr1");
+    CHECK (locus.pos == 100);
+    CHECK (locus.start == 100);
+    CHECK (locus.end == 200);
+    REQUIRE (locus.refSlice.has_value());
+    CHECK (*locus.refSlice == "ACGTACGT");
+  }
+
+  SUBCASE ("with no reference slice")
+  {
+    REQUIRE (
+        hts2sql::insert_metadata (
+            db, "chr2", 49, GenomicSpan{.start = 39, .end = 60},
+            std::nullopt
+        ) == SQLITE_OK
+    );
+
+    auto locus = query::get_locus_data (db);
+    CHECK (locus.contig == "chr2");
+    CHECK (locus.pos == 50);
+    CHECK (locus.start == 40);
+    CHECK (locus.end == 60);
+    CHECK_FALSE (locus.refSlice.has_value());
+  }
+}
+
+TEST_CASE (
+    "bind_pileup_fields converts 0-indexed input to 1-indexed row "
+    "data"
+)
+{
+  PileupDB db = PileupDB::init();
+  test::seed_file (db);
+
+  SUBCASE ("mStart >= 0 shifts to a 1-indexed mstart")
+  {
+    auto stmt = hts2sql::prepare_insert_reads_stmt (db);
+    auto pf = test::make_basic_fields (49);
+    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
+    REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
+
+    sqlite3_stmt* o_stmt = NULL;
+    const std::string_view sql = "SELECT * FROM reads;";
+    REQUIRE (
+        sqlite3_prepare_v2 (
+            db, sql.data(), static_cast<int> (sql.size()), &o_stmt, NULL
+        ) == SQLITE_OK
+    );
+    REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
+
+    CHECK (
+        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::start) ==
+        pf.start + 1
+    );
+    CHECK (
+        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::end) ==
+        pf.end
+    );
+    CHECK (
+        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::qpos) ==
+        pf.qPos + 1
+    );
+    CHECK (
+        sqlite3_column_int64 (
+            o_stmt, schema::UserReadViewSelect::mstart
+        ) == pf.mStart + 1
+    );
+    sqlite3_finalize (o_stmt);
+  }
+
+  SUBCASE ("mStart < 0 stays NULL rather than shifting")
+  {
+    auto stmt = hts2sql::prepare_insert_reads_stmt (db);
+    auto pf = test::make_basic_fields (-1);
+    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
+    REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
+
+    sqlite3_stmt* o_stmt = NULL;
+    const std::string_view sql = "SELECT * FROM reads;";
+    REQUIRE (
+        sqlite3_prepare_v2 (
+            db, sql.data(), static_cast<int> (sql.size()), &o_stmt, NULL
+        ) == SQLITE_OK
+    );
+    REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
+
+    CHECK (
+        sqlite3_column_type (o_stmt, schema::UserReadViewSelect::mstart) ==
+        SQLITE_NULL
+    );
+    sqlite3_finalize (o_stmt);
+  }
+}
+
+TEST_CASE (
+    "CHECK(json_valid(tags)) accepts valid JSON and rejects "
+    "malformed JSON"
+)
+{
+  PileupDB db = PileupDB::init();
+  test::seed_file (db);
+
+  SUBCASE ("valid JSON is accepted")
+  {
+    auto stmt = hts2sql::prepare_insert_reads_stmt (db);
+    auto pf = test::make_basic_fields();
+    pf.auxJson = "{\"XY\":[1,2,3]}";
+    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
+    CHECK (sqlite3_step (stmt) == SQLITE_DONE);
+  }
+
+  SUBCASE (
+      "deliberately invalid JSON is rejected by the CHECK "
+      "constraint"
+  )
+  {
+    auto stmt = hts2sql::prepare_insert_reads_stmt (db);
+    auto pf = test::make_basic_fields();
+    pf.auxJson = "{\"XY\":[1,2,3,]}";  // trailing comma -- malformed
+    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
+    const int rc = sqlite3_step (stmt);
+    CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
+  }
+}
+
+/* ---- TESTS build_where_clause / prepare_select_reads ---- */
+
+namespace test {
+
+struct SeededDb {
+  PileupDB db;
+};
+
+SeededDb make_seeded_db()
+{
+  PileupDB db = PileupDB::init();
+  seed_file (db);
+  REQUIRE (
+      hts2sql::insert_metadata (
+          db, "chr1", 149, GenomicSpan{.start = 99, .end = 200},
+          std::nullopt
+      ) == SQLITE_OK
+  );
+
+  auto stmt = hts2sql::prepare_insert_reads_stmt (db);
+
+  auto row = [] (std::string qName, uint16_t flag, uint8_t mapQ,
+                 hts_pos_t start, hts_pos_t end) {
+    hts2sql::PileupFields pf{};
+    pf.qName = std::move (qName);
+    pf.flag = flag;
+    pf.start = start - 1;  // 0-indexed input -> db start
+    pf.end = end;  // unshifted -> db end
+    pf.mapQ = mapQ;
+    pf.base = 'A';
+    pf.baseQual = 30;
+    pf.qPos = 0;
+    pf.indel = 0;
+    pf.isDel = false;
+    pf.isHead = false;
+    pf.isTail = false;
+    pf.isRefSkip = false;
+    pf.cig = "1M";
+    pf.seqBases = "A";
+    pf.qualAscii = "I";
+    pf.mtidName = "";
+    pf.mStart = -1;
+    pf.auxJson = "";
+    pf.rawCig = {static_cast<uint32_t> (bam_cigar_gen (1, BAM_CMATCH))};
+    pf.nCig = pf.rawCig.size();
+    return pf;
+  };
+
+  // (qName, flag, mapQ, start, end) -- all satisfy
+  // 100 <= start <= 150 <= end <= 200.
+  const std::vector<hts2sql::PileupFields> rows{
+      row ("readA", 99, 60, 100, 170),
+      row ("readB", 4, 10, 120, 190),
+      row ("readC", 99, 45, 140, 200),
+  };
+  for (const auto& pf : rows) {
+    hts2sql::bind_read_data (stmt, pf, k_testFileId);
+    REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
+    sqlite3_reset (stmt);
+    sqlite3_clear_bindings (stmt);
+  }
+
+  return SeededDb{.db = std::move (db)};
+}
+
+}  // namespace test
+
+TEST_CASE ("build_where_clause left-wraps fragments in parens")
+{
+  CHECK (query::build_where_clause ({}) == "");
+  CHECK (query::build_where_clause ({"flag = 99"}) == "flag = 99");
+
+  CHECK (
+      query::build_where_clause ({"a", "OR b", "AND c"}) ==
+      "((a) OR b) AND c"
+  );
+}
+
+TEST_CASE ("prepare_select_reads with no fragments returns every row")
+{
+  auto seeded = test::make_seeded_db();
+
+  auto stmtRet = query::prepare_select_reads (
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, {}
+  );
+  REQUIRE (stmtRet);
+  auto stmt{std::move (*stmtRet)};
+  auto countRet = query::count_rows (stmt);
+  REQUIRE (countRet);
+  CHECK (*countRet == 3);
+}
+
+TEST_CASE ("prepare_select_reads filters on WHERE fragments")
+{
+  auto seeded = test::make_seeded_db();
+
+  SUBCASE ("single fragment")
+  {
+    query::DynamicFragments frags{.where = {"flag = 99"}, .orderBy = ""};
+    auto stmtRet = query::prepare_select_reads (
+        seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
+    );
+    REQUIRE (stmtRet);
+    auto stmt{std::move (*stmtRet)};
+    auto countRet = query::count_rows (stmt);
+    REQUIRE (countRet);
+    CHECK (*countRet == 2);  // readA, readC
+  }
+
+  SUBCASE ("multiple fragments")
+  {
+    query::DynamicFragments frags{
+        .where = {"flag = 99", "AND mapq > 50"}, .orderBy = ""
+    };
+    auto stmtRet = query::prepare_select_reads (
+        seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
+    );
+    REQUIRE (stmtRet);
+    auto stmt{std::move (*stmtRet)};
+    auto countRet = query::count_rows (stmt);
+    REQUIRE (countRet);
+    CHECK (*countRet == 1);  // readA only (flag 99, mapq 60)
+  }
+}
+
+TEST_CASE ("prepare_select_reads honours ORDER BY")
+{
+  auto seeded = test::make_seeded_db();
+
+  query::DynamicFragments frags{.where = {}, .orderBy = "start DESC"};
+  auto stmtRet = query::prepare_select_reads (
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
+  );
+  REQUIRE (stmtRet);
+  auto stmt{std::move (*stmtRet)};
+
+  auto r1 = query::next_read (stmt);
+  REQUIRE (r1);
+  REQUIRE (*r1 == query::RowIterStatus::rowAvail);
+  CHECK (
+      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 140
+  );  // readC
+
+  auto r2 = query::next_read (stmt);
+  REQUIRE (r2);
+  REQUIRE (*r2 == query::RowIterStatus::rowAvail);
+  CHECK (
+      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 120
+  );  // readB
+
+  auto r3 = query::next_read (stmt);
+  REQUIRE (r3);
+  REQUIRE (*r3 == query::RowIterStatus::rowAvail);
+  CHECK (
+      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 100
+  );  // readA
+}
+
+TEST_CASE (
+    "prepare_select_reads surfaces an sqlite3 error on a malformed "
+    "fragment"
+)
+{
+  auto seeded = test::make_seeded_db();
+
+  query::DynamicFragments frags{.where = {"flag ="}, .orderBy = ""};
+  auto stmtRet = query::prepare_select_reads (
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
+  );
+  REQUIRE_FALSE (stmtRet);
+}
+
+TEST_CASE (
+    "prepare_select_reads rejects a non-SELECT prefix via the "
+    "readonly guard"
+)
+{
+  auto seeded = test::make_seeded_db();
+
+  auto stmtRet = query::prepare_select_reads (
+      seeded.db, "DELETE FROM per_record_data", {}
+  );
+  REQUIRE_FALSE (stmtRet);
+  CHECK (stmtRet.error() == SQLITE_READONLY);
+}
+
+TEST_CASE (
+    "a stacked-query WHERE fragment only compiles up to the first "
+    "';' -- trailing SQL is inert, not executed"
+)
+{
+  auto seeded = test::make_seeded_db();
+
+  query::DynamicFragments frags{
+      .where = {"1=1; DELETE FROM reads"}, .orderBy = ""
+  };
+  auto stmtRet = query::prepare_select_reads (
+      seeded.db, schema::UserReadViewSelect::sqlPrefix, frags
+  );
+  REQUIRE (stmtRet);
+  auto stmt{std::move (*stmtRet)};
+  CHECK (sqlite3_stmt_readonly (stmt));
+  auto countRet = query::count_rows (stmt);
+  REQUIRE (countRet);
+  CHECK (*countRet == 3);  // DELETE never ran
+
+  // Confirm directly against the table too.
+  sqlite3_stmt* o_check = NULL;
+  const std::string_view sql = "SELECT COUNT(*) FROM reads;";
+  REQUIRE (
+      sqlite3_prepare_v2 (
+          seeded.db, sql.data(), static_cast<int> (sql.size()), &o_check,
+          NULL
+      ) == SQLITE_OK
+  );
+  REQUIRE (sqlite3_step (o_check) == SQLITE_ROW);
+  CHECK (sqlite3_column_int64 (o_check, 0) == 3);
+  sqlite3_finalize (o_check);
+}
+
+#endif  // DOCTEST_CONFIG_DISABLE

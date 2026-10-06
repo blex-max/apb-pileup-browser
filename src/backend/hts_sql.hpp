@@ -2,6 +2,7 @@
 
 #include <fmt/format.h>
 #include <htslib/sam.h>
+#include <sqlite3.h>
 
 #include <climits>
 #include <cstdint>
@@ -12,7 +13,7 @@
 #include <vector>
 
 #include "backend/hts_types.hpp"
-#include "backend/sql_types.hpp"
+
 
 struct PileupDB {
   sqlite3* o_conn = nullptr;
@@ -66,7 +67,7 @@ struct DynamicFragments {
 // Compiles `prefix` with the WHERE/ORDER BY built from `frags` appended.
 // returns compiled sql statement object, or sqlite3 integer
 // return code on failure
-std::expected<SqliteStmt, int> prepare_select_reads (
+std::expected<sqlite3_stmt*, int> prepare_select_reads (
     const PileupDB& db, std::string_view prefix,
     const DynamicFragments& frags
 );
@@ -173,7 +174,7 @@ struct InsertPileupErr {
 // Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
 // with bind_pileup_fields.
 // exposed for demo.cpp
-SqliteStmt prepare_insert_reads_stmt (PileupDB& db);
+sqlite3_stmt* prepare_insert_reads_stmt (PileupDB& db);
 
 // flat layout of htslib data to be entered
 // into the database for a single read.
@@ -225,27 +226,11 @@ struct PileupFields {
 // Bind one pileup row's fields into `stmt`, in column order matching
 // stmt_str_InsertReads.
 void bind_read_data (
-    SqliteStmt& stmt, const PileupFields& pf, sqlite3_int64 aln_id
+    sqlite3_stmt* stmt, const PileupFields& pf, sqlite3_int64 aln_id
 );
 
 // Render a CIGAR array as text (e.g. "151M").
 std::string stringify_cigar (const uint32_t* br_cig, size_t nCig);
-
-struct Aux1ToJsonErr {
-  enum Codes : uint8_t {
-    parseFail,
-  };
-};
-// converts single aux tag to a json entry
-// returns unexpected on failure to parse aux tag.
-std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
-    const uint8_t* aux1Start, const uint8_t* aux1End
-);
-
-// Escape a raw aux string value for embedding in a JSON string literal.
-void append_json_escaped (
-    const char* br_data, size_t len, std::string& out
-);
 
 }  // namespace hts2sql
 

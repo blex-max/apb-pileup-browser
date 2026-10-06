@@ -18,10 +18,8 @@ enum boxch : uint16_t {
   heavyCross = 0x254B,
 };
 
-// combining marks
-// for EGC
-enum markch : uint16_t {
-  ringAbove = 0x030A,
-  caron = 0x030C,
-  circumf = 0x0302
+// symolic indictors for TUI
+enum indicators : uint16_t {
+  insAt = '^',
+  insRingAbove = 0x030A,
 };

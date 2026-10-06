@@ -235,7 +235,8 @@ int main (int argc, char** argv)
         )
     );
   }
-  auto startupStmt = std::move (*prepResult);
+  auto* startupStmt = *prepResult;
+  *prepResult = nullptr;
   // count, and as a consequence verify data presence.
   auto rowCountResult = query::count_rows (startupStmt);
   if (!rowCountResult) {
@@ -254,7 +255,7 @@ int main (int argc, char** argv)
       .db = {
           .db = std::move (db),
           .userClause = {},
-          .selectStmt = std::move (startupStmt),
+          .selectStmt = startupStmt,
           .nStmtRows = *rowCountResult,
           .locusInfo = std::move (locusInfo)
       }
@@ -302,7 +303,7 @@ int main (int argc, char** argv)
         return EXIT_FAILURE;
       case TB_ERR_NO_TERM:
       case TB_ERR_UNSUPPORTED_TERM:
-        // TODO what values of TERM does apb support?? Document.
+        // FIXME: what values of TERM does apb support?? Document.
         std::cerr << fmt::format (
                          "Error: {}. Try a different terminal, or "
                          "set TERM to something apb supports (e.g. "
@@ -353,7 +354,7 @@ int main (int argc, char** argv)
     e2::write_string (
         first (state.ui.cmd.inputLine),
         last (state.ui.cmd.inputLine.xspan), "type here - try `help`",
-        TB_DIM
+        {.fg = TB_DIM}
     );
     if (const auto rc = tb_present(); rc != TB_OK) {
       if (rc != TB_ERR) {
@@ -395,7 +396,7 @@ int main (int argc, char** argv)
       case WidgetStatus::success:
         break;
       case WidgetStatus::insufficientSz:
-        // TODO hold rather than crash.
+        // FIXME: hold rather than crash.
         // Requires modification of error handling in widgets.cpp
         tb_cleanup.invoke();
         std::cerr << "Terminal too small to display TUI! Try resizing?"

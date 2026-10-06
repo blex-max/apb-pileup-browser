@@ -2,7 +2,6 @@
 
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
-#include "backend/sql_types.hpp"
 
 struct ColMetadata {
   bool visible;
@@ -115,7 +114,8 @@ struct AppConfig {
 struct DBBundle {
   PileupDB db;
   query::DynamicFragments userClause{};
-  SqliteStmt selectStmt;
+  // FIXME: finalisation?
+  sqlite3_stmt* selectStmt = nullptr;
   uint32_t nStmtRows = 0;  // rows in current stmt
   int32_t stmtRowScrollOffset = 0;
   query::PileupMetadata
