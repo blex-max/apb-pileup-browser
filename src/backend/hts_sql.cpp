@@ -555,9 +555,9 @@ std::string describe_sqlite_failure (
 
 namespace hts2sql {
 
-/* TAG CONVERSION */
-
 /* -- internal helpers -- */
+
+/* TAG CONVERSION */
 
 // Escape a raw aux string value for embedding in a JSON string literal.
 // SAM 'A'/'Z' values are drawn from [ !-~]+, which permits '"' and '\'
@@ -666,13 +666,101 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
   return out;
 }
 
+// Convert a bam_pileup1_t
+// into the pileup database
+// interface type.
+//
+// NOTE: takes mTidName directly to
+// avoid dealing with SAM header.
+static bool fill_fields (
+    PileupFields& pf, const bam_pileup1_t* br_p1, const char* mTidName
+)
+{
+  const auto* br_b1 = br_p1->b;
+  const auto nCig = br_b1->core.n_cigar;
+  const auto* br_cig = bam_get_cigar (br_b1);
+
+  pf.qPos = br_p1->qpos;
+  pf.start = br_b1->core.pos;
+  pf.mStart = br_b1->core.mpos;  // <0 == unaligned (or no mate)
+
+  pf.indel = br_p1->indel;
+  pf.isDel = br_p1->is_del;
+  pf.isHead = br_p1->is_head;
+  pf.isTail = br_p1->is_tail;
+  pf.isRefSkip = br_p1->is_refskip;
+  // NOTE: qname null terminated,
+  // so assignment safe.
+  pf.qName = bam_get_qname (br_b1);
+  pf.flag = br_b1->core.flag;
+  pf.mapQ = br_b1->core.qual;
+  pf.mtidName = mTidName != NULL ? mTidName : "";
+  pf.rawCig = {br_cig, br_cig + nCig};
+  pf.nCig = br_b1->core.n_cigar;
+
+  {
+    /* stringify seq, qual */
+    // ASSUMPTION: seq and qual data present.
+    const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
+    pf.seqBases.resize (lq);
+    pf.qualAscii.resize (lq);
+
+    const uint8_t* br_qs = bam_get_seq (br_b1);
+    const uint8_t* br_qq = bam_get_qual (br_b1);
+    for (size_t j = 0; j < lq; ++j) {
+      pf.seqBases[j] = seq_nt16_str[bam_seqi (br_qs, j)];
+      pf.qualAscii[j] = static_cast<char> (br_qq[j] + 33);
+    }
+    if (!br_p1->is_del) {
+      pf.baseQual = br_qq[br_p1->qpos];
+      pf.base = pf.seqBases[static_cast<size_t> (br_p1->qpos)];
+    }
+  }
+
+  {
+    /* stringify cigar */
+    // ASSUMPTION: cigar available and correct.
+    pf.cig = stringify_cigar (br_cig, nCig);
+    pf.end = pf.start + bam_cigar2rlen (static_cast<int> (nCig), br_cig);
+  }
+
+  {
+    /* aux to json; left empty if no aux tags present */
+    auto& auxJson = pf.auxJson;
+    auxJson.clear();
+    const uint8_t* br_dataEnd = br_b1->data + br_b1->l_data;
+    const uint8_t* br_aux1 = bam_aux_first (br_b1);
+    if (br_aux1 != NULL) {
+      auxJson += '{';
+      for (; br_aux1 != nullptr;) {
+        auto tagEntry = aux1_to_json (br_aux1, br_dataEnd);
+        if (!tagEntry) {
+          return false;
+        }
+        auxJson += *tagEntry;
+        br_aux1 = bam_aux_next (br_b1, br_aux1);
+        if (br_aux1 == NULL) {
+          break;
+        }
+        auxJson += ',';
+      }
+      auxJson += '}';
+    }
+  }
+
+  APB_ASSERT (pf.valid(), pf);
+  return true;
+}
 
 // -- public API -- //
 
+// FIXME: hoist out reference fetch, and take callback
+// to get mtid rather than using hdr directly.
+// Minimises error space, and makes reuse in demo.cpp easier
 std::expected<void, InsertPileupErr> insert_pileup (
     PileupDB& db, const PileupIterator& pileupIter,
     const std::string& contigName, const sam_hdr_t* br_alnHdr,
-    sqlite3_int64 aln_id, const std::optional<FastaFile>& ff
+    sqlite3_int64 aln_id, const std::optional<faidx_t*>& ff
 )
 {
   APB_ASSERT (pileupIter.span.valid(), pileupIter.span);
@@ -876,92 +964,6 @@ sqlite3_stmt* prepare_insert_reads_stmt (PileupDB& db)
     );
   }
   return stmt;
-}
-
-// Convert a bam_pileup1_t
-// into the pileup database
-// interface type.
-//
-// NOTE: takes mTidName directly to
-// avoid dealing with SAM header.
-bool fill_fields (
-    PileupFields& pf, const bam_pileup1_t* br_p1, const char* mTidName
-)
-{
-  const auto* br_b1 = br_p1->b;
-  const auto nCig = br_b1->core.n_cigar;
-  const auto* br_cig = bam_get_cigar (br_b1);
-
-  pf.qPos = br_p1->qpos;
-  pf.start = br_b1->core.pos;
-  pf.mStart = br_b1->core.mpos;  // <0 == unaligned (or no mate)
-
-  pf.indel = br_p1->indel;
-  pf.isDel = br_p1->is_del;
-  pf.isHead = br_p1->is_head;
-  pf.isTail = br_p1->is_tail;
-  pf.isRefSkip = br_p1->is_refskip;
-  // NOTE: qname null terminated,
-  // so assignment safe.
-  pf.qName = bam_get_qname (br_b1);
-  pf.flag = br_b1->core.flag;
-  pf.mapQ = br_b1->core.qual;
-  pf.mtidName = mTidName != NULL ? mTidName : "";
-  pf.rawCig = {br_cig, br_cig + nCig};
-  pf.nCig = br_b1->core.n_cigar;
-
-  {
-    /* stringify seq, qual */
-    // ASSUMPTION: seq and qual data present.
-    const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
-    pf.seqBases.resize (lq);
-    pf.qualAscii.resize (lq);
-
-    const uint8_t* br_qs = bam_get_seq (br_b1);
-    const uint8_t* br_qq = bam_get_qual (br_b1);
-    for (size_t j = 0; j < lq; ++j) {
-      pf.seqBases[j] = seq_nt16_str[bam_seqi (br_qs, j)];
-      pf.qualAscii[j] = static_cast<char> (br_qq[j] + 33);
-    }
-    if (!br_p1->is_del) {
-      pf.baseQual = br_qq[br_p1->qpos];
-      pf.base = pf.seqBases[static_cast<size_t> (br_p1->qpos)];
-    }
-  }
-
-  {
-    /* stringify cigar */
-    // ASSUMPTION: cigar available and correct.
-    pf.cig = stringify_cigar (br_cig, nCig);
-    pf.end = pf.start + bam_cigar2rlen (static_cast<int> (nCig), br_cig);
-  }
-
-  {
-    /* aux to json; left empty if no aux tags present */
-    auto& auxJson = pf.auxJson;
-    auxJson.clear();
-    const uint8_t* br_dataEnd = br_b1->data + br_b1->l_data;
-    const uint8_t* br_aux1 = bam_aux_first (br_b1);
-    if (br_aux1 != NULL) {
-      auxJson += '{';
-      for (; br_aux1 != nullptr;) {
-        auto tagEntry = aux1_to_json (br_aux1, br_dataEnd);
-        if (!tagEntry) {
-          return false;
-        }
-        auxJson += *tagEntry;
-        br_aux1 = bam_aux_next (br_b1, br_aux1);
-        if (br_aux1 == NULL) {
-          break;
-        }
-        auxJson += ',';
-      }
-      auxJson += '}';
-    }
-  }
-
-  APB_ASSERT (pf.valid(), pf);
-  return true;
 }
 
 // Bind one pileup row's fields into `stmt`, in column order matching

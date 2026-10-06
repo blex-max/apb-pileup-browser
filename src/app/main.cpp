@@ -1,4 +1,5 @@
 #include <fmt/format.h>
+#include <htslib/faidx.h>
 #include <htslib/sam.h>
 
 #include <cstdlib>
@@ -444,7 +445,9 @@ int main (int argc, char** argv)
   return EXIT_SUCCESS;
 }
 
-
+// returns expected type/str since any failure
+// is a top-level crash which can be fully described
+// and should be exited upon.
 static std::expected<ApbCliArgs, std::string> setup_cli (
     int argc, char** argv
 )
@@ -579,6 +582,9 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 }
 
 // separated into fn for readability
+// returns expected void/str since any failure
+// is a top-level crash which can be fully described
+// and exited upon.
 static std::expected<void, std::string> populate_db_mode_locus (
     PileupDB& db, std::string_view alnPath, std::string_view locus,
     std::optional<std::string_view> refPath, bool zeroBased
@@ -604,6 +610,21 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
   }
   auto aln = std::move (*alnRet);
+
+  std::optional<faidx_t*> ff;
+  if (refPath) {
+    ff = fai_load3_format (
+        refPath.value().data(), NULL, NULL, 0,
+        fai_format_options::FAI_FASTA
+    );
+
+    if (ff == nullptr) {
+      return std::unexpected (
+          fmt::format ("Failed to open reference fasta at {}", *refPath)
+      );
+    }
+    Defer ff_cleanup ([&ff]() { fai_destroy (ff.value()); });
+  }
 
   int32_t tid;
   hts_pos_t pos;
@@ -661,17 +682,6 @@ static std::expected<void, std::string> populate_db_mode_locus (
     contigName = contigNameCStr;
   }
 
-  std::optional<FastaFile> ff;
-  if (refPath) {
-    auto ffResult = FastaFile::load_fasta (std::string{*refPath}.c_str());
-    if (!ffResult) {
-      return std::unexpected (
-          fmt::format ("Failed to open reference fasta at {}", *refPath)
-      );
-    }
-    ff = std::move (*ffResult);
-  }
-
   auto prepareResult = PileupIterator::prepare_pileup_iter (aln, tid, pos);
   if (!prepareResult) {
     switch (prepareResult.error()) {
@@ -724,10 +734,10 @@ static std::expected<void, std::string> populate_db_mode_locus (
         fmt::format ("File table insert failed: {}", sqlite3_errmsg (db))
     );
   }
+  const auto alnID = sqlite3_last_insert_rowid (db);
 
   auto irRet = hts2sql::insert_pileup (
-      db, pileupIter, contigName, aln.o_hdr,
-      sqlite3_last_insert_rowid (db), ff
+      db, pileupIter, contigName, aln.o_hdr, alnID, ff
   );
   if (!irRet) {
     const auto err = irRet.error();

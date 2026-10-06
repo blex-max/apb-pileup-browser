@@ -27,23 +27,6 @@ std::expected<AlnFile, AlnFile::LoadErrCodes> AlnFile::load_aln (
   return aln;
 }
 
-std::expected<FastaFile, FastaFile::LoadErrCodes> FastaFile::load_fasta (
-    const char* path
-)
-{
-  FastaFile ff;
-
-  ff.o_fai = fai_load3_format (
-      path, NULL, NULL, 0, fai_format_options::FAI_FASTA
-  );
-
-  if (ff.o_fai == nullptr) {
-    return std::unexpected (FastaFile::LoadErrCodes::openFail);
-  }
-
-  return ff;
-}
-
 extern "C" {
 int pileup_func (void* br_data, bam1_t* br_b)
 {

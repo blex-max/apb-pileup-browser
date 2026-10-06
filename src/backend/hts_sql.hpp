@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <htslib/faidx.h>
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
@@ -67,6 +68,9 @@ struct DynamicFragments {
 // Compiles `prefix` with the WHERE/ORDER BY built from `frags` appended.
 // returns compiled sql statement object, or sqlite3 integer
 // return code on failure
+// FIXME: using expected implies that you have to null out
+// the container returned... better to take an
+// output param.
 std::expected<sqlite3_stmt*, int> prepare_select_reads (
     const PileupDB& db, std::string_view prefix,
     const DynamicFragments& frags
@@ -147,35 +151,6 @@ struct fmt::formatter<query::PileupMetadata>
 
 namespace hts2sql {
 
-struct InsertPileupErr {
-  enum Code : uint8_t { sqlFail, auxParseFail, refFetchFail };
-
-  Code code;
-  std::optional<int> rc = std::nullopt;
-};
-// insert reads at pileup position into database.
-// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-[[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
-    PileupDB& db, const PileupIterator& pileupIter,
-    const std::string& contigName, const sam_hdr_t* br_alnHdr,
-    sqlite3_int64 aln_id, const std::optional<FastaFile>& ff
-);
-
-// insert pileup locus info into single-row metadata table.
-// Returns void or int sqlite3 error code
-// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-// FIXME: what error space can this actually return?
-[[nodiscard]] int insert_metadata (
-    PileupDB& db, const std::string& contigName, int64_t pileupPos,
-    const GenomicSpan& pileupSpan,
-    const std::optional<std::string>& refSlice
-);
-
-// Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
-// with bind_pileup_fields.
-// exposed for demo.cpp
-sqlite3_stmt* prepare_insert_reads_stmt (PileupDB& db);
-
 // flat layout of htslib data to be entered
 // into the database for a single read.
 struct PileupFields {
@@ -216,20 +191,45 @@ struct PileupFields {
   }
 };
 
-// convert to database-facing interface type
-// returns true on success, false on failure
-// to parse an aux tag in br_p1->b1.
-[[nodiscard]] bool fill_fields (
-    PileupFields& pf, const bam_pileup1_t* br_p1, const char* mTidName
+struct InsertPileupErr {
+  enum Code : uint8_t { sqlFail, auxParseFail, refFetchFail };
+
+  Code code;
+  std::optional<int> rc = std::nullopt;
+};
+// insert reads at pileup position into database.
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+// FIXME: status return rather than expected, void.
+[[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
+    PileupDB& db, const PileupIterator& pileupIter,
+    const std::string& contigName, const sam_hdr_t* br_alnHdr,
+    sqlite3_int64 aln_id, const std::optional<faidx_t*>& ff
 );
+
+// insert pileup locus info into single-row metadata table.
+// Returns void or int sqlite3 error code
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+// FIXME: what error space can this actually return?
+[[nodiscard]] int insert_metadata (
+    PileupDB& db, const std::string& contigName, int64_t pileupPos,
+    const GenomicSpan& pileupSpan,
+    const std::optional<std::string>& refSlice
+);
+
+// Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
+// with bind_pileup_fields.
+// exposed for demo.cpp (FIXME)
+sqlite3_stmt* prepare_insert_reads_stmt (PileupDB& db);
 
 // Bind one pileup row's fields into `stmt`, in column order matching
 // stmt_str_InsertReads.
+// exposed for demo.cpp
 void bind_read_data (
     sqlite3_stmt* stmt, const PileupFields& pf, sqlite3_int64 aln_id
 );
 
 // Render a CIGAR array as text (e.g. "151M").
+// exposed for demo.cpp
 std::string stringify_cigar (const uint32_t* br_cig, size_t nCig);
 
 }  // namespace hts2sql

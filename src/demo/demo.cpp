@@ -12,7 +12,6 @@
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
 #include "shared/apb_assert.hpp"
-#include "shared/cleanup.hpp"
 
 static const char kBaseArray[] = "ACGT";
 
@@ -309,7 +308,7 @@ void insert_demo_data (PileupDB& db, const DemoDataPack& data)
   }
   const auto fileId = sqlite3_last_insert_rowid (db);
 
-  auto stmt = hts2sql::prepare_insert_reads_stmt (db);
+  auto* stmt = hts2sql::prepare_insert_reads_stmt (db);
 
   if (const auto rc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {

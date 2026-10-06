@@ -231,7 +231,7 @@ static CmdResult try_apply_query_clause (
                )
     };
   }
-  auto newStmt = std::move (*prepResult);
+  auto* newStmt = *prepResult;
   auto rowCountResult = query::count_rows (newStmt);
   if (!rowCountResult) {
     return {
@@ -244,7 +244,7 @@ static CmdResult try_apply_query_clause (
     };
   }
   const uint32_t nRow = *rowCountResult;
-  state.db.selectStmt = std::move (newStmt);
+  state.db.selectStmt = newStmt;
   state.db.userClause = std::move (newClause);
   state.db.stmtRowScrollOffset = 0;  // reset row view
   state.db.nStmtRows = nRow;

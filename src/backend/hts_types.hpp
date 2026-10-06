@@ -93,47 +93,6 @@ struct AlnFile {
   );
 };
 
-struct FastaFile {
-  faidx_t* o_fai;
-
-  operator faidx_t*() const noexcept { return o_fai; }
-
-  FastaFile() = default;
-  FastaFile (const FastaFile& o) = delete;
-  FastaFile& operator= (const FastaFile& o) = delete;
-
-  FastaFile (FastaFile&& o) noexcept : o_fai{o.o_fai}
-  {
-    o.o_fai = nullptr;
-  }
-
-  FastaFile& operator= (FastaFile&& o) noexcept
-  {
-    if (this != &o) {
-      if (o_fai != nullptr) {
-        fai_destroy (o_fai);
-      }
-      o_fai = o.o_fai;
-      o.o_fai = nullptr;
-    }
-    return *this;
-  }
-
-  ~FastaFile()
-  {
-    if (o_fai != nullptr) {
-      fai_destroy (o_fai);
-    }
-  }
-
-  enum LoadErrCodes : uint8_t {
-    openFail,
-  };
-  static std::expected<FastaFile, LoadErrCodes> load_fasta (
-      const char* path
-  );
-};
-
 // TODO review pileup machinery
 struct PileupCapture {
   htsFile* br_fh = nullptr;  // borrowed
