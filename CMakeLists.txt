@@ -112,7 +112,7 @@ target_link_libraries(apb
 )
 
 # Tests are co-located with the code they test and compiled out of apb.
-# Any source containing tests must be listed here, or they won't run.
+# Any source containing tests must be listed here.
 add_executable(apb-tests
   tests/test.cpp
   src/backend/hts_sql.cpp
