@@ -1,7 +1,11 @@
 #include <fmt/format.h>
 #include <htslib/faidx.h>
+#include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <iostream>
@@ -96,8 +100,9 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 
 [[nodiscard]] static std::expected<void, std::string>
 populate_db_mode_locus (
-    PileupDB& db, std::string_view alnPath, std::string_view locus,
-    std::optional<std::string_view> refPath, bool zeroBased
+    PileupDB& db, const std::vector<std::string>& alnPaths,
+    const std::string& locus, std::optional<std::string> refPath,
+    bool zeroBased
 );
 
 int main (int argc, char** argv)
@@ -138,7 +143,7 @@ int main (int argc, char** argv)
   switch (args.mode) {
     case ApbMode::locus:
       if (const auto popRet = populate_db_mode_locus (
-              db, args.alnPath, args.locus,
+              db, {args.alnPath}, args.locus,
               (args.refPath.empty()) ? std::nullopt
                                      : std::optional (args.refPath),
               args.zeroBased
@@ -581,40 +586,126 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   return parsedArgs;
 }
 
+
+struct PileupCapture {
+  htsFile* br_fh = nullptr;  // borrowed
+  hts_itr_t* o_it = nullptr;
+};
+extern "C" {
+int pileup_func (void* br_data, bam1_t* br_b)
+{
+  const PileupCapture* br_d = (PileupCapture*)(br_data);
+  // No filtering
+  return sam_itr_next (br_d->br_fh, br_d->o_it, br_b);
+}
+}
+
 // separated into fn for readability
 // returns expected void/str since any failure
 // is a top-level crash which can be fully described
 // and exited upon.
 static std::expected<void, std::string> populate_db_mode_locus (
-    PileupDB& db, std::string_view alnPath, std::string_view locus,
-    std::optional<std::string_view> refPath, bool zeroBased
+    PileupDB& db, const std::vector<std::string>& alnPaths,
+    const std::string& locus, std::optional<std::string> refPath,
+    bool zeroBased
 )
 {
-  auto alnRet = AlnFile::load_aln (std::string{alnPath});
-  if (!alnRet) {
-    switch (alnRet.error()) {
-      case AlnFile::openFail:
-        return std::unexpected ("Failed to open alignment file");
-      case AlnFile::hdrReadFail:
-        return std::unexpected (
-            "Failed to read alignment file header; is it "
-            "corrupt?"
-        );
-      case AlnFile::indexLoadFail:
-        return std::unexpected (
-            "Failed to load index file for alignment; is the "
-            "file indexed?"
-        );
-      default:
-        APB_UNREACHABLE ("unrecognised AlnFile load error");
+  // helper types for this fn
+  struct AlnFile {
+    htsFile* o_fh = nullptr;
+    sam_hdr_t* o_hdr = nullptr;
+    hts_idx_t* o_idx = nullptr;
+    std::string_view path;
+    uint32_t locusTid = UINT32_MAX;
+
+    void destroy() const noexcept
+    {
+      hts_idx_destroy (o_idx);
+      sam_hdr_destroy (o_hdr);
+      hts_close (o_fh);
+    }
+  };
+  struct PileupIterator {
+    PileupCapture* o_cap = nullptr;
+    bam_plp_t o_plp = nullptr;
+    const bam_pileup1_t* br_plpArr = nullptr;
+    size_t nPlp = 0;
+
+    void destroy() noexcept
+    {
+      if (o_cap != nullptr) {
+        hts_itr_destroy (o_cap->o_it);
+        delete o_cap;
+      }
+      bam_plp_destroy (o_plp);
+      br_plpArr = nullptr;
+    }
+  };
+
+  // convert locus from string
+  std::string locusContigName;
+  hts_pos_t locusPos;
+  const auto locusStrSepPos = locus.find_last_of (':');
+  if (locusStrSepPos == 0) {
+    return std::unexpected (
+        "Invalid locus specifier; no contig before colon separator"
+    );
+  }
+  if (locusStrSepPos == locus.length() - 1) {
+    return std::unexpected (
+        "Invalid locus specifier; no coordinate after colon separator"
+    );
+  }
+  if (locusStrSepPos >= locus.length()) {
+    return std::unexpected (
+        "Invalid locus specifier; no colon separator present"
+    );
+  }
+  if (std::all_of (
+          begin (locus) + locusStrSepPos + 1, locus.end(), isdigit
+      )) {
+    try {
+      locusPos = std::stoll (locus.substr (locusStrSepPos + 1));
+    }
+    catch (const std::exception& ex) {
+      return std::unexpected (
+          fmt::format (
+              "Invalid locus specifier; could not convert postion to "
+              "64-bit integer ({})",
+              ex.what()
+          )
+      );
     }
   }
-  auto aln = std::move (*alnRet);
+  else {
+    return std::unexpected (
+        "Invalid locus specifier; non-digit [0123456789] character found "
+        "in position after colon separator"
+    );
+  }
+  if (locus[0] == '{' && locus[locusStrSepPos - 1] == '}') {
+    // discard disambiguating braces
+    locusContigName = locus.substr (1, locusStrSepPos - 2);
+  }
+  else {
+    locusContigName = locus.substr (0, locusStrSepPos);
+  }
 
+  if (!zeroBased) {
+    if (locusPos == 0) {
+      return std::unexpected (
+          "Invalid locus specifier for one-based input; position is less "
+          "than 1"
+      );
+    }
+    locusPos--;
+  }
+
+  // load reference if provided
   std::optional<faidx_t*> ff;
   if (refPath) {
     ff = fai_load3_format (
-        refPath.value().data(), NULL, NULL, 0,
+        refPath.value().c_str(), NULL, NULL, 0,
         fai_format_options::FAI_FASTA
     );
 
@@ -623,150 +714,240 @@ static std::expected<void, std::string> populate_db_mode_locus (
           fmt::format ("Failed to open reference fasta at {}", *refPath)
       );
     }
-    Defer ff_cleanup ([&ff]() { fai_destroy (ff.value()); });
   }
-
-  int32_t tid;
-  hts_pos_t pos;
-  hts_pos_t pend;
-  if (hts_parse_region (
-          std::string{locus}.c_str(), &tid, &pos, &pend,
-          reinterpret_cast<hts_name2id_f> (sam_hdr_name2tid), aln.o_hdr,
-          HTS_PARSE_ONE_COORD
-      ) == NULL) {
-    std::string locusParseErr{"Could not parse locus string "};
-    locusParseErr += locus;
-    locusParseErr += "; ";
-    if (tid < 0) {
-      locusParseErr += "invalid contig";
+  Defer ff_cleanup ([&ff]() {
+    if (ff) {
+      fai_destroy (ff.value());
     }
-    else {
-      locusParseErr += "malformed";
-    }
-    return std::unexpected (locusParseErr);
-  }
-  // HTS_PARSE_ONE_COORD accepts range shorthand such as
-  // "chr:-100" (== "chr:1-100") or a bare "chr" (== whole
-  // contig); reject anything that doesn't resolve to a single
-  // coordinate.
-  if (pend - pos != 1) {
-    return std::unexpected (
-        fmt::format (
-            "Locus string {} does not specify a single "
-            "coordinate; provide one position, e.g. 21:12345",
-            locus
-        )
-    );
-  }
-  if (zeroBased) {
-    // hts_parse_region always treats the input as 1-based and
-    // subtracts 1; add it back to recover a caller-supplied 0-based
-    // position (e.g. a BED file's start column). pend is unused past
-    // this point, so it doesn't need the same adjustment.
-    pos += 1;
-  }
+  });
 
-  std::string contigName;
-  {
-    const char* contigNameCStr = sam_hdr_tid2name (aln.o_hdr, tid);
-    if (contigNameCStr == NULL) {
-      // This should be impossible since we've already done hts_parse_region
-      APB_UNREACHABLE (
+  // iterate alignment paths. Open, validate, pileup,
+  // transform to db
+  bool readsFoundAtLocus = false;
+  GenomicSpan maxPileupSpan{
+      INT64_MAX, 0
+  };  // for fetching appropriate reference slice
+  for (size_t i = 0; i < alnPaths.size(); ++i) {
+    AlnFile aln;
+    Defer aln_cleanup ([&aln]() { aln.destroy(); });
+
+    aln.path = alnPaths[i];
+    aln.o_fh = hts_open (aln.path.data(), "r");
+    if (aln.o_fh == nullptr) {
+      return std::unexpected ("Failed to open alignment file");
+    }
+    aln.o_hdr = sam_hdr_read (aln.o_fh);
+    if (aln.o_hdr == nullptr) {
+      return std::unexpected (
+          "Failed to read alignment file header; is it "
+          "corrupt?"
+      );
+    }
+    aln.o_idx = sam_index_load (aln.o_fh, aln.path.data());
+    if (aln.o_idx == nullptr) {
+      return std::unexpected (
+          "Failed to load index file for alignment; is the "
+          "file indexed?"
+      );
+    }
+
+    switch (const auto rc =
+                sam_hdr_name2tid (aln.o_hdr, locusContigName.c_str());
+            rc) {
+      case -2:
+        APB_UNREACHABLE ("Could not parse header despite successful read");
+      case -1:
+        // FIXME prompt user for confirmation here
+        std::cerr << "Alignment at " << aln.path
+                  << " does not contain contig " << locusContigName
+                  << ", skipping" << std::endl;
+        continue;
+      default:
+        aln.locusTid = static_cast<uint32_t> (rc);
+    };
+
+    /*
+      Creates new hts_itr_t each call since in this program there is
+      at present only a single call to this function per program instance,
+      and even in future there is no expected pattern to loci at which pileups
+      might be needed, hence little advantage to keeping the iterator alive between calls.
+    */
+    PileupIterator pileup;
+    Defer pileup_destroy ([&pileup]() { pileup.destroy(); });
+
+    auto* o_alnIter =
+        sam_itr_queryi (aln.o_idx, aln.locusTid, locusPos, locusPos + 1);
+    if (o_alnIter == NULL) {
+      // FIXME: is this (and pileup iterator fail) actually plausible?
+      return std::unexpected (
           fmt::format (
-              "Contig with tid {} could not be converted into a "
-              "contig name from locus string {}",
-              tid, locus
+              "Failed to create read iterator for alignment at {}",
+              aln.path
           )
       );
     }
-    contigName = contigNameCStr;
-  }
 
-  auto prepareResult = PileupIterator::prepare_pileup_iter (aln, tid, pos);
-  if (!prepareResult) {
-    switch (prepareResult.error()) {
-      case PileupIterator::samItrFail:
-        return std::unexpected ("Failed to create alignment iterator");
-      case PileupIterator::pileupInitFail:
-        return std::unexpected (
-            "Failed to initialise htslib pileup iterator"
-        );
-      case PileupIterator::pileupIterateFail:
-        return std::unexpected ("Failed to iterate pileup");
-      case PileupIterator::locusNotCovered:
-        return std::unexpected (
-            "No reads in alignment file align to this locus"
-        );
-      default:
-        APB_UNREACHABLE ("unrecognised PileupIterator prepare error");
+    pileup.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
+    pileup.o_plp = bam_plp_init (pileup_func, pileup.o_cap);
+    if (pileup.o_plp == NULL) {
+      return std::unexpected (
+          fmt::format (
+              "Failed to create pileup iterator for alignment at {}",
+              aln.path
+          )
+      );
     }
-  }
-  auto pileupIter{std::move (*prepareResult)};
+    bam_plp_set_maxcnt (pileup.o_plp, kMaxReads);
 
-  // FIXME: a TRY_SQL macro would be great
-  sqlite3_stmt* fileInsertStmt;
-  if (const auto rc = sqlite3_prepare_v2 (
-          db, schema::sqlInsertFile.data(), schema::sqlInsertFile.size(),
-          &fileInsertStmt, NULL
-      );
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to prepare file insert statement: {}",
-            sqlite3_errmsg (db)
-        )
-    );
-  }
-  if (const auto rc = sqlite3_bind_text (
-          fileInsertStmt, 1, alnPath.data(),
-          static_cast<int> (alnPath.size()), SQLITE_TRANSIENT
-      );
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to bind path to file table insert statement: {}",
-            sqlite3_errstr (rc)
-        )
-    );
-  }
-  if (const auto rc = sqlite3_step (fileInsertStmt); rc != SQLITE_DONE) {
-    APB_UNREACHABLE (
-        fmt::format ("File table insert failed: {}", sqlite3_errmsg (db))
-    );
-  }
-  const auto alnID = sqlite3_last_insert_rowid (db);
+    int64_t plpPos = -1;
+    int plpTid = -1;
+    int nPlp = -1;
+    bool locusFound = false;
+    const bam_pileup1_t* br_plpArr;
+    while ((br_plpArr =
+                bam_plp64_auto (pileup.o_plp, &plpTid, &plpPos, &nPlp)) !=
+           0) {
+      if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
+        // FIXME: what is the error space here? should this be a crash or a skip. read src.
+        return std::unexpected (
+            fmt::format (
+                "Unexpected error encountered when iterating pileup for "
+                "alignment at {}",
+                aln.path
+            )
+        );
+      }
+      if (plpPos < locusPos) {
+        continue;  // yet to reach locus
+      }
+      if (plpPos > locusPos) {
+        break;
+      }
+      // else locus found
+      locusFound = true;
+      pileup.br_plpArr = br_plpArr;
+      pileup.nPlp = static_cast<size_t> (nPlp);
+      for (int j = 0; j < nPlp; j++) {
+        auto* const b1 = br_plpArr[j].b;
+        const auto rStart = b1->core.pos;
+        const auto rEnd = rStart + bam_cigar2rlen (
+                                       static_cast<int> (b1->core.n_cigar),
+                                       bam_get_cigar (b1)
+                                   );
+        maxPileupSpan.start = std::min (maxPileupSpan.start, rStart);
+        maxPileupSpan.end = std::max (maxPileupSpan.end, rEnd);
+      }
+      break;
+    }
+    if (!locusFound) {
+      std::cerr << "No reads in alignment file at " << aln.path
+                << " align to the specified locus, skipping" << std::endl;
+      continue;
+    }
 
-  auto irRet = hts2sql::insert_pileup (
-      db, pileupIter, contigName, aln.o_hdr, alnID, ff
-  );
-  if (!irRet) {
-    const auto err = irRet.error();
-    switch (err.code) {
-      case hts2sql::InsertPileupErr::sqlFail:
+    readsFoundAtLocus = true;
+
+    // FIXME: a TRY_SQL macro would be great
+    sqlite3_stmt* fileInsertStmt;
+    if (const auto rc = sqlite3_prepare_v2 (
+            db, schema::sqlInsertFile.data(), schema::sqlInsertFile.size(),
+            &fileInsertStmt, NULL
+        );
+        rc != SQLITE_OK) {
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to prepare file insert statement: {}",
+              sqlite3_errmsg (db)
+          )
+      );
+    }
+    if (const auto rc = sqlite3_bind_text (
+            fileInsertStmt, 1, aln.path.data(),
+            static_cast<int> (aln.path.size()), SQLITE_TRANSIENT
+        );
+        rc != SQLITE_OK) {
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to bind path to file table insert statement: {}",
+              sqlite3_errstr (rc)
+          )
+      );
+    }
+    if (const auto rc = sqlite3_step (fileInsertStmt); rc != SQLITE_DONE) {
+      APB_UNREACHABLE (
+          fmt::format ("File table insert failed: {}", sqlite3_errmsg (db))
+      );
+    }
+    sqlite3_finalize (fileInsertStmt);
+    const auto alnID = sqlite3_last_insert_rowid (db);
+
+    const auto get_mtid_name = [&aln] (int mtid) {
+      return sam_hdr_tid2name (aln.o_hdr, mtid);
+    };
+    auto insertStatus = hts2sql::insert_pileup (
+        db, pileup.br_plpArr, pileup.nPlp, locusContigName, alnID,
+        get_mtid_name
+    );
+    switch (insertStatus.code) {
+      case hts2sql::InsertPileupStatus::success:
+        break;
+      case hts2sql::InsertPileupStatus::sqlFail:
         return std::unexpected (
             query::describe_sqlite_failure (
-                err.rc.value(), "transform/insert alignment data",
+                insertStatus.rc.value(), "transform/insert alignment data",
                 sqlite3_errmsg (db)
             )
         );
-      case hts2sql::InsertPileupErr::auxParseFail:
-        // TODO: provide qname/read/tag details
+      case hts2sql::InsertPileupStatus::auxParseFail:
+        // FIXME: provide qname/read/tag details
         return std::unexpected (
             "Failed to parse aux tag in alignment file. Is aux "
             "data corrupt?"
         );
-      case hts2sql::InsertPileupErr::refFetchFail:
-        return std::unexpected (
-            fmt::format (
-                "Failed to fetch reference region from fasta "
-                "for "
-                "span {}:{}-{}",
-                contigName, pileupIter.span.start + 1, pileupIter.span.end
-            )
-        );
       default:
         APB_UNREACHABLE ("unrecognised InsertPileupErr code");
     }
+  }
+
+  if (readsFoundAtLocus) {
+    // Fetch reference and insert metadata
+    std::optional<std::string> refSlice;
+    if (ff) {
+      hts_pos_t regLen;
+      // uses closed coordinates, hence -1
+      auto* o_fetch = faidx_fetch_seq64 (
+          *ff, locusContigName.c_str(), maxPileupSpan.start,
+          maxPileupSpan.end - 1, &regLen
+      );
+      if (o_fetch == NULL) {
+        return std::unexpected (
+            fmt::format (
+                "Failed to fetch reference region from fasta at {} "
+                "for span {}:{}-{} (0-based end-exclusive coordinates)",
+                refPath.value(), locusContigName, maxPileupSpan.start,
+                maxPileupSpan.end
+            )
+        );
+      }
+      refSlice = {o_fetch, static_cast<size_t> (regLen)};
+      free (o_fetch);
+    }
+
+    if (const auto rcInsMeta = hts2sql::insert_metadata (
+            db, locusContigName, locusPos, maxPileupSpan, refSlice
+        );
+        rcInsMeta != SQLITE_OK) {
+      return std::unexpected (
+          query::describe_sqlite_failure (
+              rcInsMeta, "insert locus metadata", sqlite3_errmsg (db)
+          )
+      );
+    }
+  }
+  else {
+    return std::unexpected (
+        "No reads at locus in any input alignment file"
+    );
   }
 
   return {};

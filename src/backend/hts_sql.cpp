@@ -1,6 +1,7 @@
 #include "backend/hts_sql.hpp"
 
 #include <fmt/format.h>
+#include <htslib/hts.h>
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
@@ -754,47 +755,14 @@ static bool fill_fields (
 
 // -- public API -- //
 
-// FIXME: hoist out reference fetch, and take callback
-// to get mtid rather than using hdr directly.
-// Minimises error space, and makes reuse in demo.cpp easier
-std::expected<void, InsertPileupErr> insert_pileup (
-    PileupDB& db, const PileupIterator& pileupIter,
-    const std::string& contigName, const sam_hdr_t* br_alnHdr,
-    sqlite3_int64 aln_id, const std::optional<faidx_t*>& ff
+InsertPileupStatus insert_pileup (
+    PileupDB& db, const bam_pileup1_t* br_plpArr, const size_t nPlp,
+    const std::string& contigName, sqlite3_int64 aln_id,
+    const Tid2StrFn& mtid2name
 )
 {
-  APB_ASSERT (pileupIter.span.valid(), pileupIter.span);
-  APB_ASSERT (pileupIter.pos >= 0, pileupIter.pos);
-  APB_ASSERT (pileupIter.tid >= 0, pileupIter.tid);
-  APB_ASSERT (pileupIter.nPlp > 0, pileupIter.nPlp);
+  APB_ASSERT (br_plpArr != nullptr);
   APB_ASSERT (!contigName.empty());
-
-  std::optional<std::string> refSlice;
-  if (ff) {
-    hts_pos_t regLen;
-    auto* o_fetch = faidx_fetch_seq64 (
-        *ff, contigName.c_str(), pileupIter.span.start,
-        pileupIter.span.end - 1, &regLen
-    );
-    if (o_fetch == NULL) {
-      return std::unexpected (
-          InsertPileupErr{
-              .code = InsertPileupErr::refFetchFail, .rc = regLen
-          }
-      );
-    }
-    refSlice = {o_fetch, static_cast<size_t> (regLen)};
-    free (o_fetch);
-  }
-
-  auto rcInsMeta = insert_metadata (
-      db, contigName, pileupIter.pos, pileupIter.span, refSlice
-  );
-  if (rcInsMeta != SQLITE_OK) {
-    return std::unexpected (
-        InsertPileupErr{.code = InsertPileupErr::sqlFail, .rc = rcInsMeta}
-    );
-  }
 
   auto* stmt = prepare_insert_reads_stmt (db);
 
@@ -808,9 +776,9 @@ std::expected<void, InsertPileupErr> insert_pileup (
     );
   }
 
-  for (size_t i = 0; i < pileupIter.nPlp; ++i) {
+  for (size_t i = 0; i < nPlp; ++i) {
     PileupFields readI;
-    const auto* p1 = &pileupIter.br_plpArr[i];
+    const auto* p1 = &br_plpArr[i];
 
     const char* mtidName = NULL;
     {
@@ -824,7 +792,7 @@ std::expected<void, InsertPileupErr> insert_pileup (
         // Hence failure not checked.
         mtidName = (b1->core.mtid == b1->core.tid)
                        ? "="
-                       : sam_hdr_tid2name (br_alnHdr, b1->core.mtid);
+                       : mtid2name (b1->core.mtid);
       }
       else {
         mtidName = NULL;
@@ -832,12 +800,10 @@ std::expected<void, InsertPileupErr> insert_pileup (
     }
 
     if (!fill_fields (readI, p1, mtidName)) {
-      return std::unexpected (
-          InsertPileupErr{
-              .code = InsertPileupErr::auxParseFail,
-              .rc = std::nullopt /* no specific code */
-          }
-      );
+      return InsertPileupStatus{
+          .code = InsertPileupStatus::auxParseFail,
+          .rc = std::nullopt /* no specific code */
+      };
     }
 
     bind_read_data (stmt, readI, aln_id);
@@ -851,9 +817,9 @@ std::expected<void, InsertPileupErr> insert_pileup (
             )
         );
       }
-      return std::unexpected (
-          InsertPileupErr{.code = InsertPileupErr::sqlFail, .rc = rc}
-      );
+      return InsertPileupStatus{
+          .code = InsertPileupStatus::sqlFail, .rc = rc
+      };
     }
     sqlite3_reset (stmt);  // rc mirrors the step already checked above
     sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs

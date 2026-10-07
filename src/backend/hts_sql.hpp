@@ -191,8 +191,8 @@ struct PileupFields {
   }
 };
 
-struct InsertPileupErr {
-  enum Code : uint8_t { sqlFail, auxParseFail, refFetchFail };
+struct InsertPileupStatus {
+  enum Code : uint8_t { success, sqlFail, auxParseFail };
 
   Code code;
   std::optional<int> rc = std::nullopt;
@@ -200,10 +200,10 @@ struct InsertPileupErr {
 // insert reads at pileup position into database.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 // FIXME: status return rather than expected, void.
-[[nodiscard]] std::expected<void, InsertPileupErr> insert_pileup (
-    PileupDB& db, const PileupIterator& pileupIter,
-    const std::string& contigName, const sam_hdr_t* br_alnHdr,
-    sqlite3_int64 aln_id, const std::optional<faidx_t*>& ff
+[[nodiscard]] InsertPileupStatus insert_pileup (
+    PileupDB& db, const bam_pileup1_t* br_plpArr, const size_t nPlp,
+    const std::string& contigName, sqlite3_int64 aln_id,
+    const Tid2StrFn& mtid2name
 );
 
 // insert pileup locus info into single-row metadata table.
