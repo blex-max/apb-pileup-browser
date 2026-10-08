@@ -1,4 +1,5 @@
 #include <fmt/format.h>
+#include <fmt/std.h>
 #include <htslib/faidx.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
@@ -8,7 +9,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
+#include <filesystem>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -30,9 +33,7 @@
 // CLI definition. Must regularly check they
 // have not drifted.
 static constexpr std::string_view cliHelp =
-    R"txt(usage: apb [options] ALN LOCUS [REF]
-       apb [options] --demo
-       apb [options] --db DB
+    R"txt(usage: apb [options] LOCUS ALN...
 
  apb is an terminal-based genome browser designed for
  viewing and querying reads at specific loci. It features
@@ -46,17 +47,16 @@ static constexpr std::string_view cliHelp =
  Type `help` and press enter in the TUI for in-app help.
 
 arguments:
-  ALN     alignment file (sam/bam/cram).
-  LOCUS   genomic locus, e.g. chr1:12345 (1-based)
-  REF     reference fasta (optional)
+  ALN...    alignment file/s (sam/bam/cram).
+  LOCUS     genomic locus, e.g. chr1:12345 (1-based)
 
 options:
-  -h, --help          show this help message and exit.
-  -v, --version       print version information and exit.
+  -r, --ref FASTA     reference fasta; TUI will display divergence
+                      (invalid with --demo/--db)
   --demo              view demo data, in place of
-                      FILE/LOCUS/REF.
+                      LOCUS/ALN.
   --db DB             load from a dumped db, in place of
-                      FILE/LOCUS/REF. DB path to db dump.
+                      LOCUS/ALN. DB path to db dump.
                       (mutually exclusive with --demo)
   --dump PATH         convert pileup to sqlite3 database,
                       dump to disk, and exit.
@@ -67,6 +67,8 @@ options:
   -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
                       file) instead of 1-based. Not valid
                       with --demo/--db.
+  -h, --help          show this help message and exit.
+  -v, --version       print version information and exit.
 
  **IMPORTANT**:
   apb displays all coordinate data in
@@ -82,14 +84,21 @@ options:
     "\napb version " APB_VERSION "\n";
 
 
-enum class ApbMode : uint8_t { locus, demo, db };
+enum class ApbMode : uint8_t { locus, demo, db, UNSET };
 struct ApbCliArgs {
-  ApbMode mode;
-  std::string dbPath;
-  std::string alnPath;
+  ApbMode mode = ApbMode::UNSET;
   std::string locus;
-  std::string refPath;
-  std::string dumpPath;
+  // label: shortest trailing path suffix distinct among all alns
+  struct AlnInput {
+    std::filesystem::path path;
+    std::string label;
+  };
+  std::vector<AlnInput> alns;
+
+  std::optional<std::filesystem::path> refPath = std::nullopt;
+  std::optional<std::filesystem::path> dumpPath = std::nullopt;
+  std::optional<std::filesystem::path> dbPath = std::nullopt;
+
   bool verboseLog = false;
   bool zeroBased = false;
 };
@@ -100,9 +109,9 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 
 [[nodiscard]] static std::expected<void, std::string>
 populate_db_mode_locus (
-    PileupDB& db, const std::vector<std::string>& alnPaths,
-    const std::string& locus, std::optional<std::string> refPath,
-    bool zeroBased
+    PileupDB& db, const std::vector<ApbCliArgs::AlnInput>& alns,
+    const std::string& locus,
+    const std::optional<std::filesystem::path>& refPath, bool zeroBased
 );
 
 int main (int argc, char** argv)
@@ -143,10 +152,7 @@ int main (int argc, char** argv)
   switch (args.mode) {
     case ApbMode::locus:
       if (const auto popRet = populate_db_mode_locus (
-              db, {args.alnPath}, args.locus,
-              (args.refPath.empty()) ? std::nullopt
-                                     : std::optional (args.refPath),
-              args.zeroBased
+              db, args.alns, args.locus, args.refPath, args.zeroBased
           );
           !popRet) {
         std::cerr << "Error: " << popRet.error() << std::endl;
@@ -161,8 +167,9 @@ int main (int argc, char** argv)
       break;
     }
     case ApbMode::db:
-      switch (const auto loadStatus =
-                  PileupDB::load_from_disk (db, args.dbPath);
+      switch (const auto loadStatus = PileupDB::load_from_disk (
+                  db, args.dbPath.value().string()
+              );
               loadStatus.code) {
         case PileupDB::LoadStatus::openFail:
           std::cerr << fmt::format (
@@ -170,7 +177,7 @@ int main (int argc, char** argv)
                            "reporting error: {}; and extended status "
                            "msg: "
                            "{}",
-                           args.dbPath,
+                           args.dbPath.value(),
                            sqlite3_errstr (loadStatus.rc.value()),
                            loadStatus.msg.value()
                        )
@@ -188,7 +195,7 @@ int main (int argc, char** argv)
           std::cerr << fmt::format (
                            "Error: database at {} appears to be "
                            "corrupt:\n{}",
-                           args.dbPath, loadStatus.msg.value()
+                           args.dbPath.value(), loadStatus.msg.value()
                        )
                     << std::endl;
           return EXIT_FAILURE;
@@ -198,7 +205,7 @@ int main (int argc, char** argv)
                            "expected schema for an apb database. Is "
                            "it "
                            "from an old version?",
-                           args.dbPath
+                           args.dbPath.value()
                        )
                     << std::endl;
           return EXIT_FAILURE;
@@ -206,12 +213,14 @@ int main (int argc, char** argv)
           break;
       }
       break;
+    case ApbMode::UNSET:
+      APB_UNREACHABLE ("CLI code malformed; unknown mode");
   }
 
 
-  if (!args.dumpPath.empty()) {
+  if (args.dumpPath) {
     switch (const auto dumpStatus =
-                query::dump_to_disk (db, args.dumpPath);
+                query::dump_to_disk (db, args.dumpPath.value().string());
             dumpStatus.code) {
       case query::DiskDumpStatus::success:
         break;
@@ -257,6 +266,7 @@ int main (int argc, char** argv)
 
   // NOTE: state takes ownership of db; db is now moved-from and
   // must not be referenced again below.
+  // FIXME: don't do that. Use global state.
   AppState state{
       .db = {
           .db = std::move (db),
@@ -285,7 +295,7 @@ int main (int argc, char** argv)
   // terminal as soon as tb_init is called, it's best to leave it here.
   if (const auto rc = tb_init(); rc != TB_OK) {
     // Most of tb_init's other failure codes lose their errno text
-    // before we ever see them: tb_init calls tb_shutdown() ->
+    // before we see them: tb_init calls tb_shutdown() ->
     // tb_reset() internally on any failure, and tb_reset() zeroes
     // the errno it just recorded. Only TB_ERR_INIT_OPEN survievs.
     // So we have to word manually.
@@ -461,22 +471,16 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   // CLI; see helptext above. Confirm
   // they match when making changes.
 
-  std::string dumpPath;
-  std::string dbPath;
-  bool verboseLog = false;
-  bool zeroBased = false;
-  bool demoRequested = false;
-  bool dbRequested = false;
-  bool dumpRequested = false;
-  std::vector<std::string> argPack;
+  std::vector<std::string> posArgV;
+  ApbCliArgs argsOut;
 
   auto parseFail = [] (std::string msg) -> std::unexpected<std::string> {
     return std::unexpected (fmt::format ("{}\n{}\n", msg, cliHelp));
   };
 
-  auto takeValue = [&] (
-                       int& i, std::string_view flag
-                   ) -> std::expected<std::string, std::string> {
+  auto getFlagValue = [&] (
+                          int& i, std::string_view flag
+                      ) -> std::expected<std::string, std::string> {
     if (i + 1 >= argc) {
       return std::unexpected (
           fmt::format ("{}: expected one argument", flag)
@@ -501,89 +505,142 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
       std::exit (EXIT_SUCCESS);
     }
     else if (arg == "-0" || arg == "--zero-based") {
-      zeroBased = true;
+      argsOut.zeroBased = true;
     }
     else if (arg == "--demo") {
-      demoRequested = true;
+      if (argsOut.mode != ApbMode::UNSET) {
+        return parseFail (
+            "arguments --db and --demo are mutually exclusive"
+        );
+      }
+      argsOut.mode = ApbMode::demo;
     }
     else if (arg == "--dump") {
-      auto val = takeValue (i, "--dump");
+      auto val = getFlagValue (i, "--dump");
       if (!val) {
         return parseFail (val.error());
       }
-      dumpPath = *val;
-      dumpRequested = true;
+      argsOut.dumpPath = *val;
     }
     else if (arg == "--log") {
-      verboseLog = true;
+      argsOut.verboseLog = true;
     }
     else if (arg == "--db") {
-      auto val = takeValue (i, "--db");
+      auto val = getFlagValue (i, "--db");
       if (!val) {
         return parseFail (val.error());
       }
-      dbPath = *val;
-      dbRequested = true;
+      if (argsOut.mode != ApbMode::UNSET) {
+        return parseFail (
+            "arguments --db and --demo are mutually exclusive"
+        );
+      }
+      argsOut.mode = ApbMode::db;
+      argsOut.dbPath = *val;
+    }
+    else if (arg == "-r" || arg == "--ref") {
+      auto val = getFlagValue (i, "--ref");
+      if (!val) {
+        return parseFail (val.error());
+      }
+      argsOut.refPath = *val;
     }
     else if (arg.starts_with ("-")) {
       return parseFail (fmt::format ("unrecognized argument: {}", arg));
     }
     else {
-      argPack.emplace_back (arg);
+      posArgV.emplace_back (arg);
     }
   }
 
-  if (demoRequested && dbRequested) {
-    return parseFail ("arguments --db and --demo are mutually exclusive");
-  }
-
-  ApbCliArgs parsedArgs;
-  parsedArgs.verboseLog = verboseLog;
-
-  if (demoRequested) {
-    if (!argPack.empty()) {
-      return std::unexpected ("--demo takes no positional arguments");
+  if (argsOut.mode == ApbMode::demo) {
+    if (argsOut.refPath) {
+      return parseFail ("--ref is not valid with --demo");
     }
-    if (zeroBased) {
-      return std::unexpected ("-0/--zero-based is not valid with --demo");
+    if (!posArgV.empty()) {
+      return parseFail ("--demo takes no positional arguments");
     }
-    parsedArgs.mode = ApbMode::demo;
-    if (dumpRequested) {
-      parsedArgs.dumpPath = dumpPath;
+    if (argsOut.zeroBased) {
+      return parseFail ("-0/--zero-based is not valid with --demo");
     }
   }
-  else if (dbRequested) {
-    if (!argPack.empty()) {
-      return std::unexpected ("--db takes no positional arguments");
+  else if (argsOut.mode == ApbMode::db) {
+    if (!posArgV.empty()) {
+      return parseFail ("--db takes no positional arguments");
     }
-    if (dumpRequested) {
-      return std::unexpected ("--dump is not valid with --db");
+    if (argsOut.refPath) {
+      return parseFail ("--ref is not valid with --db");
     }
-    if (zeroBased) {
-      return std::unexpected ("-0/--zero-based is not valid with --db");
+    if (argsOut.dumpPath) {
+      return parseFail ("--dump is not valid with --db");
     }
-    parsedArgs.mode = ApbMode::db;
-    parsedArgs.dbPath = dbPath;
+    if (argsOut.zeroBased) {
+      return parseFail ("-0/--zero-based is not valid with --db");
+    }
   }
   else {
-    if (argPack.size() < 2 || argPack.size() > 3) {
-      return std::unexpected (
-          "expected ALN LOCUS [REF] (or pass --demo / --db PATH)"
+    // locus mode
+    // FIXME: deduplicate alignments, or crash on duplication
+    argsOut.mode = ApbMode::locus;
+    if (posArgV.size() < 2) {
+      return parseFail (
+          "expected LOCUS ALN...\n\t(or pass --demo / --db PATH)"
       );
     }
-    parsedArgs.mode = ApbMode::locus;
-    parsedArgs.alnPath = argPack[0];
-    parsedArgs.locus = argPack[1];
-    if (argPack.size() == 3) {
-      parsedArgs.refPath = argPack[2];
+    argsOut.locus = posArgV[0];
+
+    // label each aln by its shortest distinct trailing path suffix
+    std::vector<std::vector<std::filesystem::path>> canon;
+    for (size_t i = 1; i < posArgV.size(); ++i) {
+      std::error_code ec;
+      const auto full = std::filesystem::weakly_canonical (posArgV[i], ec);
+      if (ec) {
+        return std::unexpected (
+            fmt::format ("{}: {}", posArgV[i], ec.message())
+        );
+      }
+      canon.emplace_back (full.begin(), full.end());
+      argsOut.alns.push_back ({.path = posArgV[i], .label = {}});
     }
-    if (dumpRequested) {
-      parsedArgs.dumpPath = dumpPath;
+    auto labelAt = [&] (size_t i, size_t depth) {
+      std::filesystem::path suffix;
+      for (size_t j = canon[i].size() - std::min (depth, canon[i].size());
+           j < canon[i].size(); ++j) {
+        suffix /= canon[i][j];
+      }
+      return suffix.generic_string();
+    };
+    std::vector<size_t> depth (canon.size(), 1);
+    for (bool collided = true; collided;) {
+      collided = false;
+      std::map<std::string, std::vector<size_t>> groups;
+      for (size_t i = 0; i < canon.size(); ++i) {
+        groups[labelAt (i, depth[i])].push_back (i);
+      }
+      for (const auto& [label, idxs] : groups) {
+        if (idxs.size() < 2) {
+          continue;
+        }
+        collided = true;
+        for (const auto i : idxs) {
+          // still colliding at full depth; same file
+          if (depth[i] >= canon[i].size()) {
+            return parseFail (
+                fmt::format (
+                    "duplicate alignment file: {}", posArgV[i + 1]
+                )
+            );
+          }
+          ++depth[i];
+        }
+      }
     }
-    parsedArgs.zeroBased = zeroBased;
+    for (size_t i = 0; i < canon.size(); ++i) {
+      argsOut.alns[i].label = labelAt (i, depth[i]);
+    }
   }
 
-  return parsedArgs;
+  return argsOut;
 }
 
 
@@ -605,9 +662,9 @@ int pileup_func (void* br_data, bam1_t* br_b)
 // is a top-level crash which can be fully described
 // and exited upon.
 static std::expected<void, std::string> populate_db_mode_locus (
-    PileupDB& db, const std::vector<std::string>& alnPaths,
-    const std::string& locus, std::optional<std::string> refPath,
-    bool zeroBased
+    PileupDB& db, const std::vector<ApbCliArgs::AlnInput>& alns,
+    const std::string& locus,
+    const std::optional<std::filesystem::path>& refPath, bool zeroBased
 )
 {
   // helper types for this fn
@@ -615,7 +672,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
     htsFile* o_fh = nullptr;
     sam_hdr_t* o_hdr = nullptr;
     hts_idx_t* o_idx = nullptr;
-    std::string_view path;
+    std::filesystem::path path;
     uint32_t locusTid = UINT32_MAX;
 
     void destroy() const noexcept
@@ -727,12 +784,12 @@ static std::expected<void, std::string> populate_db_mode_locus (
   GenomicSpan maxPileupSpan{
       INT64_MAX, 0
   };  // for fetching appropriate reference slice
-  for (size_t i = 0; i < alnPaths.size(); ++i) {
+  for (const auto& alnIn : alns) {
     AlnFile aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
 
-    aln.path = alnPaths[i];
-    aln.o_fh = hts_open (aln.path.data(), "r");
+    aln.path = alnIn.path;
+    aln.o_fh = hts_open (aln.path.c_str(), "r");
     if (aln.o_fh == nullptr) {
       return std::unexpected ("Failed to open alignment file");
     }
@@ -743,7 +800,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
           "corrupt?"
       );
     }
-    aln.o_idx = sam_index_load (aln.o_fh, aln.path.data());
+    aln.o_idx = sam_index_load (aln.o_fh, aln.path.c_str());
     if (aln.o_idx == nullptr) {
       return std::unexpected (
           "Failed to load index file for alignment; is the "
@@ -862,8 +919,8 @@ static std::expected<void, std::string> populate_db_mode_locus (
       );
     }
     if (const auto rc = sqlite3_bind_text (
-            fileInsertStmt, 1, aln.path.data(),
-            static_cast<int> (aln.path.size()), SQLITE_TRANSIENT
+            fileInsertStmt, 1, alnIn.label.c_str(),
+            static_cast<int> (alnIn.label.size()), SQLITE_TRANSIENT
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
