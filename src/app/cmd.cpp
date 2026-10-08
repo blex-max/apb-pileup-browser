@@ -10,12 +10,16 @@
 #include <unordered_set>
 #include <utility>
 
+#include "app/g_state.hpp"
 #include "app/helpblocks.hpp"
-#include "app/state.hpp"
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
+#include "backend/schema.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/version.hpp"
+
+namespace g_db = g_state::db;
+namespace g_ui = g_state::ui;
 
 
 // --- HELPERS --- //
@@ -114,12 +118,12 @@ struct QuitCmd {
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{"Exit the browser."};
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     if (const auto ret = cmd_validate_args_empty (args, usage); !ret) {
       return ret.error();
     }
-    state.conf.run = false;
+    g_state::run = false;
     return {true, "Bye!"};
   }
 
@@ -137,7 +141,7 @@ struct ShowTableColCmd {
       "manual or run `? table`."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     const auto tokens = split_whitespace (args);
     const auto nargRet = cmd_validate_ntok (tokens, 1, UINT8_MAX, usage);
@@ -163,7 +167,7 @@ struct ShowTableColCmd {
       };
     }
 
-    auto& tableCols = state.conf.displayTableCols;
+    auto& tableCols = g_ui::tableCols;
     std::vector<std::string> nowVisible;
     std::vector<std::string> nowHidden;
     for (const auto& tok : tokens) {
@@ -214,40 +218,32 @@ struct ShowTableColCmd {
 };
 
 static CmdResult try_apply_query_clause (
-    AppState& state, query::DynamicFragments newClause,
-    std::string_view successMsg
+    query::DynamicFragments newClause, std::string_view successMsg
 )
 {
-  auto prepResult = query::prepare_select_reads (
-      state.db.db, schema::UserReadViewSelect::sqlPrefix, newClause
-  );
-  if (!prepResult) {
-    return {
-        false, cmd_format_fail (
-                   fmt::format (
-                       "Could not compile statement - {}",
-                       sqlite3_errmsg (state.db.db)
-                   )
-               )
-    };
+  switch (const auto setStatus = g_db::set_query (std::move (newClause));
+          setStatus.code) {
+    case g_db::SetQueryStatus::success:
+      break;
+    case g_db::SetQueryStatus::prepareFail:
+      return {
+          false, cmd_format_fail (
+                     fmt::format (
+                         "Could not compile statement - {}",
+                         sqlite3_errmsg (g_db::conn)
+                     )
+                 )
+      };
+    case g_db::SetQueryStatus::countFail:
+      return {
+          false, cmd_format_fail (
+                     fmt::format (
+                         "Could not execute query - {}",
+                         sqlite3_errmsg (g_db::conn)
+                     )
+                 )
+      };
   }
-  auto* newStmt = *prepResult;
-  auto rowCountResult = query::count_rows (newStmt);
-  if (!rowCountResult) {
-    return {
-        false, cmd_format_fail (
-                   fmt::format (
-                       "Could not execute query - {}",
-                       sqlite3_errmsg (state.db.db)
-                   )
-               )
-    };
-  }
-  const uint32_t nRow = *rowCountResult;
-  state.db.selectStmt = newStmt;
-  state.db.userClause = std::move (newClause);
-  state.db.stmtRowScrollOffset = 0;  // reset row view
-  state.db.nStmtRows = nRow;
   return {true, std::string (successMsg)};
 }
 
@@ -262,15 +258,15 @@ struct WhereCmd {
       "the manual or run `? table`."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     // copy in case sql compile fails
-    auto newClause = state.db.userClause;
+    auto newClause = g_db::userClause;
     newClause.where.clear();
     newClause.where.emplace_back (args);
 
     return try_apply_query_clause (
-        state, std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), CMD_GENERIC_SUCCESS
     );
   }
 
@@ -287,19 +283,19 @@ struct AndCmd {
       "Extend current WHERE clause with an AND condition."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     if (args.empty()) {
       return {false, cmd_format_misuse ("no condition given", usage)};
     }
 
-    if (state.db.userClause.where.empty()) {
+    if (g_db::userClause.where.empty()) {
       return {
           false, cmd_format_fail ("WHERE clause empty; cannot add term")
       };
     }
 
-    auto newClause = state.db.userClause;
+    auto newClause = g_db::userClause;
     std::string newCond{"AND "};
     newCond.append (args);
 
@@ -307,7 +303,7 @@ struct AndCmd {
 
     // validates clause
     return try_apply_query_clause (
-        state, std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), CMD_GENERIC_SUCCESS
     );
   }
 
@@ -322,18 +318,18 @@ struct OrCmd {
       "Extend the query with an OR condition."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     if (args.empty()) {
       return {false, cmd_format_misuse ("no condition given", usage)};
     }
 
-    if (state.db.userClause.where.empty()) {
+    if (g_db::userClause.where.empty()) {
       return {
           false, cmd_format_fail ("WHERE clause empty; cannot add term")
       };
     }
-    auto newClause = state.db.userClause;
+    auto newClause = g_db::userClause;
 
     std::string newCond{"OR "};
     newCond.append (args);
@@ -341,7 +337,7 @@ struct OrCmd {
     newClause.where.emplace_back (newCond);
 
     return try_apply_query_clause (
-        state, std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), CMD_GENERIC_SUCCESS
     );
   }
 
@@ -358,13 +354,13 @@ struct BackCmd {
       "present."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     if (const auto res = cmd_validate_args_empty (args, usage); !res) {
       return res.error();
     };
 
-    auto& curClause = state.db.userClause;
+    auto& curClause = g_db::userClause;
     if (curClause.where.empty()) {
       return {false, cmd_format_fail ("WHERE clause empty")};
     }
@@ -373,7 +369,7 @@ struct BackCmd {
     newClause.where.pop_back();
 
     return try_apply_query_clause (
-        state, std::move (newClause),
+        std::move (newClause),
         fmt::format ("Removed clause: {}", rmClauseElem)
     );
   }
@@ -389,17 +385,17 @@ struct ClearWhereCmd {
       "Clear WHERE clause, retaining ORDER BY."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     if (const auto res = cmd_validate_args_empty (args, usage); !res) {
       return res.error();
     };
 
-    auto newClause = state.db.userClause;
+    auto newClause = g_db::userClause;
     newClause.where.clear();
 
     return try_apply_query_clause (
-        state, std::move (newClause), "Cleared WHERE clause"
+        std::move (newClause), "Cleared WHERE clause"
     );
   }
 
@@ -418,13 +414,13 @@ struct OrderCmd {
       "resetting to default ordering."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
-    auto newClause = state.db.userClause;
+    auto newClause = g_db::userClause;
     newClause.orderBy = args;
 
     return try_apply_query_clause (
-        state, std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), CMD_GENERIC_SUCCESS
     );
   }
 
@@ -446,9 +442,9 @@ struct CountCmd {
       "the count WHERE clause alone."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
-    auto where = state.db.userClause.where;
+    auto where = g_db::userClause.where;
     if (!args.empty()) {
       if (where.empty()) {
         where.emplace_back (args);
@@ -461,7 +457,7 @@ struct CountCmd {
     }
 
     auto stmtResult = query::prepare_select_reads (
-        state.db.db, schema::UserReadViewSelect::sqlCountPrefix,
+        g_db::conn, schema::UserReadViewSelect::sqlCountPrefix,
         {.where = where, .orderBy = {}}
     );
     if (!stmtResult) {
@@ -469,7 +465,7 @@ struct CountCmd {
           false, cmd_format_fail (
                      fmt::format (
                          "Could not compile statement - {}",
-                         sqlite3_errmsg (state.db.db)
+                         sqlite3_errmsg (g_db::conn)
                      )
                  )
       };
@@ -481,7 +477,7 @@ struct CountCmd {
           false, cmd_format_fail (
                      fmt::format (
                          "Could not execute count - {}",
-                         sqlite3_errmsg (state.db.db)
+                         sqlite3_errmsg (g_db::conn)
                      )
                  )
       };
@@ -513,19 +509,17 @@ struct ClearCmd {
   constexpr static std::string_view usage{call};
   constexpr static std::string_view desc{"Clear current query."};
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     if (const auto res = cmd_validate_args_empty (args, usage); !res) {
       return res.error();
     };
 
-    auto newClause = state.db.userClause;
+    auto newClause = g_db::userClause;
     newClause.where.clear();
     newClause.orderBy.clear();
 
-    return try_apply_query_clause (
-        state, std::move (newClause), "Reset query"
-    );
+    return try_apply_query_clause (std::move (newClause), "Reset query");
   }
 
   constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
@@ -537,20 +531,19 @@ struct ShowTableCmd {
   constexpr static std::string_view usage = call;
   constexpr static std::string_view desc{"Show/hide table pane"};
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     const auto valRet = cmd_validate_args_empty (args, usage);
     if (!valRet) {
       return valRet.error();
     }
 
-    state.conf.drawPaneSwitches.table = !state.conf.drawPaneSwitches.table;
+    g_ui::drawPaneSwitches.table = !g_ui::drawPaneSwitches.table;
     return {
-        true,
-        fmt::format (
-            "{} table pane",
-            (state.conf.drawPaneSwitches.table) ? "Unfolded" : "Folded"
-        )
+        true, fmt::format (
+                  "{} table pane",
+                  (g_ui::drawPaneSwitches.table) ? "Unfolded" : "Folded"
+              )
     };
   }
 
@@ -590,9 +583,9 @@ struct ShowTrackCmd {
   };
 
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
-    auto& switches = state.conf.drawTrackSwitches;
+    auto& switches = g_ui::drawTrackSwitches;
 
     if (args.empty()) {
       // reset
@@ -686,7 +679,7 @@ struct DumpCmd {
       "path. The current query is not preserved."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     const auto tokens = split_whitespace (args);
     if (const auto expectedNTok = cmd_validate_ntok (tokens, 1, 1, usage);
@@ -695,8 +688,7 @@ struct DumpCmd {
     }
 
     const std::string path{tokens[0]};
-    switch (const auto dumpStatus =
-                query::dump_to_disk (state.db.db, path);
+    switch (const auto dumpStatus = query::dump_to_disk (g_db::conn, path);
             dumpStatus.code) {
       case query::DiskDumpStatus::success:
         return {true, fmt::format ("Dumped database to {}", path)};
@@ -790,7 +782,7 @@ struct HelpCmd {
       "Show help for given topic, or general help with no args."
   };
 
-  static CmdResult operator() (std::string_view args, AppState& state)
+  static CmdResult operator() (std::string_view args)
   {
     const auto tokens = split_whitespace (args);
     const auto nargRet = cmd_validate_ntok (tokens, 0, 1, usage);
@@ -835,11 +827,9 @@ struct HelpCmd {
       };
     }
     CmdResult out;
-    if (size_and_set_overlay_widget (
-            state.ui.overlay, content, state.ui.screenW, state.ui.screenH
-        )) {
+    if (size_and_set_overlay_widget (content)) {
       out.success = true;
-      state.conf.showOverlay = true;
+      g_ui::showOverlay = true;
     }
     else {
       out.success = false;
@@ -928,11 +918,11 @@ static const CmdView* find_cmd (std::string_view name)
   return nullptr;
 }
 
-CmdResult exec_cmd (std::string_view call, AppState& state)
+CmdResult exec_cmd (std::string_view call)
 {
   auto [name, args] = split_first_space (call);
   if (const auto* br_cmd = find_cmd (name)) {
-    return br_cmd->exec (args, state);
+    return br_cmd->exec (args);
   }
   return {false, fmt::format ("Command \"{}\" not found!", name)};
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/state.hpp"
+#include "app/widgets.hpp"
 #include "frontend/extb/extb.hpp"
 
-WidgetStatus handle_event (AppState& state, const tb_event& ev);
+WidgetStatus handle_event (const tb_event& ev);

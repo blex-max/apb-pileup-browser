@@ -44,6 +44,7 @@ static char mutate_base (char refBase, std::mt19937& rng)
 }
 
 // FIXME: should build a htslib type and go via insert_pileup
+// FIXME: document why I'm using an output fill param, or don't do so.
 void generate_demo_data (
     uint16_t regWidth, uint16_t nQuery, hts_pos_t gOffset,
     DemoDataPack& out
@@ -282,39 +283,42 @@ void generate_demo_data (
   );
 }
 
-void insert_demo_data (PileupDB& db, const DemoDataPack& data)
+void insert_demo_data (sqlite3* conn, const DemoDataPack& data)
 {
   // all demo data is synthetic and apb-generated, so any failure below should be unreachable.
   if (const auto rc = hts2sql::insert_metadata (
-          db, "demo-contig", data.pileupPos, data.pileupSpan, data.refSlice
+          conn, "demo-contig", data.pileupPos, data.pileupSpan,
+          data.refSlice
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
         fmt::format (
-            "failed to insert demo metadata: {}", sqlite3_errmsg (db)
+            "failed to insert demo metadata: {}", sqlite3_errmsg (conn)
         )
     );
   }
 
   // per-record rows reference a file row via path_id
   if (const auto rc = sqlite3_exec (
-          db, "INSERT INTO alignment_files (path) VALUES ('demo');", NULL,
-          NULL, NULL
+          conn, "INSERT INTO alignment_files (path) VALUES ('demo');",
+          NULL, NULL, NULL
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format ("failed to insert demo file: {}", sqlite3_errmsg (db))
+        fmt::format (
+            "failed to insert demo file: {}", sqlite3_errmsg (conn)
+        )
     );
   }
-  const auto fileId = sqlite3_last_insert_rowid (db);
+  const auto fileId = sqlite3_last_insert_rowid (conn);
 
-  auto* stmt = hts2sql::prepare_insert_reads_stmt (db);
+  auto* stmt = hts2sql::prepare_insert_reads_stmt (conn);
 
-  if (const auto rc = sqlite3_exec (db, "BEGIN;", NULL, NULL, NULL);
+  if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
         fmt::format (
-            "failed to begin transaction: {}", sqlite3_errmsg (db)
+            "failed to begin transaction: {}", sqlite3_errmsg (conn)
         )
     );
   }
@@ -326,7 +330,7 @@ void insert_demo_data (PileupDB& db, const DemoDataPack& data)
       // NULL here and the json_valid(tags) CHECK can't fire.
       APB_UNREACHABLE (
           fmt::format (
-              "failed to insert demo read: {}", sqlite3_errmsg (db)
+              "failed to insert demo read: {}", sqlite3_errmsg (conn)
           )
       );
     }
@@ -334,11 +338,11 @@ void insert_demo_data (PileupDB& db, const DemoDataPack& data)
     sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs
   }
 
-  if (const auto rc = sqlite3_exec (db, "COMMIT;", NULL, NULL, NULL);
+  if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
         fmt::format (
-            "failed to commit transaction: {}", sqlite3_errmsg (db)
+            "failed to commit transaction: {}", sqlite3_errmsg (conn)
         )
     );
   }

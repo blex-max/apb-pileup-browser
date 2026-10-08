@@ -73,6 +73,7 @@ endif()
 
 add_executable(apb
   src/app/main.cpp
+  src/app/g_state.cpp
   src/app/widgets.cpp
   src/app/cmd.cpp
   src/app/manual.cpp

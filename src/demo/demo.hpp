@@ -14,4 +14,4 @@ void generate_demo_data (
 );
 
 // Insert synthetically-generated demo data into db.
-void insert_demo_data (PileupDB& db, const DemoDataPack& data);
+void insert_demo_data (sqlite3* conn, const DemoDataPack& data);

@@ -3,84 +3,89 @@
 #include <fmt/format.h>
 
 #include "app/cmd.hpp"
+#include "app/g_state.hpp"
 #include "app/widgets.hpp"
 #include "frontend/extb/extb.hpp"
+#include "frontend/history.hpp"
+#include "frontend/input.hpp"
 
-static bool handle_nav (AppState& state, const tb_event& ev)
+namespace g_db = g_state::db;
+namespace g_browsr = g_state::ui::browsr;
+namespace g_cmd = g_state::ui::cmd;
+namespace g_overlay = g_state::ui::overlay;
+namespace g_ui = g_state::ui;
+
+static bool handle_nav (const tb_event& ev)
 {
   constexpr auto sideScrollIncrement = 3;
 
-  auto& bWgt = state.ui.browsr;
-  auto& cWgt = state.ui.cmd;
-  const auto& db = state.db;
-  auto& stmtRowScrollOffset = state.db.stmtRowScrollOffset;
+  auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
 
   switch (ev.key) {
     case TB_KEY_ENTER:
       // execute user command
-      if (!cWgt.inputBuf.text.empty()) {
-        history_push (cWgt.history, cWgt.inputBuf.text);
-        cWgt.msgBuf =
-            exec_cmd (cWgt.inputBuf.text, state).msg;  // return msg
-        clear (cWgt.inputBuf);
+      if (!g_cmd::inputBuf.text.empty()) {
+        history_push (g_cmd::history, g_cmd::inputBuf.text);
+        g_cmd::msgBuf = exec_cmd (g_cmd::inputBuf.text).msg;  // return msg
+        clear (g_cmd::inputBuf);
       }
       break;
 
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
       if ((ev.mod & TB_MOD_ALT) != 0) {
-        clear (cWgt.inputBuf);
+        clear (g_cmd::inputBuf);
       }
       else {
-        del_back (cWgt.inputBuf);
+        del_back (g_cmd::inputBuf);
       }
       break;
 
     case TB_KEY_ARROW_LEFT:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
         // side scroll aln pane
-        state.ui.browsr.userPanOffset -= sideScrollIncrement;
+        g_browsr::userPanOffset -= sideScrollIncrement;
       }
       else {
-        move_left (cWgt.inputBuf);
+        move_left (g_cmd::inputBuf);
       }
       break;
 
     case TB_KEY_ARROW_RIGHT:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        state.ui.browsr.userPanOffset += sideScrollIncrement;
+        g_browsr::userPanOffset += sideScrollIncrement;
       }
       else {
-        move_right (cWgt.inputBuf);
+        move_right (g_cmd::inputBuf);
       }
       break;
 
     case TB_KEY_CTRL_A:
-      move_start (cWgt.inputBuf);
+      move_start (g_cmd::inputBuf);
       break;
 
     case TB_KEY_CTRL_C:
-      if (!cWgt.inputBuf.text.empty()) {
-        clear (cWgt.inputBuf);
+      if (!g_cmd::inputBuf.text.empty()) {
+        clear (g_cmd::inputBuf);
       }
       else {
-        state.conf.run = false;
+        g_state::run = false;
       }
       break;
 
     case TB_KEY_CTRL_E:
-      move_end (cWgt.inputBuf);
+      move_end (g_cmd::inputBuf);
       break;
 
     case TB_KEY_ARROW_DOWN:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_next (cWgt.history, cWgt.inputBuf);
+        history_next (g_cmd::history, g_cmd::inputBuf);
       }
       else {
         const auto lastRowOnscreen = static_cast<uint32_t> (
-            stmtRowScrollOffset + bWgt.nReadOnscreen
+            stmtRowScrollOffset + g_browsr::nReadOnscreen
         );
-        if (lastRowOnscreen < db.nStmtRows) {
+        if (lastRowOnscreen < g_db::nStmtRows) {
           stmtRowScrollOffset++;
         }
       }
@@ -88,7 +93,7 @@ static bool handle_nav (AppState& state, const tb_event& ev)
 
     case TB_KEY_ARROW_UP:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_prev (cWgt.history, cWgt.inputBuf);
+        history_prev (g_cmd::history, g_cmd::inputBuf);
       }
       else {
         stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);
@@ -99,9 +104,9 @@ static bool handle_nav (AppState& state, const tb_event& ev)
       // since number of tracks is dynamic both by setting
       // and onscreen content, must derive safe number
       // of rows to scroll up
-      const auto& trackSwitches = state.conf.drawTrackSwitches;
+      const auto& trackSwitches = g_ui::drawTrackSwitches;
       const auto minReadsPerPage =
-          height (bWgt.alnPaneDataBox) /
+          height (g_browsr::alnPaneDataBox) /
           (1 + static_cast<int> (trackSwitches.qual) +
            static_cast<int> (trackSwitches.ins));
       stmtRowScrollOffset =
@@ -110,10 +115,11 @@ static bool handle_nav (AppState& state, const tb_event& ev)
     }
 
     case TB_KEY_PGDN: {
-      const auto lastRowOnscreen =
-          static_cast<uint32_t> (stmtRowScrollOffset + bWgt.nReadOnscreen);
-      if (lastRowOnscreen < db.nStmtRows) {
-        stmtRowScrollOffset += bWgt.nReadOnscreen;
+      const auto lastRowOnscreen = static_cast<uint32_t> (
+          stmtRowScrollOffset + g_browsr::nReadOnscreen
+      );
+      if (lastRowOnscreen < g_db::nStmtRows) {
+        stmtRowScrollOffset += g_browsr::nReadOnscreen;
       }
       break;
     }
@@ -125,39 +131,38 @@ static bool handle_nav (AppState& state, const tb_event& ev)
   return true;
 }
 
-static void handle_key_event (AppState& state, const tb_event& ev)
+static void handle_key_event (const tb_event& ev)
 {
   if (ev.key == 0 && ev.ch != 0) {
     // annoyingly, outside of handle_nav
     if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'b') {
-      move_word_left (state.ui.cmd.inputBuf);
+      move_word_left (g_cmd::inputBuf);
     }
     else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'f') {
-      move_word_right (state.ui.cmd.inputBuf);
+      move_word_right (g_cmd::inputBuf);
     }
     else {
-      insert (state.ui.cmd.inputBuf, static_cast<char> (ev.ch));
+      insert (g_cmd::inputBuf, static_cast<char> (ev.ch));
     }
   }
   else {
-    handle_nav (state, ev);
+    handle_nav (ev);
   }
 }
 
-static void nav_overlay (AppState& state, const tb_event& ev)
+static void nav_overlay (const tb_event& ev)
 {
   if (ev.ch != 0) {
     if (ev.ch == 'q') {
-      state.conf.showOverlay = false;
-      state.ui.overlay.contentLnOffset = 0;
+      g_ui::showOverlay = false;
+      g_overlay::contentLnOffset = 0;
     }
   }
   else if (ev.key != 0) {
-    auto& lnOff = state.ui.overlay.contentLnOffset;
-    const auto contentLines =
-        static_cast<int> (state.ui.overlay.content.size());
+    auto& lnOff = g_overlay::contentLnOffset;
+    const auto contentLines = static_cast<int> (g_overlay::content.size());
     auto maxScroll =
-        std::max (0, contentLines - height (state.ui.overlay.contentBox));
+        std::max (0, contentLines - height (g_overlay::contentBox));
     switch (ev.key) {
       case TB_KEY_ARROW_DOWN:
         lnOff = std::min (maxScroll, lnOff + 1);
@@ -171,21 +176,19 @@ static void nav_overlay (AppState& state, const tb_event& ev)
   }
 }
 
-// Probably doesn't need access to the whole of appstate,
-// if I was feeling rigid.
-WidgetStatus handle_event (AppState& state, const tb_event& ev)
+WidgetStatus handle_event (const tb_event& ev)
 {
   if (ev.type == TB_EVENT_KEY) {
-    if (!state.conf.showOverlay) {
-      handle_key_event (state, ev);
+    if (!g_ui::showOverlay) {
+      handle_key_event (ev);
     }
     else {
       // overlay nav
-      nav_overlay (state, ev);
+      nav_overlay (ev);
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    if (!size_widgets (state.ui)) {
+    if (!size_widgets()) {
       return WidgetStatus{WidgetStatus::insufficientSz};
     }
   }

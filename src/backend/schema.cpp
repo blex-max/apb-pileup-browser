@@ -6,6 +6,7 @@
 
 #include "backend/hts_sql.hpp"
 #include "doctest.h"
+#include "shared/cleanup.hpp"
 
 // Test apb schema constraints
 
@@ -13,13 +14,13 @@ namespace {
 
 // partially fixed values for metadata table insertion
 int insert_raw_metadata (
-    PileupDB& db, int64_t pos, int64_t start, int64_t end
+    sqlite3* conn, int64_t pos, int64_t start, int64_t end
 )
 {
   sqlite3_stmt* stmt;
   REQUIRE (
       sqlite3_prepare_v2 (
-          db, schema::sqlInsertMetadata.data(),
+          conn, schema::sqlInsertMetadata.data(),
           static_cast<int> (schema::sqlInsertMetadata.size()), &stmt, NULL
       ) == SQLITE_OK
   );
@@ -36,12 +37,12 @@ int insert_raw_metadata (
 }
 
 // partially fixed values for read table insertion
-int insert_raw_read (PileupDB& db, int64_t start, int64_t end)
+int insert_raw_read (sqlite3* conn, int64_t start, int64_t end)
 {
   sqlite3_stmt* stmt;
   REQUIRE (
       sqlite3_prepare_v2 (
-          db, schema::sqlInsertReads.data(),
+          conn, schema::sqlInsertReads.data(),
           static_cast<int> (schema::sqlInsertReads.size()), &stmt, NULL
       ) == SQLITE_OK
   );
@@ -81,11 +82,12 @@ int insert_raw_read (PileupDB& db, int64_t start, int64_t end)
 
 TEST_CASE ("metadata CHECK(id = 1) rejects a second row")
 {
-  PileupDB db = PileupDB::init();
+  sqlite3* conn = setup_db::init();
+  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
 
-  REQUIRE (insert_raw_metadata (db, 100, 100, 200) == SQLITE_DONE);
+  REQUIRE (insert_raw_metadata (conn, 100, 100, 200) == SQLITE_DONE);
 
-  const int rc = insert_raw_metadata (db, 100, 100, 200);
+  const int rc = insert_raw_metadata (conn, 100, 100, 200);
   CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
 }
 
@@ -94,42 +96,43 @@ TEST_CASE (
     "metadata"
 )
 {
-  PileupDB db = PileupDB::init();
+  sqlite3* conn = setup_db::init();
+  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
   REQUIRE (
       sqlite3_exec (
-          db,
+          conn,
           "INSERT INTO alignment_files (id, path) VALUES (1, 'test.bam');",
           nullptr, nullptr, nullptr
       ) == SQLITE_OK
   );
-  REQUIRE (insert_raw_metadata (db, 150, 100, 200) == SQLITE_DONE);
+  REQUIRE (insert_raw_metadata (conn, 150, 100, 200) == SQLITE_DONE);
 
   SUBCASE ("span within locus bounds is accepted")
   {
-    CHECK (insert_raw_read (db, 120, 170) == SQLITE_DONE);
+    CHECK (insert_raw_read (conn, 120, 170) == SQLITE_DONE);
   }
 
   SUBCASE ("read start before locus start is rejected")
   {
-    const int rc = insert_raw_read (db, 50, 170);
+    const int rc = insert_raw_read (conn, 50, 170);
     CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
   }
 
   SUBCASE ("read end past locus end is rejected")
   {
-    const int rc = insert_raw_read (db, 120, 250);
+    const int rc = insert_raw_read (conn, 120, 250);
     CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
   }
 
   SUBCASE ("read start past pileup pos is rejected")
   {
-    const int rc = insert_raw_read (db, 160, 180);
+    const int rc = insert_raw_read (conn, 160, 180);
     CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
   }
 
   SUBCASE ("read end before pileup pos is rejected")
   {
-    const int rc = insert_raw_read (db, 100, 140);
+    const int rc = insert_raw_read (conn, 100, 140);
     CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
   }
 }

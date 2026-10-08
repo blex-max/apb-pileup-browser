@@ -18,8 +18,8 @@
 #include <vector>
 
 #include "app/event.hpp"
+#include "app/g_state.hpp"
 #include "app/manual.hpp"
-#include "app/state.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
@@ -28,6 +28,8 @@
 #include "shared/bounds.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/version.hpp"
+
+namespace g_db = g_state::db;
 
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
@@ -109,7 +111,7 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
 
 [[nodiscard]] static std::expected<void, std::string>
 populate_db_mode_locus (
-    PileupDB& db, const std::vector<ApbCliArgs::AlnInput>& alns,
+    const std::vector<ApbCliArgs::AlnInput>& alns,
     const std::string& locus,
     const std::optional<std::filesystem::path>& refPath, bool zeroBased
 );
@@ -147,12 +149,12 @@ int main (int argc, char** argv)
   }
 #endif
 
-  auto db{PileupDB::init()};
-
+  Defer db_shutdown ([]() { g_db::shutdown(); });
   switch (args.mode) {
     case ApbMode::locus:
+      g_db::conn = setup_db::init();
       if (const auto popRet = populate_db_mode_locus (
-              db, args.alns, args.locus, args.refPath, args.zeroBased
+              args.alns, args.locus, args.refPath, args.zeroBased
           );
           !popRet) {
         std::cerr << "Error: " << popRet.error() << std::endl;
@@ -160,67 +162,69 @@ int main (int argc, char** argv)
       }
       break;
     case ApbMode::demo: {
+      g_db::conn = setup_db::init();
       constexpr hts_pos_t demoGOffset = 10'000'000;
       DemoDataPack demoData;
       generate_demo_data (300, 100, demoGOffset, demoData);
-      insert_demo_data (db, demoData);
+      insert_demo_data (g_db::conn, demoData);
       break;
     }
-    case ApbMode::db:
-      switch (const auto loadStatus = PileupDB::load_from_disk (
-                  db, args.dbPath.value().string()
-              );
-              loadStatus.code) {
-        case PileupDB::LoadStatus::openFail:
-          std::cerr << fmt::format (
-                           "Error: failed to open database at {}, "
-                           "reporting error: {}; and extended status "
-                           "msg: "
-                           "{}",
-                           args.dbPath.value(),
-                           sqlite3_errstr (loadStatus.rc.value()),
-                           loadStatus.msg.value()
-                       )
-                    << std::endl;
-          return EXIT_FAILURE;
-        case PileupDB::LoadStatus::copyFail:
-          std::cerr << "Error: "
-                    << query::describe_sqlite_failure (
-                           loadStatus.rc.value(), "load database",
-                           loadStatus.msg
-                       )
-                    << std::endl;
-          return EXIT_FAILURE;
-        case PileupDB::LoadStatus::contentCorrupt:
-          std::cerr << fmt::format (
-                           "Error: database at {} appears to be "
-                           "corrupt:\n{}",
-                           args.dbPath.value(), loadStatus.msg.value()
-                       )
-                    << std::endl;
-          return EXIT_FAILURE;
-        case PileupDB::LoadStatus::schemaMismatch:
-          std::cerr << fmt::format (
-                           "Error: database at {} does not have the "
-                           "expected schema for an apb database. Is "
-                           "it "
-                           "from an old version?",
-                           args.dbPath.value()
-                       )
-                    << std::endl;
-          return EXIT_FAILURE;
-        case PileupDB::LoadStatus::success:
-          break;
+    case ApbMode::db: {
+      auto loadRet =
+          setup_db::load_from_disk (args.dbPath.value().string());
+      if (!loadRet) {
+        const auto& loadErr = loadRet.error();
+        switch (loadErr.code) {
+          case setup_db::LoadErr::openFail:
+            std::cerr << fmt::format (
+                             "Error: failed to open database at {}, "
+                             "reporting error: {}; and extended status "
+                             "msg: "
+                             "{}",
+                             args.dbPath.value(),
+                             sqlite3_errstr (loadErr.rc.value()),
+                             loadErr.msg.value()
+                         )
+                      << std::endl;
+            return EXIT_FAILURE;
+          case setup_db::LoadErr::copyFail:
+            std::cerr << "Error: "
+                      << query::describe_sqlite_failure (
+                             loadErr.rc.value(), "load database",
+                             loadErr.msg
+                         )
+                      << std::endl;
+            return EXIT_FAILURE;
+          case setup_db::LoadErr::contentCorrupt:
+            std::cerr << fmt::format (
+                             "Error: database at {} appears to be "
+                             "corrupt:\n{}",
+                             args.dbPath.value(), loadErr.msg.value()
+                         )
+                      << std::endl;
+            return EXIT_FAILURE;
+          case setup_db::LoadErr::schemaMismatch:
+            std::cerr << fmt::format (
+                             "Error: database at {} does not have the "
+                             "expected schema for an apb database. Is "
+                             "it from an old version?",
+                             args.dbPath.value()
+                         )
+                      << std::endl;
+            return EXIT_FAILURE;
+        }
       }
+      g_db::conn = loadRet.value();
       break;
+    }
     case ApbMode::UNSET:
       APB_UNREACHABLE ("CLI code malformed; unknown mode");
   }
 
-
   if (args.dumpPath) {
-    switch (const auto dumpStatus =
-                query::dump_to_disk (db, args.dumpPath.value().string());
+    switch (const auto dumpStatus = query::dump_to_disk (
+                g_db::conn, args.dumpPath.value().string()
+            );
             dumpStatus.code) {
       case query::DiskDumpStatus::success:
         break;
@@ -237,46 +241,20 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
-  auto locusInfo = query::get_locus_data (db);
-  auto prepResult = query::prepare_select_reads (
-      db, schema::UserReadViewSelect::sqlPrefix, {}
-  );
-  if (!prepResult) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to prepare startup query: rc {} ({}): {}",
-            prepResult.error(), sqlite3_errstr (prepResult.error()),
-            sqlite3_errmsg (db)
-        )
-    );
-  }
-  auto* startupStmt = *prepResult;
-  *prepResult = nullptr;
+  g_db::locusInfo = query::get_locus_data (g_db::conn);
   // count, and as a consequence verify data presence.
-  auto rowCountResult = query::count_rows (startupStmt);
-  if (!rowCountResult) {
+  if (const auto setStatus = g_db::set_query ({});
+      setStatus.code != g_db::SetQueryStatus::success) {
     APB_UNREACHABLE (
         fmt::format (
             "failed to run startup query: rc {} ({}): {}",
-            rowCountResult.error(),
-            sqlite3_errstr (rowCountResult.error()), sqlite3_errmsg (db)
+            setStatus.rc.value(), sqlite3_errstr (setStatus.rc.value()),
+            sqlite3_errmsg (g_db::conn)
         )
     );
   }
 
-  // NOTE: state takes ownership of db; db is now moved-from and
-  // must not be referenced again below.
-  // FIXME: don't do that. Use global state.
-  AppState state{
-      .db = {
-          .db = std::move (db),
-          .userClause = {},
-          .selectStmt = startupStmt,
-          .nStmtRows = *rowCountResult,
-          .locusInfo = std::move (locusInfo)
-      }
-  };
-  state.ui.cmd.msgBuf =
+  g_state::ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "
       "coordinates.";
 
@@ -348,16 +326,14 @@ int main (int argc, char** argv)
 
   {
     // render first frame
-    if (!size_widgets (state.ui)) {
+    if (!size_widgets()) {
       tb_cleanup.invoke();
       std::cerr << "Terminal too small to display TUI! Try resizing?"
                 << std::endl;
       return EXIT_FAILURE;
     }
 
-    switch (const auto dmuStatus =
-                draw_main_ui (state.ui, state.db, state.conf);
-            dmuStatus.code) {
+    switch (const auto dmuStatus = draw_main_ui(); dmuStatus.code) {
       case WidgetStatus::success:
         break;
       case WidgetStatus::insufficientSz:
@@ -368,8 +344,8 @@ int main (int argc, char** argv)
     }
     // show command line startup message
     e2::write_string (
-        first (state.ui.cmd.inputLine),
-        last (state.ui.cmd.inputLine.xspan), "type here - try `help`",
+        first (g_state::ui::cmd::inputLine),
+        last (g_state::ui::cmd::inputLine.xspan), "type here - try `help`",
         {.fg = TB_DIM}
     );
     if (const auto rc = tb_present(); rc != TB_OK) {
@@ -394,10 +370,9 @@ int main (int argc, char** argv)
   }
 
   tb_event ev{};
-  while (state.conf.run) {
+  while (g_state::run) {
     tb_poll_event (&ev);
-    switch (const auto evStatus = handle_event (state, ev);
-            evStatus.code) {
+    switch (const auto evStatus = handle_event (ev); evStatus.code) {
       case WidgetStatus::success:
       case WidgetStatus::insufficientSz:
         // do nothing - allow user to resize terminal
@@ -406,9 +381,7 @@ int main (int argc, char** argv)
     }
     tb_clear();
 
-    switch (const auto dmuStatus =
-                draw_main_ui (state.ui, state.db, state.conf);
-            dmuStatus.code) {
+    switch (const auto dmuStatus = draw_main_ui(); dmuStatus.code) {
       case WidgetStatus::success:
         break;
       case WidgetStatus::insufficientSz:
@@ -420,9 +393,9 @@ int main (int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    if (state.conf.showOverlay) {
+    if (g_state::ui::showOverlay) {
       // For help overlays
-      draw_overlay (state.ui.overlay);
+      draw_overlay();
     }
 
     if (const auto rc = tb_present(); rc != TB_OK) {
@@ -587,6 +560,9 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
           "expected LOCUS ALN...\n\t(or pass --demo / --db PATH)"
       );
     }
+    if (posArgV.size() > 100) {
+      return parseFail ("apb takes a maximum of 99 alignments");
+    }
     argsOut.locus = posArgV[0];
 
     // label each aln by its shortest distinct trailing path suffix
@@ -662,7 +638,7 @@ int pileup_func (void* br_data, bam1_t* br_b)
 // is a top-level crash which can be fully described
 // and exited upon.
 static std::expected<void, std::string> populate_db_mode_locus (
-    PileupDB& db, const std::vector<ApbCliArgs::AlnInput>& alns,
+    const std::vector<ApbCliArgs::AlnInput>& alns,
     const std::string& locus,
     const std::optional<std::filesystem::path>& refPath, bool zeroBased
 )
@@ -907,14 +883,14 @@ static std::expected<void, std::string> populate_db_mode_locus (
     // FIXME: a TRY_SQL macro would be great
     sqlite3_stmt* fileInsertStmt;
     if (const auto rc = sqlite3_prepare_v2 (
-            db, schema::sqlInsertFile.data(), schema::sqlInsertFile.size(),
-            &fileInsertStmt, NULL
+            g_db::conn, schema::sqlInsertFile.data(),
+            schema::sqlInsertFile.size(), &fileInsertStmt, NULL
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
           fmt::format (
               "failed to prepare file insert statement: {}",
-              sqlite3_errmsg (db)
+              sqlite3_errmsg (g_db::conn)
           )
       );
     }
@@ -932,17 +908,19 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
     if (const auto rc = sqlite3_step (fileInsertStmt); rc != SQLITE_DONE) {
       APB_UNREACHABLE (
-          fmt::format ("File table insert failed: {}", sqlite3_errmsg (db))
+          fmt::format (
+              "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
+          )
       );
     }
     sqlite3_finalize (fileInsertStmt);
-    const auto alnID = sqlite3_last_insert_rowid (db);
+    const auto alnID = sqlite3_last_insert_rowid (g_db::conn);
 
     const auto get_mtid_name = [&aln] (int mtid) {
       return sam_hdr_tid2name (aln.o_hdr, mtid);
     };
     auto insertStatus = hts2sql::insert_pileup (
-        db, pileup.br_plpArr, pileup.nPlp, locusContigName, alnID,
+        g_db::conn, pileup.br_plpArr, pileup.nPlp, locusContigName, alnID,
         get_mtid_name
     );
     switch (insertStatus.code) {
@@ -952,7 +930,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
         return std::unexpected (
             query::describe_sqlite_failure (
                 insertStatus.rc.value(), "transform/insert alignment data",
-                sqlite3_errmsg (db)
+                sqlite3_errmsg (g_db::conn)
             )
         );
       case hts2sql::InsertPileupStatus::auxParseFail:
@@ -991,12 +969,13 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
 
     if (const auto rcInsMeta = hts2sql::insert_metadata (
-            db, locusContigName, locusPos, maxPileupSpan, refSlice
+            g_db::conn, locusContigName, locusPos, maxPileupSpan, refSlice
         );
         rcInsMeta != SQLITE_OK) {
       return std::unexpected (
           query::describe_sqlite_failure (
-              rcInsMeta, "insert locus metadata", sqlite3_errmsg (db)
+              rcInsMeta, "insert locus metadata",
+              sqlite3_errmsg (g_db::conn)
           )
       );
     }

@@ -30,7 +30,7 @@ Span body (const Span& s) noexcept;
 bool valid (const Span& s) noexcept;
 
 struct VLine {
-  int x;
+  int x = -1;
   Span yspan;
 };
 int size (const VLine& l) noexcept;
@@ -44,7 +44,7 @@ bool valid (const VLine& l) noexcept;
 
 struct HLine {
   Span xspan;
-  int y;
+  int y = -1;
 };
 int size (const HLine& l) noexcept;
 GlobalCell first (const HLine& l) noexcept;

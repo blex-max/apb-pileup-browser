@@ -15,47 +15,27 @@
 
 #include "backend/hts_types.hpp"
 
+namespace setup_db {
 
-struct PileupDB {
-  sqlite3* o_conn = nullptr;
-  operator sqlite3*() const { return o_conn; }
+// Initialise db with pileup schema (see schema.hpp).
+sqlite3* init();
 
-  PileupDB() = default;
-  PileupDB (const PileupDB&) = delete;
-  PileupDB& operator= (const PileupDB&) = delete;
-
-  PileupDB (PileupDB&& other) noexcept : o_conn (other.o_conn)
-  {
-    other.o_conn = nullptr;
-  }
-  PileupDB& operator= (PileupDB&&) = delete;
-
-  ~PileupDB()
-  {
-    if (o_conn != nullptr) {
-      sqlite3_close_v2 (o_conn);
-    }
-  }
-
-  // Initialise db with pileup schema (see schema.hpp).
-  static PileupDB init();
-
-  struct LoadStatus {
-    enum Code : uint8_t {
-      success,
-      openFail,
-      copyFail,
-      contentCorrupt,
-      schemaMismatch
-    };
-    Code code;
-    std::optional<int> rc = std::nullopt;
-    std::optional<std::string> msg = std::nullopt;
+struct LoadErr {
+  enum Code : uint8_t {
+    openFail,
+    copyFail,
+    contentCorrupt,
+    schemaMismatch
   };
-  // Copy a database file on disk into an in-memory PileupDB,
-  // using sqlite3's online backup API.
-  static LoadStatus load_from_disk (PileupDB& db, std::string_view path);
+  Code code;
+  std::optional<int> rc = std::nullopt;
+  std::optional<std::string> msg = std::nullopt;
 };
+// Copy a database file on disk into an new in-memory apb database,
+// using sqlite3's online backup API.
+std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path);
+
+}  // namespace setup_db
 
 namespace query {
 
@@ -72,8 +52,7 @@ struct DynamicFragments {
 // the container returned... better to take an
 // output param.
 std::expected<sqlite3_stmt*, int> prepare_select_reads (
-    const PileupDB& db, std::string_view prefix,
-    const DynamicFragments& frags
+    sqlite3* conn, std::string_view prefix, const DynamicFragments& frags
 );
 
 // Step `stmt` forward by one row.
@@ -92,9 +71,9 @@ std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt);
 // 1-indexed!
 struct PileupMetadata {
   std::string contig;
-  int64_t pos;  // 1-based pileup position, per loci.pos
-  int64_t start;
-  int64_t end;
+  int64_t pos = -1;  // 1-based pileup position, per loci.pos
+  int64_t start = -1;
+  int64_t end = -1;
   std::optional<std::string> refSlice;
 
   // Should be redundant with metadata's schema CHECK constraints
@@ -109,7 +88,7 @@ struct PileupMetadata {
 // Get locus metadata from db. Asserts internally; only call once
 // locus metadata is known to exist (post load_from_disk, or after
 // apb's own insert_pileup/insert_demo_data in the same process).
-PileupMetadata get_locus_data (const PileupDB& db);
+PileupMetadata get_locus_data (sqlite3* conn);
 
 struct DiskDumpStatus {
   enum Code : uint8_t {
@@ -123,7 +102,7 @@ struct DiskDumpStatus {
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
 [[nodiscard]] DiskDumpStatus dump_to_disk (
-    const PileupDB& db, std::string_view path
+    sqlite3* conn, std::string_view path
 );
 
 // Formats an sqlite3 return code into a user-facing error.
@@ -181,7 +160,7 @@ struct PileupFields {
   std::string auxJson;
 
   std::vector<uint32_t> rawCig;
-  size_t nCig = SIZE_T_MAX;
+  size_t nCig = SIZE_MAX;
 
   bool valid() const noexcept
   {
@@ -201,7 +180,7 @@ struct InsertPileupStatus {
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 // FIXME: status return rather than expected, void.
 [[nodiscard]] InsertPileupStatus insert_pileup (
-    PileupDB& db, const bam_pileup1_t* br_plpArr, const size_t nPlp,
+    sqlite3* conn, const bam_pileup1_t* br_plpArr, const size_t nPlp,
     const std::string& contigName, sqlite3_int64 aln_id,
     const Tid2StrFn& mtid2name
 );
@@ -211,7 +190,7 @@ struct InsertPileupStatus {
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 // FIXME: what error space can this actually return?
 [[nodiscard]] int insert_metadata (
-    PileupDB& db, const std::string& contigName, int64_t pileupPos,
+    sqlite3* conn, const std::string& contigName, int64_t pileupPos,
     const GenomicSpan& pileupSpan,
     const std::optional<std::string>& refSlice
 );
@@ -219,7 +198,7 @@ struct InsertPileupStatus {
 // Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
 // with bind_pileup_fields.
 // exposed for demo.cpp (FIXME)
-sqlite3_stmt* prepare_insert_reads_stmt (PileupDB& db);
+sqlite3_stmt* prepare_insert_reads_stmt (sqlite3* conn);
 
 // Bind one pileup row's fields into `stmt`, in column order matching
 // stmt_str_InsertReads.
