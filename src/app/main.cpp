@@ -14,7 +14,8 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <utility>
+#include <system_error>
+#include <unordered_set>
 #include <vector>
 
 #include "app/event.hpp"
@@ -90,12 +91,7 @@ enum class ApbMode : uint8_t { locus, demo, db, UNSET };
 struct ApbCliArgs {
   ApbMode mode = ApbMode::UNSET;
   std::string locus;
-  // label: shortest trailing path suffix distinct among all alns
-  struct AlnInput {
-    std::filesystem::path path;
-    std::string label;
-  };
-  std::vector<AlnInput> alns;
+  std::vector<std::filesystem::path> alnPaths;
 
   std::optional<std::filesystem::path> refPath = std::nullopt;
   std::optional<std::filesystem::path> dumpPath = std::nullopt;
@@ -105,13 +101,13 @@ struct ApbCliArgs {
   bool zeroBased = false;
 };
 
-static std::expected<ApbCliArgs, std::string> setup_cli (
+static std::expected<ApbCliArgs, std::string> parse_args (
     int argc, char** argv
 );
 
 [[nodiscard]] static std::expected<void, std::string>
 populate_db_mode_locus (
-    const std::vector<ApbCliArgs::AlnInput>& alns,
+    const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
     const std::optional<std::filesystem::path>& refPath, bool zeroBased
 );
@@ -119,7 +115,7 @@ populate_db_mode_locus (
 int main (int argc, char** argv)
 {
   /* setup */
-  auto argRet = setup_cli (argc, argv);
+  auto argRet = parse_args (argc, argv);
   if (!argRet) {
     std::cerr << argRet.error() << std::endl;
     return EXIT_FAILURE;
@@ -149,12 +145,16 @@ int main (int argc, char** argv)
   }
 #endif
 
+  // FIXME: record number of files in db, cache in g_state
+  // such that can switch TUI behaviour on multi-aln pileup
   Defer db_shutdown ([]() { g_db::shutdown(); });
   switch (args.mode) {
     case ApbMode::locus:
+      APB_ASSERT (!args.locus.empty());
+      APB_ASSERT (!args.alnPaths.empty());
       g_db::conn = setup_db::init();
       if (const auto popRet = populate_db_mode_locus (
-              args.alns, args.locus, args.refPath, args.zeroBased
+              args.alnPaths, args.locus, args.refPath, args.zeroBased
           );
           !popRet) {
         std::cerr << "Error: " << popRet.error() << std::endl;
@@ -170,6 +170,8 @@ int main (int argc, char** argv)
       break;
     }
     case ApbMode::db: {
+      APB_ASSERT (args.dbPath);
+      APB_ASSERT (!args.dbPath.value().empty());
       auto loadRet =
           setup_db::load_from_disk (args.dbPath.value().string());
       if (!loadRet) {
@@ -436,7 +438,7 @@ int main (int argc, char** argv)
 // returns expected type/str since any failure
 // is a top-level crash which can be fully described
 // and should be exited upon.
-static std::expected<ApbCliArgs, std::string> setup_cli (
+static std::expected<ApbCliArgs, std::string> parse_args (
     int argc, char** argv
 )
 {
@@ -553,7 +555,6 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
   }
   else {
     // locus mode
-    // FIXME: deduplicate alignments, or crash on duplication
     argsOut.mode = ApbMode::locus;
     if (posArgV.size() < 2) {
       return parseFail (
@@ -565,55 +566,52 @@ static std::expected<ApbCliArgs, std::string> setup_cli (
     }
     argsOut.locus = posArgV[0];
 
-    // label each aln by its shortest distinct trailing path suffix
-    std::vector<std::vector<std::filesystem::path>> canon;
-    for (size_t i = 1; i < posArgV.size(); ++i) {
-      std::error_code ec;
-      const auto full = std::filesystem::weakly_canonical (posArgV[i], ec);
-      if (ec) {
+    /* --- verify paths --- */
+    // FIXME: pending review. Tested and working on a
+    // single good aln arg only!
+    std::vector<std::filesystem::path> alnUserPaths;
+    std::vector<std::filesystem::path> alnAbsPaths;
+    for (size_t i = 0; i < posArgV.size() - 1; ++i) {
+      std::filesystem::path thisUserPath{posArgV[i + 1]};
+      std::filesystem::path thisAbsPath;
+      try {
+        thisAbsPath = std::filesystem::canonical (thisUserPath);
+      }
+      catch (const std::exception& ex) {
+        // will throw if, for example, path doesn't exist
         return std::unexpected (
-            fmt::format ("{}: {}", posArgV[i], ec.message())
+            fmt::format (
+                "Could not resolve path {}, reporting: ", thisUserPath,
+                ex.what()
+            )
         );
       }
-      canon.emplace_back (full.begin(), full.end());
-      argsOut.alns.push_back ({.path = posArgV[i], .label = {}});
-    }
-    auto labelAt = [&] (size_t i, size_t depth) {
-      std::filesystem::path suffix;
-      for (size_t j = canon[i].size() - std::min (depth, canon[i].size());
-           j < canon[i].size(); ++j) {
-        suffix /= canon[i][j];
+      if (std::filesystem::is_directory (thisAbsPath)) {
+        return std::unexpected (
+            fmt::format ("Path {} resolves to a directory", thisUserPath)
+        );
       }
-      return suffix.generic_string();
-    };
-    std::vector<size_t> depth (canon.size(), 1);
-    for (bool collided = true; collided;) {
-      collided = false;
-      std::map<std::string, std::vector<size_t>> groups;
-      for (size_t i = 0; i < canon.size(); ++i) {
-        groups[labelAt (i, depth[i])].push_back (i);
+      auto preexistingElem = std::find_if (
+          begin (alnAbsPaths), end (alnAbsPaths),
+          [&thisAbsPath] (const auto& a) { return a == thisAbsPath; }
+      );
+      if (preexistingElem != end (alnAbsPaths)) {
+        const auto illegalIdx = static_cast<size_t> (
+            std::distance (begin (alnAbsPaths), preexistingElem)
+        );
+        return std::unexpected (
+            fmt::format (
+                "Input paths {}, {} resolve to the same file! ({})",
+                alnUserPaths[illegalIdx], thisUserPath, thisAbsPath
+            )
+        );
       }
-      for (const auto& [label, idxs] : groups) {
-        if (idxs.size() < 2) {
-          continue;
-        }
-        collided = true;
-        for (const auto i : idxs) {
-          // still colliding at full depth; same file
-          if (depth[i] >= canon[i].size()) {
-            return parseFail (
-                fmt::format (
-                    "duplicate alignment file: {}", posArgV[i + 1]
-                )
-            );
-          }
-          ++depth[i];
-        }
-      }
+      alnUserPaths.emplace_back (thisUserPath);
+      alnAbsPaths.emplace_back (thisAbsPath);
     }
-    for (size_t i = 0; i < canon.size(); ++i) {
-      argsOut.alns[i].label = labelAt (i, depth[i]);
-    }
+    // we know at this point that all paths are unique paths
+    // to existing files (and not directories).
+    argsOut.alnPaths = alnUserPaths;
   }
 
   return argsOut;
@@ -638,7 +636,7 @@ int pileup_func (void* br_data, bam1_t* br_b)
 // is a top-level crash which can be fully described
 // and exited upon.
 static std::expected<void, std::string> populate_db_mode_locus (
-    const std::vector<ApbCliArgs::AlnInput>& alns,
+    const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
     const std::optional<std::filesystem::path>& refPath, bool zeroBased
 )
@@ -760,11 +758,11 @@ static std::expected<void, std::string> populate_db_mode_locus (
   GenomicSpan maxPileupSpan{
       INT64_MAX, 0
   };  // for fetching appropriate reference slice
-  for (const auto& alnIn : alns) {
+  for (const auto& fp : alnPaths) {
     AlnFile aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
 
-    aln.path = alnIn.path;
+    aln.path = fp;
     aln.o_fh = hts_open (aln.path.c_str(), "r");
     if (aln.o_fh == nullptr) {
       return std::unexpected ("Failed to open alignment file");
@@ -895,8 +893,8 @@ static std::expected<void, std::string> populate_db_mode_locus (
       );
     }
     if (const auto rc = sqlite3_bind_text (
-            fileInsertStmt, 1, alnIn.label.c_str(),
-            static_cast<int> (alnIn.label.size()), SQLITE_TRANSIENT
+            fileInsertStmt, 1, fp.c_str(),
+            static_cast<int> (fp.string().size()), SQLITE_TRANSIENT
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
