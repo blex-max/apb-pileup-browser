@@ -567,8 +567,8 @@ static std::expected<ApbCliArgs, std::string> parse_args (
     argsOut.locus = posArgV[0];
 
     /* --- verify paths --- */
-    // FIXME: pending review. Tested and working on a
-    // single good aln arg only!
+    // FIXME: pending review. working having made limited
+    // tests so far.
     std::vector<std::filesystem::path> alnUserPaths;
     std::vector<std::filesystem::path> alnAbsPaths;
     for (size_t i = 0; i < posArgV.size() - 1; ++i) {
@@ -581,8 +581,7 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         // will throw if, for example, path doesn't exist
         return std::unexpected (
             fmt::format (
-                "Could not resolve path {}, reporting: ", thisUserPath,
-                ex.what()
+                "Could not resolve path {} ({})", thisUserPath, ex.what()
             )
         );
       }
