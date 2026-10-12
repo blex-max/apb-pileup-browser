@@ -179,7 +179,6 @@ struct InsertPileupStatus {
 };
 // insert reads at pileup position into database.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-// FIXME: status return rather than expected, void.
 [[nodiscard]] InsertPileupStatus insert_pileup (
     sqlite3* conn, const bam_pileup1_t* br_plpArr, const size_t nPlp,
     const std::string& contigName, sqlite3_int64 aln_id,

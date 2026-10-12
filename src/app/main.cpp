@@ -154,9 +154,9 @@ int main (int argc, char** argv)
   }
 #endif
 
-  // FIXME: record number of files in db, cache in g_state
-  // such that can switch TUI behaviour on multi-aln pileup
+
   Defer db_shutdown ([]() { g_db::shutdown(); });
+
   switch (args.mode) {
     case ApbMode::locus:
       APB_ASSERT (!args.locus.empty());
