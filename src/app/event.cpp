@@ -1,6 +1,7 @@
 #include "app/event.hpp"
 
-#include <fmt/format.h>
+#include <algorithm>
+#include <cstdint>
 
 #include "app/cmd.hpp"
 #include "app/g_state.hpp"
@@ -176,7 +177,7 @@ static void nav_overlay (const tb_event& ev)
   }
 }
 
-WidgetStatus handle_event (const tb_event& ev)
+void handle_event (const tb_event& ev)
 {
   if (ev.type == TB_EVENT_KEY) {
     if (!g_ui::showOverlay) {
@@ -188,10 +189,11 @@ WidgetStatus handle_event (const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    if (!size_widgets()) {
-      return WidgetStatus{WidgetStatus::insufficientSz};
+    g_ui::tooSmall = !size_widgets();
+    if (g_ui::showOverlay &&
+        !size_and_set_overlay_widget (g_overlay::content)) {
+      g_ui::showOverlay = false;
+      g_cmd::msgBuf = "Failed - terminal too small to display help pane";
     }
   }
-
-  return {.code = WidgetStatus::success};
 }

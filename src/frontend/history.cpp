@@ -1,5 +1,10 @@
 #include "history.hpp"
 
+#include <string>
+#include <utility>
+
+#include "frontend/input.hpp"
+
 void history_push (CmdHistory& h, std::string entry)
 {
   h.entries.push_back (std::move (entry));

@@ -1,6 +1,8 @@
 #include "input.hpp"
 
 #include <cctype>
+#include <string>
+#include <utility>
 
 bool valid (const EditBuf& b) { return b.curs <= b.text.size(); }
 

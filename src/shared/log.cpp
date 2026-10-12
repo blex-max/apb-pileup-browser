@@ -1,7 +1,13 @@
 #include "log.hpp"
 
+#include <cstdint>
+#include <cstring>
 #include <ctime>
 #include <fstream>
+#include <ios>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include "shared/cleanup.hpp"

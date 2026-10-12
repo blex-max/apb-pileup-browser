@@ -1,17 +1,23 @@
 #include "demo.hpp"
 
 #include <fmt/format.h>
+#include <htslib/hts.h>
 #include <htslib/sam.h>
+#include <sqlite3.h>
 
 #include <algorithm>
-#include <cassert>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <random>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/cleanup.hpp"
 
 static const char kBaseArray[] = "ACGT";
 
@@ -285,10 +291,11 @@ void generate_demo_data (
 
 void insert_demo_data (sqlite3* conn, const DemoDataPack& data)
 {
-  // all demo data is synthetic and apb-generated, so any failure below should be unreachable.
+  // all demo data is synthetic and apb-generated.
+  // Therefore failure should be unreachable.
   if (const auto rc = hts2sql::insert_metadata (
           conn, "demo-contig", data.pileupPos, data.pileupSpan,
-          data.refSlice
+          data.refSlice, 1
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
@@ -312,7 +319,8 @@ void insert_demo_data (sqlite3* conn, const DemoDataPack& data)
   }
   const auto fileId = sqlite3_last_insert_rowid (conn);
 
-  auto* stmt = hts2sql::prepare_insert_reads_stmt (conn);
+  auto* o_stmt = hts2sql::prepare_insert_reads_stmt (conn);
+  Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
 
   if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
@@ -323,9 +331,9 @@ void insert_demo_data (sqlite3* conn, const DemoDataPack& data)
     );
   }
   for (const auto& readI : data.reads) {
-    bind_read_data (stmt, readI, fileId);
+    bind_read_data (o_stmt, readI, fileId);
 
-    if (const auto rc = sqlite3_step (stmt); rc != SQLITE_DONE) {
+    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
       // generate_demo_data never sets auxJson, so tags is always
       // NULL here and the json_valid(tags) CHECK can't fire.
       APB_UNREACHABLE (
@@ -334,8 +342,8 @@ void insert_demo_data (sqlite3* conn, const DemoDataPack& data)
           )
       );
     }
-    sqlite3_reset (stmt);  // rc mirrors the step already checked above
-    sqlite3_clear_bindings (stmt);  // cannot fail per sqlite3 docs
+    sqlite3_reset (o_stmt);  // rc mirrors the step already checked above
+    sqlite3_clear_bindings (o_stmt);  // cannot fail per sqlite3 docs
   }
 
   if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);

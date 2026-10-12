@@ -23,13 +23,12 @@ struct ColMetadata {
 namespace g_state {
 
 inline constinit bool run = true;
+inline constinit bool multialn = false;
 
 namespace db {
 
 inline constinit sqlite3* conn = nullptr;
-
 inline constinit query::DynamicFragments userClause;
-
 inline constinit sqlite3_stmt* selectStmt = nullptr;
 inline constinit uint32_t nStmtRows = 0;  // rows in current stmt
 inline constinit int32_t stmtRowScrollOffset = 0;
@@ -63,6 +62,8 @@ namespace ui {
 extern std::array<ColMetadata, 11> tableCols;
 
 inline constinit bool showOverlay = false;
+// last resize left terminal too small; widget geometry is stale
+inline constinit bool tooSmall = false;
 
 inline constinit struct {
   bool qual = false;
@@ -73,7 +74,12 @@ inline constinit struct {
   bool table = true;
 } drawPaneSwitches;
 
+inline constexpr auto kMinWidth = 20;
+
 namespace browsr {
+
+// Can't meaningfully display data below this height
+inline constexpr auto kMinWidgetHeight = 8;
 
 inline constinit extb::Box frame;
 inline constinit extb::HLine alnPaneRefLine;
@@ -91,7 +97,9 @@ inline constinit int64_t userPanOffset = 0;
 
 namespace cmd {
 
-inline constexpr auto widgetHeight = 7;  // inc. borders
+// cmd widget has fixed height. browser widget
+// scales to accomodate.
+inline constexpr auto kWidgetHeight = 7;  // inc. borders
 
 inline constinit extb::Box frame;
 inline constinit extb::HLine
@@ -108,6 +116,9 @@ inline constinit std::string msgBuf;
 }  // namespace cmd
 
 namespace overlay {
+
+inline constexpr auto kMinWidgetWidth = 10;
+inline constexpr auto kMinWidgetHeight = 10;
 
 inline constinit extb::Box frame;
 inline constinit extb::Box contentBox;

@@ -2,6 +2,7 @@
 
 #include <sqlite3.h>
 
+#include <cstddef>
 #include <cstdint>
 
 #include "backend/hts_sql.hpp"
@@ -32,6 +33,7 @@ int insert_raw_metadata (
   sqlite3_bind_int64 (stmt, col++, start);
   sqlite3_bind_int64 (stmt, col++, end);
   sqlite3_bind_null (stmt, col++);
+  sqlite3_bind_int (stmt, col++, 1);  // n_aln
 
   return sqlite3_step (stmt);
 }

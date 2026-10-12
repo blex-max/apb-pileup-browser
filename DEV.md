@@ -67,7 +67,8 @@ I am almost certainly not using these reliably, but I do find them helpful.
 ## Use of Hungarian Notation
 
 **o_** - owned pointer, this scope must handle lifetime.  
-**br_** - borrowed pointer, this scope must not affect lifetime.  
+**br_** - borrowed pointer, this scope must not affect lifetime.
+**g_** - global state.  
 **k** - file-level constant used across multiple scopes. I don't use an underscore with this one.
 
 The pointer prefixes are mostly for use with C libraries.

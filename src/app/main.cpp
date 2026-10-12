@@ -3,32 +3,41 @@
 #include <htslib/faidx.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
+#include <sqlite3.h>
 
 #include <algorithm>
 #include <cctype>
+#include <clocale>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <expected>
 #include <filesystem>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <string>
-#include <system_error>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
 #include "app/event.hpp"
 #include "app/g_state.hpp"
 #include "app/manual.hpp"
+#include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
 #include "backend/schema.hpp"
 #include "demo/demo.hpp"
+#include "frontend/extb/box/span.hpp"
+#include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/bounds.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/version.hpp"
+
+namespace e2 = extb;
 
 namespace g_db = g_state::db;
 
@@ -220,7 +229,7 @@ int main (int argc, char** argv)
       break;
     }
     case ApbMode::UNSET:
-      APB_UNREACHABLE ("CLI code malformed; unknown mode");
+      APB_UNREACHABLE ("CLI code malformed; mode unset");
   }
 
   if (args.dumpPath) {
@@ -243,7 +252,13 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
+  // retrieve locus metadata from db (we did not just insert it if we are entering
+  // via a dumped db).
   g_db::locusInfo = query::get_locus_data (g_db::conn);
+  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
+  if (g_db::locusInfo.nAln > 1) {
+    g_state::multialn = true;
+  }
   // count, and as a consequence verify data presence.
   if (const auto setStatus = g_db::set_query ({});
       setStatus.code != g_db::SetQueryStatus::success) {
@@ -260,19 +275,18 @@ int main (int argc, char** argv)
       "Welcome to apb! All coordinate data is in 1-based closed "
       "coordinates.";
 
-  if (setlocale (LC_ALL, "") == nullptr) {
-    std::cerr << "Warning: could not set locale from environment; "
-                 "continuing with the default locale. Non-ASCII "
-                 "characters may not display correctly."
-              << std::endl;
-  }
-
   // init termbox2!
   //
   // Since this may fail, one might think it
   // should be checked before doing any pileup work. But since
   // it is reasonably unlikely to fail and will affect the
   // terminal as soon as tb_init is called, it's best to leave it here.
+  if (setlocale (LC_ALL, "") == nullptr) {
+    std::cerr << "Warning: could not set locale from environment; "
+                 "continuing with the default locale. Non-ASCII "
+                 "characters may not display correctly."
+              << std::endl;
+  }
   if (const auto rc = tb_init(); rc != TB_OK) {
     // Most of tb_init's other failure codes lose their errno text
     // before we see them: tb_init calls tb_shutdown() ->
@@ -334,21 +348,13 @@ int main (int argc, char** argv)
                 << std::endl;
       return EXIT_FAILURE;
     }
+    draw_main_to_buffer();
 
-    switch (const auto dmuStatus = draw_main_ui(); dmuStatus.code) {
-      case WidgetStatus::success:
-        break;
-      case WidgetStatus::insufficientSz:
-        tb_cleanup.invoke();
-        std::cerr << "Terminal too small to display TUI! Try resizing?"
-                  << std::endl;
-        return EXIT_FAILURE;
-    }
-    // show command line startup message
     e2::write_string (
         first (g_state::ui::cmd::inputLine),
-        last (g_state::ui::cmd::inputLine.xspan), "type here - try `help`",
-        {.fg = TB_DIM}
+        last (g_state::ui::cmd::inputLine.xspan),
+        /* startup help msg */
+        "type here - try `help`", {.fg = TB_DIM}
     );
     if (const auto rc = tb_present(); rc != TB_OK) {
       if (rc != TB_ERR) {
@@ -373,51 +379,44 @@ int main (int argc, char** argv)
 
   tb_event ev{};
   while (g_state::run) {
-    tb_poll_event (&ev);
-    switch (const auto evStatus = handle_event (ev); evStatus.code) {
-      case WidgetStatus::success:
-      case WidgetStatus::insufficientSz:
-        // do nothing - allow user to resize terminal
-        // rather than crashing.
-        break;
-    }
     tb_clear();
 
-    switch (const auto dmuStatus = draw_main_ui(); dmuStatus.code) {
-      case WidgetStatus::success:
-        break;
-      case WidgetStatus::insufficientSz:
-        // FIXME: hold rather than crash.
-        // Requires modification of error handling in widgets.cpp
-        tb_cleanup.invoke();
-        std::cerr << "Terminal too small to display TUI! Try resizing?"
-                  << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    if (g_state::ui::showOverlay) {
-      // For help overlays
-      draw_overlay();
-    }
-
-    if (const auto rc = tb_present(); rc != TB_OK) {
-      if (rc != TB_ERR) {
-        APB_UNREACHABLE (
-            fmt::format (
-                "tb_present failed with code {} ({}) - this should be "
-                "impossible",
-                rc, tb_strerror (rc)
-            )
+    tb_poll_event (&ev);
+    handle_event (ev);
+    {
+      if (g_state::ui::tooSmall) {
+        // hold until a resize succeeds
+        e2::write_string (
+            e2::GlobalCell{0, 0}, tb_width(), "terminal too small",
+            {.fg = TB_DIM}
         );
       }
-      const auto msg = fmt::format (
-          "lost connection to the terminal ({}). Try running apb "
-          "again.",
-          tb_strerror (rc)
-      );
-      tb_cleanup.invoke();
-      std::cerr << "Error: " << msg << std::endl;
-      return EXIT_FAILURE;
+      else {
+        draw_main_to_buffer();
+        if (g_state::ui::showOverlay) {
+          // For help overlays
+          draw_overlay_to_buffer();
+        }
+      }
+      if (const auto rc = tb_present(); rc != TB_OK) {
+        if (rc != TB_ERR) {
+          APB_UNREACHABLE (
+              fmt::format (
+                  "tb_present failed with code {} ({}) - this should be "
+                  "impossible",
+                  rc, tb_strerror (rc)
+              )
+          );
+        }
+        const auto msg = fmt::format (
+            "lost connection to the terminal ({}). Try running apb "
+            "again.",
+            tb_strerror (rc)
+        );
+        tb_cleanup.invoke();
+        std::cerr << "Error: " << msg << std::endl;
+        return EXIT_FAILURE;
+      }
     }
   }
   tb_cleanup.invoke();
@@ -634,6 +633,7 @@ int pileup_func (void* br_data, bam1_t* br_b)
 // returns expected void/str since any failure
 // is a top-level crash which can be fully described
 // and exited upon.
+// Modifies g_state::db (only)
 static std::expected<void, std::string> populate_db_mode_locus (
     const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
@@ -878,10 +878,10 @@ static std::expected<void, std::string> populate_db_mode_locus (
     readsFoundAtLocus = true;
 
     // FIXME: a TRY_SQL macro would be great
-    sqlite3_stmt* fileInsertStmt;
+    sqlite3_stmt* o_fileInsertStmt;
     if (const auto rc = sqlite3_prepare_v2 (
             g_db::conn, schema::sqlInsertFile.data(),
-            schema::sqlInsertFile.size(), &fileInsertStmt, NULL
+            schema::sqlInsertFile.size(), &o_fileInsertStmt, NULL
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
@@ -892,7 +892,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
       );
     }
     if (const auto rc = sqlite3_bind_text (
-            fileInsertStmt, 1, fp.c_str(),
+            o_fileInsertStmt, 1, fp.c_str(),
             static_cast<int> (fp.string().size()), SQLITE_TRANSIENT
         );
         rc != SQLITE_OK) {
@@ -903,14 +903,15 @@ static std::expected<void, std::string> populate_db_mode_locus (
           )
       );
     }
-    if (const auto rc = sqlite3_step (fileInsertStmt); rc != SQLITE_DONE) {
+    if (const auto rc = sqlite3_step (o_fileInsertStmt);
+        rc != SQLITE_DONE) {
       APB_UNREACHABLE (
           fmt::format (
               "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
           )
       );
     }
-    sqlite3_finalize (fileInsertStmt);
+    sqlite3_finalize (o_fileInsertStmt);
     const auto alnID = sqlite3_last_insert_rowid (g_db::conn);
 
     const auto get_mtid_name = [&aln] (int mtid) {
@@ -966,7 +967,8 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
 
     if (const auto rcInsMeta = hts2sql::insert_metadata (
-            g_db::conn, locusContigName, locusPos, maxPileupSpan, refSlice
+            g_db::conn, locusContigName, locusPos, maxPileupSpan, refSlice,
+            static_cast<int16_t> (alnPaths.size())
         );
         rcInsMeta != SQLITE_OK) {
       return std::unexpected (

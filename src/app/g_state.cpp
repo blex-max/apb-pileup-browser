@@ -1,8 +1,13 @@
 #include "app/g_state.hpp"
 
+#include <sqlite3.h>
+
+#include <array>
+#include <cstddef>
 #include <string>
 #include <utility>
 
+#include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 
 namespace g_state::ui {

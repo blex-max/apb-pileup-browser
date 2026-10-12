@@ -1,6 +1,5 @@
 #pragma once
 
-#include "app/widgets.hpp"
-#include "frontend/extb/extb.hpp"
+#include "termbox2.h"
 
-WidgetStatus handle_event (const tb_event& ev);
+void handle_event (const tb_event& ev);

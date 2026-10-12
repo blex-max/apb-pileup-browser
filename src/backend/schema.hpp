@@ -41,13 +41,16 @@ CREATE TABLE locus_metadata (
 
     -- reference slice spanned by pileup
     ref    TEXT,
+
+    -- number of alignment files represented in db
+    n_aln INTEGER NOT NULL CHECK (n_aln > 0),
     
     CHECK (pos >= start AND pos <= end)
 )
 )sql";
 
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
-INSERT INTO locus_metadata (apb_version, contig, pos, start, end, ref) VALUES (?,?,?,?,?,?);
+INSERT INTO locus_metadata (apb_version, contig, pos, start, end, ref, n_aln) VALUES (?,?,?,?,?,?,?);
 )sql";
 
 struct MetaTableSelect {
@@ -60,12 +63,13 @@ struct MetaTableSelect {
     start,
     end,
     ref,
+    n_aln,
   };
 
   // not a prefix, only one row, complete retrieval
   // and therefore semicolon terminated statement
   static constexpr std::string_view sql =
-      R"sql(SELECT id, apb_version, contig, pos, start, end, ref FROM locus_metadata;)sql";
+      R"sql(SELECT * FROM locus_metadata;)sql";
 };
 
 inline constexpr std::string_view sqlCreateFileTable = R"sql(
@@ -183,6 +187,7 @@ struct UserReadViewSelect {
     tags,
     cig_uint32,
     ncig,
+    path_id,
     path,
   };
 

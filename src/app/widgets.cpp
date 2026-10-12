@@ -2,20 +2,31 @@
 
 #include <fmt/format.h>
 #include <htslib/sam.h>
+#include <sqlite3.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "app/g_state.hpp"
+#include "app/helpblocks.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 #include "frontend/drawing_chars.hpp"
 #include "frontend/extb/box/box.hpp"
+#include "frontend/extb/box/span.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
+
+namespace e2 = extb;
 
 namespace g_db = g_state::db;
 namespace g_browsr = g_state::ui::browsr;
@@ -27,13 +38,24 @@ namespace g_ui = g_state::ui;
 
 namespace validate {
 
-// slightly pointless,
-// but I think it's more clear as to the
-// intention than raw calls to valid (wgt.frame),
-// and easier to add any future validation conditions.
-static bool browser_widget_is_valid() { return valid (g_browsr::frame); };
-static bool cmd_widget_is_valid() { return valid (g_cmd::frame); };
-static bool overlay_widget_is_valid() { return valid (g_overlay::frame); }
+static bool browser_widget_is_valid()
+{
+  return valid (g_browsr::frame) &&
+         size (g_browsr::frame.xspan) >= g_ui::kMinWidth &&
+         size (g_browsr::frame.yspan) >= g_browsr::kMinWidgetHeight;
+};
+static bool cmd_widget_is_valid()
+{
+  return valid (g_cmd::frame) &&
+         size (g_cmd::frame.xspan) >= g_ui::kMinWidth &&
+         size (g_cmd::frame.yspan) == g_cmd::kWidgetHeight;
+};
+static bool overlay_widget_is_valid()
+{
+  return valid (g_overlay::frame) &&
+         size (g_overlay::frame.xspan) >= g_overlay::kMinWidgetWidth &&
+         size (g_overlay::frame.yspan) >= g_overlay::kMinWidgetHeight;
+}
 static bool ui_is_valid()
 {
   return tb_width() > 0 && tb_height() > 0 && cmd_widget_is_valid() &&
@@ -49,18 +71,27 @@ static bool ui_is_valid()
 bool size_and_set_overlay_widget (helpblocks::TextBlockRef content)
 {
   /* set overlay widget, dynamically sizing to content */
+  APB_ASSERT (!content.empty());
+
   const auto screenW = tb_width();
   const auto screenH = tb_height();
-  APB_ASSERT (screenW > 0, screenW);
-  APB_ASSERT (screenH > 0, screenH);
-  APB_ASSERT (!content.empty());
+
+  const auto availW =
+      static_cast<int> (std::ceil (static_cast<double> (screenW) * 0.6));
+  if (availW < g_overlay::kMinWidgetWidth) {
+    // too small
+    return false;
+  }
+  const auto availH =
+      static_cast<int> (std::ceil (static_cast<double> (screenH) * 0.6));
+  if (availH < g_overlay::kMinWidgetHeight) {
+    // too small
+    return false;
+  }
 
   // dynamically sized to content
   const auto framedContentH = static_cast<int> (content.size() + 2);
-  const auto helpH = std::min<int> (
-      framedContentH,
-      static_cast<int> (std::ceil (static_cast<double> (screenH) * 0.6))
-  );
+  const auto wgtH = std::min<int> (framedContentH, availH);
 
   const auto maxLineW =
       std::ranges::max_element (content, {}, &std::string_view::size)
@@ -68,19 +99,12 @@ bool size_and_set_overlay_widget (helpblocks::TextBlockRef content)
   // +2 for the left/right border, +1 for a gap before the
   // right border
   const auto framedContentW = static_cast<int> (maxLineW + 3);
-  const auto wgtW = std::min (
-      framedContentW,
-      static_cast<int> (std::ceil (static_cast<double> (screenW) * 0.6))
-  );
-  if (wgtW < 5) {
-    // too small
-    return false;
-  }
+  const auto wgtW = std::min (framedContentW, availW);
 
   const auto xOff = static_cast<int> (std::floor ((screenW - wgtW) / 2));
-  const auto yOff = static_cast<int> (std::floor ((screenH - helpH) / 2));
+  const auto yOff = static_cast<int> (std::floor ((screenH - wgtH) / 2));
 
-  e2::Span ySpan{yOff, yOff + helpH};
+  e2::Span ySpan{yOff, yOff + wgtH};
   e2::Span xSpan{xOff, xOff + wgtW};
 
   g_overlay::frame = e2::Box{xSpan, ySpan};
@@ -94,13 +118,17 @@ bool size_widgets()
 {
   const auto screenW = tb_width();
   const auto screenH = tb_height();
+  if (tb_width() < g_ui::kMinWidth ||
+      tb_height() < g_cmd::kWidgetHeight + g_browsr::kMinWidgetHeight) {
+    return false;
+  }
 
   const e2::Span screenX{0, screenW};
   const e2::Span screenY{0, screenH};
 
   // vertical sectioning of terminal
-  const e2::Span mainY{screenY.first, screenY.last - g_cmd::widgetHeight};
-  const e2::Span cmdY{mainY.last, mainY.last + g_cmd::widgetHeight};
+  const e2::Span mainY{screenY.first, screenY.last - g_cmd::kWidgetHeight};
+  const e2::Span cmdY{mainY.last, mainY.last + g_cmd::kWidgetHeight};
 
   if (!e2::valid (screenY) || !e2::valid (screenX) || !e2::valid (mainY) ||
       !e2::valid (cmdY)) {
@@ -146,12 +174,7 @@ bool size_widgets()
     g_cmd::msgLine = e2::HLine{body (screenX), y};
   }
 
-  // dynamically sized to content and
-  // current screen size.
-  APB_ASSERT (!g_overlay::content.empty());
-  if (!size_and_set_overlay_widget (g_overlay::content)) {
-    return false;
-  };
+  APB_ASSERT (validate::ui_is_valid());
   return true;
 }
 // --- end sizing --- //
@@ -286,18 +309,20 @@ struct ReadFields {
   const uint32_t* cig_br;
   uint64_t nCig;
 };
-ReadFields get_seq1_read_fields (sqlite3_stmt* row)
+ReadFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
 {
   // NOTE: currently does no error checking
   return {
-      .rStart =
-          sqlite3_column_int64 (row, schema::UserReadViewSelect::start),
+      .rStart = sqlite3_column_int64 (
+          br_stmtRow, schema::UserReadViewSelect::start
+      ),
       .seq =
-          [&row]() {
-            const auto* p =
-                sqlite3_column_text (row, schema::UserReadViewSelect::seq);
+          [&br_stmtRow]() {
+            const auto* p = sqlite3_column_text (
+                br_stmtRow, schema::UserReadViewSelect::seq
+            );
             const auto len = sqlite3_column_bytes (
-                row, schema::UserReadViewSelect::seq
+                br_stmtRow, schema::UserReadViewSelect::seq
             );
             return std::string (
                 reinterpret_cast<const char*> (p),
@@ -305,12 +330,12 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
             );
           }(),
       .qual =
-          [&row]() {
+          [&br_stmtRow]() {
             const auto* br_p = sqlite3_column_text (
-                row, schema::UserReadViewSelect::qual
+                br_stmtRow, schema::UserReadViewSelect::qual
             );
             const auto len = sqlite3_column_bytes (
-                row, schema::UserReadViewSelect::qual
+                br_stmtRow, schema::UserReadViewSelect::qual
             );
             return std::string (
                 reinterpret_cast<const char*> (br_p),
@@ -318,17 +343,18 @@ ReadFields get_seq1_read_fields (sqlite3_stmt* row)
             );
           }(),
       .cig_br =
-          [&row]() {
+          [&br_stmtRow]() {
             return static_cast<const uint32_t*> (sqlite3_column_blob (
-                row, schema::UserReadViewSelect::cig_uint32
+                br_stmtRow, schema::UserReadViewSelect::cig_uint32
             ));
           }(),
       .nCig =
-          [&row]() {
-            const auto rawNCig =
-                sqlite3_column_int (row, schema::UserReadViewSelect::ncig);
+          [&br_stmtRow]() {
+            const auto rawNCig = sqlite3_column_int (
+                br_stmtRow, schema::UserReadViewSelect::ncig
+            );
             const auto cigBytes = sqlite3_column_bytes (
-                row, schema::UserReadViewSelect::cig_uint32
+                br_stmtRow, schema::UserReadViewSelect::cig_uint32
             );
             APB_ASSERT (
                 rawNCig >= 0 &&
@@ -656,268 +682,19 @@ struct fmt::formatter<draw_aln::Seq1FrameArgs>
   }
 };
 
-namespace draw_query_data {
-
-static WidgetStatus draw_query_data()
-{
-  // draw reads and data table
-  if (!valid (g_browsr::frame) || size (g_browsr::frame.xspan) < 4 ||
-      size (g_browsr::frame.yspan) < 8) {
-    // bounds slightly approximate
-    return {WidgetStatus::insufficientSz};
-  }
-  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
-
-  sqlite3_reset (g_db::selectStmt);
-
-  /* size widgets */
-  uint16_t tableWidth = 0;
-  std::vector<const ColMetadata*> activeCols;
-  for (const auto& col : g_ui::tableCols) {
-    if (col.visible) {
-      activeCols.emplace_back (&col);
-      // +1 per column for the field separator drawn after it
-      // (see draw_table::)
-      tableWidth += col.displayWidth + 1;
-    }
-  }
-  // Reserve room for at least one column of alignment/pileup
-  // view.
-  constexpr int minAlnPaneWidth = 1;
-  const auto maxTableWidth = static_cast<uint16_t> (
-      std::max (0, size (g_browsr::frame.xspan) - 2 - minAlnPaneWidth)
-  );
-  tableWidth = std::min (tableWidth, maxTableWidth);
-  // No visible columns leaves nothing to lay the table pane out
-  // with; fall back to the no-table-pane layout below.
-  const bool showTable = g_ui::drawPaneSwitches.table && tableWidth > 0;
-
-  const auto& [frameX, frameY] = spans (g_browsr::frame);
-  const auto& contentX = body (frameX);
-  const auto& contentY = body (frameY);
-  // skip header, separator. leave 2 rows at end
-  const auto dataY = e2::Span{first (contentY) + 2, last (contentY) - 1};
-
-  if (showTable) {
-    const int splitAbsX = last (contentX) - tableWidth;
-    e2::Span alnPaneX{first (contentX), splitAbsX};
-    e2::Span tablePaneX{splitAbsX + 1, last (contentX)};
-
-    g_browsr::alnPaneRefLine = {alnPaneX, first (contentY)};
-    g_browsr::tablePaneHeaderLine = {tablePaneX, first (contentY)};
-    g_browsr::alnPaneDataBox = {alnPaneX, dataY};
-    g_browsr::tablePaneDataBox = {tablePaneX, dataY};
-    g_browsr::vSep = {
-        splitAbsX, construct_relative (frameY, 0, size (frameY) - 1)
-    };
-
-    APB_ASSERT (
-        valid (g_browsr::tablePaneHeaderLine),
-        g_browsr::tablePaneHeaderLine
-    );
-    APB_ASSERT (
-        size (g_browsr::tablePaneHeaderLine) > 0,
-        size (g_browsr::tablePaneHeaderLine)
-    );
-    APB_ASSERT (
-        valid (g_browsr::tablePaneDataBox), g_browsr::tablePaneDataBox
-    );
-    APB_ASSERT (
-        height (g_browsr::tablePaneDataBox) > 0,
-        height (g_browsr::tablePaneDataBox)
-    );
-    APB_ASSERT (
-        width (g_browsr::tablePaneDataBox) > 0,
-        width (g_browsr::tablePaneDataBox)
-    );
-  }
-  else {
-    g_browsr::tablePaneHeaderLine = {};  // invalid
-    g_browsr::tablePaneDataBox = {};
-    g_browsr::vSep = {};
-
-    g_browsr::alnPaneRefLine = {contentX, first (contentY)};
-    g_browsr::alnPaneDataBox = {contentX, dataY};
-  }
-  APB_ASSERT (valid (g_browsr::alnPaneDataBox), g_browsr::alnPaneDataBox);
-  APB_ASSERT (
-      height (g_browsr::alnPaneDataBox) > 0,
-      height (g_browsr::alnPaneDataBox)
-  );
-  APB_ASSERT (
-      width (g_browsr::alnPaneDataBox) > 0,
-      width (g_browsr::alnPaneDataBox)
-  );
-  /* end size widgets */
-
-  /* configure/validate draw coordinates */
-  const auto alnPaneHalfWidth = width (g_browsr::alnPaneDataBox) / 2;
-  // Offset needed for the pane's left edge to reach
-  // db.locusInfo.start. Can be positive when there isn't room
-  // to center on pos, e.g. a locus near the start of its contig, or reads
-  // that don't extend a full half-pane-width left of pos.
-  const auto marginToPileupStart =
-      g_db::locusInfo.start - g_db::locusInfo.pos + alnPaneHalfWidth;
-  const auto marginToPileupEnd = std::max (
-      g_db::locusInfo.end - alnPaneHalfWidth - g_db::locusInfo.pos,
-      marginToPileupStart  // keep clamp's [lo, hi] non-empty
-  );
-  g_browsr::userPanOffset = std::clamp (
-      g_browsr::userPanOffset, marginToPileupStart, marginToPileupEnd
-  );
-  const auto alnPaneLeftmostGPos =
-      g_db::locusInfo.pos - alnPaneHalfWidth + g_browsr::userPanOffset;
-  APB_ASSERT (alnPaneLeftmostGPos >= 0, alnPaneLeftmostGPos);
-  /* end coordinates */
-
-  if (g_db::locusInfo.refSlice) {
-    /* draw reference */
-    const int64_t offsetToLocusStart =
-        g_db::locusInfo.start - alnPaneLeftmostGPos;
-
-    int64_t skipRefBases;
-    int64_t startDrawX;
-    if (offsetToLocusStart < 0) {
-      skipRefBases = -offsetToLocusStart;
-      startDrawX = 0;
-    }
-    else {
-      skipRefBases = 0;
-      startDrawX = offsetToLocusStart;
-    }
-
-    e2::write_string (
-        {first (g_browsr::alnPaneRefLine.xspan) +
-             static_cast<int> (startDrawX),
-         g_browsr::alnPaneRefLine.y},
-        last (g_browsr::alnPaneRefLine.xspan),
-        g_db::locusInfo.refSlice->substr (
-            static_cast<size_t> (skipRefBases)
-        )
-    );
-  }
-
-  if (showTable) {
-    draw_table::header (g_browsr::tablePaneHeaderLine, activeCols);
-    draw_table::row_separators (g_browsr::tablePaneDataBox, activeCols);
-    /* draw pane separator */
-    set (body (g_browsr::vSep), boxch::vertLine, {.fg = TB_DIM});
-    set (first (g_browsr::vSep), boxch::downTConnect, {.fg = TB_DIM});
-    set (last (g_browsr::vSep), boxch::upTConnect, {.fg = TB_DIM});
-  }
-
-  /* iteratively draw query data */
-  auto seqWriteHead = vertexA (g_browsr::alnPaneDataBox);
-  auto seqWriteLim = vertexC (g_browsr::alnPaneDataBox) +
-                     e2::dXY (1, 1);  // exclusive limit
-  const draw_aln::Seq1FrameArgs seq1Frame{
-      .writeStartX = static_cast<int16_t> (seqWriteHead.x),
-      .writeStartXGPos = alnPaneLeftmostGPos,
-      .writeLimits = seqWriteLim,
-  };
-  APB_ASSERT (seq1Frame.valid(), seq1Frame);
-  const draw_table::Row1FrameArgs row1Frame{
-      .writeXStart = first (g_browsr::tablePaneDataBox.xspan),
-      .writeXLimit = last (g_browsr::tablePaneDataBox.xspan),
-      .cols = activeCols,
-  };
-  APB_ASSERT (row1Frame.valid(), row1Frame);
-  // FIXME: display path of current reads
-  // FIXME: Always sort by path!
-  // const char* curPath = nullptr;
-  if (g_db::nStmtRows > 0) {
-    uint16_t nReadDrawn = 0;
-    for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
-      const auto iterStatus = query::next_read (g_db::selectStmt);
-      if (!iterStatus) {
-        // selectStmt is only ever installed after a full count_rows
-        // pass already succeeded against this exact data (see
-        // main()'s startup query / try_apply_query_clause), and
-        // nothing writes to db afterwards.
-        APB_UNREACHABLE (
-            fmt::format (
-                "failed to step query during render: {}",
-                sqlite3_errmsg (g_db::conn)
-            )
-        );
-      }
-      if (*iterStatus == query::RowIterStatus::rowAvail) {
-        if (static_cast<int64_t> (iRead) < g_db::stmtRowScrollOffset) {
-          // reads hidden by scrolling
-          continue;
-        }
-        const auto dHead = draw_aln::seq1 (
-            static_cast<int16_t> (seqWriteHead.y), g_db::selectStmt,
-            seq1Frame
-        );
-        if (showTable) {
-          draw_table::row1 (seqWriteHead.y, g_db::selectStmt, row1Frame);
-        }
-        seqWriteHead.y += dHead.dy;
-        ++nReadDrawn;
-      }
-      else {
-        break;
-      }
-    }
-    g_browsr::nReadOnscreen = nReadDrawn;
-
-    /* draw crosshair */
-    // Bounds-check before narrowing: userPanOffset can be far
-    // larger than an int16_t can hold, so compare in the wide
-    // type first and only truncate once known on-screen.
-    if (const int64_t pileupScreenXPosWide =
-            first (g_browsr::alnPaneDataBox.xspan) + alnPaneHalfWidth -
-            g_browsr::userPanOffset;
-        pileupScreenXPosWide >= first (g_browsr::alnPaneDataBox.xspan) &&
-        pileupScreenXPosWide < last (g_browsr::alnPaneDataBox.xspan)) {
-      // if user has not scrolled crosshair offscreen:
-      const auto pileupScreenXPos =
-          static_cast<int16_t> (pileupScreenXPosWide);
-      e2::VLine pileupCrosshair{
-          pileupScreenXPos, g_browsr::alnPaneDataBox.yspan
-      };
-      add_attr (pileupCrosshair, {.fg = TB_REVERSE});
-      // draw marker linking reference base and query position of pileup
-      set (
-          e2::GlobalCell{
-              pileupScreenXPos, first (g_browsr::alnPaneDataBox.yspan) - 1
-          },
-          '|', {.fg = TB_DIM}
-      );
-    }
-    /* end draw crosshair */
-  }
-  else {
-    e2::write_string (
-        seqWriteHead, seqWriteLim.x, "no reads at locus for current query",
-        {.fg = TB_DIM}
-    );
-  }
-  /* end draw query data */
-
-  return {WidgetStatus::success};
-}
-
-}  // namespace draw_query_data
-
-
 // --- end draw browser pane --- //
 
-WidgetStatus draw_main_ui()
+void draw_main_to_buffer()
 {
   // NOTE: set order does matter,
   // since some places just overwrite
   // previous draw calls
   APB_ASSERT (validate::ui_is_valid());
+  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
+
 
   {
-    // draw browser chrome
-    // preconds
-    // FIXME: these should not be asserts!
-    APB_ASSERT (width (g_browsr::frame) > 1, width (g_browsr::frame));
-    APB_ASSERT (height (g_browsr::frame) > 1, height (g_browsr::frame));
-
+    /* --- draw browser chrome --- */
     const auto& bFrame = g_browsr::frame;
     set (vertexA (bFrame), boxch::topLeftRoundCorner, {.fg = TB_DIM});
     set (vertexB (bFrame), boxch::topRightRoundCorner, {.fg = TB_DIM});
@@ -946,11 +723,8 @@ WidgetStatus draw_main_ui()
     set (last (g_browsr::headerSep), boxch::leftTConnect, {.fg = TB_DIM});
   }
   {
-    // draw cmd chrome
+    /* --- draw cmd chrome --- */
     // preconds
-    APB_ASSERT (width (g_cmd::frame) > 1, width (g_cmd::frame));
-    APB_ASSERT (height (g_cmd::frame) > 1, height (g_cmd::frame));
-
     const auto& cFrame = g_cmd::frame;
     set (vertexA (cFrame), boxch::topLeftRoundCorner, {.fg = TB_DIM});
     set (vertexB (cFrame), boxch::topRightRoundCorner, {.fg = TB_DIM});
@@ -966,22 +740,258 @@ WidgetStatus draw_main_ui()
     set (body (g_cmd::sepLine), boxch::horzLine, {.fg = TB_DIM});
   }
 
-  // TODO here is the only point where insufficient size is used
-  // vaguely properly. Currently program exits rather than crashing
-  // on tiny sizes only because this reports insufficient size.
-  switch (const auto dqStatus = draw_query_data::draw_query_data();
-          dqStatus.code) {
-    case WidgetStatus::success:
-      break;
-    case WidgetStatus::insufficientSz:
-      return dqStatus;
+  /* --- draw query data --- */
+  {
+    // draw reads and data table
+    sqlite3_reset (g_db::selectStmt);
+
+    /* size widgets */
+    uint16_t tableWidth = 0;
+    std::vector<const ColMetadata*> activeCols;
+    for (const auto& col : g_ui::tableCols) {
+      if (col.visible) {
+        activeCols.emplace_back (&col);
+        // +1 per column for the field separator drawn after it
+        // (see draw_table::)
+        tableWidth += col.displayWidth + 1;
+      }
+    }
+    // Reserve room for at least one column of alignment/pileup
+    // view.
+    constexpr int minAlnPaneWidth = 1;
+    const auto maxTableWidth = static_cast<uint16_t> (
+        std::max (0, size (g_browsr::frame.xspan) - 2 - minAlnPaneWidth)
+    );
+    tableWidth = std::min (tableWidth, maxTableWidth);
+    // No visible columns leaves nothing to lay the table pane out
+    // with; fall back to the no-table-pane layout below.
+    const bool showTable = g_ui::drawPaneSwitches.table && tableWidth > 0;
+
+    const auto& [frameX, frameY] = spans (g_browsr::frame);
+    const auto& contentX = body (frameX);
+    const auto& contentY = body (frameY);
+    // skip header, separator. leave 2 rows at end
+    const auto dataY = e2::Span{first (contentY) + 2, last (contentY) - 1};
+
+    if (showTable) {
+      const int splitAbsX = last (contentX) - tableWidth;
+      e2::Span alnPaneX{first (contentX), splitAbsX};
+      e2::Span tablePaneX{splitAbsX + 1, last (contentX)};
+
+      g_browsr::alnPaneRefLine = {alnPaneX, first (contentY)};
+      g_browsr::tablePaneHeaderLine = {tablePaneX, first (contentY)};
+      g_browsr::alnPaneDataBox = {alnPaneX, dataY};
+      g_browsr::tablePaneDataBox = {tablePaneX, dataY};
+      g_browsr::vSep = {
+          splitAbsX, construct_relative (frameY, 0, size (frameY) - 1)
+      };
+
+      APB_ASSERT (
+          valid (g_browsr::tablePaneHeaderLine),
+          g_browsr::tablePaneHeaderLine
+      );
+      APB_ASSERT (
+          size (g_browsr::tablePaneHeaderLine) > 0,
+          size (g_browsr::tablePaneHeaderLine)
+      );
+      APB_ASSERT (
+          valid (g_browsr::tablePaneDataBox), g_browsr::tablePaneDataBox
+      );
+      APB_ASSERT (
+          height (g_browsr::tablePaneDataBox) > 0,
+          height (g_browsr::tablePaneDataBox)
+      );
+      APB_ASSERT (
+          width (g_browsr::tablePaneDataBox) > 0,
+          width (g_browsr::tablePaneDataBox)
+      );
+    }
+    else {
+      g_browsr::tablePaneHeaderLine = {};  // invalid
+      g_browsr::tablePaneDataBox = {};
+      g_browsr::vSep = {};
+
+      g_browsr::alnPaneRefLine = {contentX, first (contentY)};
+      g_browsr::alnPaneDataBox = {contentX, dataY};
+    }
+    APB_ASSERT (
+        valid (g_browsr::alnPaneDataBox), g_browsr::alnPaneDataBox
+    );
+    APB_ASSERT (
+        height (g_browsr::alnPaneDataBox) > 0,
+        height (g_browsr::alnPaneDataBox)
+    );
+    APB_ASSERT (
+        width (g_browsr::alnPaneDataBox) > 0,
+        width (g_browsr::alnPaneDataBox)
+    );
+    /* end size widgets */
+
+    /* configure/validate draw coordinates */
+    const auto alnPaneHalfWidth = width (g_browsr::alnPaneDataBox) / 2;
+    // Offset needed for the pane's left edge to reach
+    // db.locusInfo.start. Can be positive when there isn't room
+    // to center on pos, e.g. a locus near the start of its contig, or reads
+    // that don't extend a full half-pane-width left of pos.
+    const auto marginToPileupStart =
+        g_db::locusInfo.start - g_db::locusInfo.pos + alnPaneHalfWidth;
+    const auto marginToPileupEnd = std::max (
+        g_db::locusInfo.end - alnPaneHalfWidth - g_db::locusInfo.pos,
+        marginToPileupStart  // keep clamp's [lo, hi] non-empty
+    );
+    g_browsr::userPanOffset = std::clamp (
+        g_browsr::userPanOffset, marginToPileupStart, marginToPileupEnd
+    );
+    const auto alnPaneLeftmostGPos =
+        g_db::locusInfo.pos - alnPaneHalfWidth + g_browsr::userPanOffset;
+    APB_ASSERT (alnPaneLeftmostGPos >= 0, alnPaneLeftmostGPos);
+    /* end coordinates */
+
+    if (g_db::locusInfo.refSlice) {
+      /* draw reference */
+      const int64_t offsetToLocusStart =
+          g_db::locusInfo.start - alnPaneLeftmostGPos;
+
+      int64_t skipRefBases;
+      int64_t startDrawX;
+      if (offsetToLocusStart < 0) {
+        skipRefBases = -offsetToLocusStart;
+        startDrawX = 0;
+      }
+      else {
+        skipRefBases = 0;
+        startDrawX = offsetToLocusStart;
+      }
+
+      e2::write_string (
+          {first (g_browsr::alnPaneRefLine.xspan) +
+               static_cast<int> (startDrawX),
+           g_browsr::alnPaneRefLine.y},
+          last (g_browsr::alnPaneRefLine.xspan),
+          g_db::locusInfo.refSlice->substr (
+              static_cast<size_t> (skipRefBases)
+          )
+      );
+    }
+
+    if (showTable) {
+      draw_table::header (g_browsr::tablePaneHeaderLine, activeCols);
+      draw_table::row_separators (g_browsr::tablePaneDataBox, activeCols);
+      /* draw pane separator */
+      set (body (g_browsr::vSep), boxch::vertLine, {.fg = TB_DIM});
+      set (first (g_browsr::vSep), boxch::downTConnect, {.fg = TB_DIM});
+      set (last (g_browsr::vSep), boxch::upTConnect, {.fg = TB_DIM});
+    }
+
+    /* iteratively draw query data */
+    auto seqWriteHead = vertexA (g_browsr::alnPaneDataBox);
+    auto seqWriteLim = vertexC (g_browsr::alnPaneDataBox) +
+                       e2::dXY (1, 1);  // exclusive limit
+    const draw_aln::Seq1FrameArgs seq1Frame{
+        .writeStartX = static_cast<int16_t> (seqWriteHead.x),
+        .writeStartXGPos = alnPaneLeftmostGPos,
+        .writeLimits = seqWriteLim,
+    };
+    APB_ASSERT (seq1Frame.valid(), seq1Frame);
+    const draw_table::Row1FrameArgs row1Frame{
+        .writeXStart = first (g_browsr::tablePaneDataBox.xspan),
+        .writeXLimit = last (g_browsr::tablePaneDataBox.xspan),
+        .cols = activeCols,
+    };
+    APB_ASSERT (row1Frame.valid(), row1Frame);
+    // FIXME: display path of current reads
+    std::string curFile;
+    if (g_db::nStmtRows > 0) {
+      uint16_t nReadDrawn = 0;
+      for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
+        const auto iterStatus = query::next_read (g_db::selectStmt);
+        if (!iterStatus) {
+          APB_UNREACHABLE (
+              fmt::format (
+                  "failed to step query during render: {}",
+                  sqlite3_errmsg (g_db::conn)
+              )
+          );
+        }
+        if (*iterStatus == query::RowIterStatus::rowAvail) {
+          if (static_cast<int64_t> (iRead) < g_db::stmtRowScrollOffset) {
+            // reads hidden by scrolling
+            continue;
+          }
+          if (g_state::multialn) {
+            std::string_view rowPath{
+                reinterpret_cast<const char*> (sqlite3_column_text (
+                    g_db::selectStmt, schema::UserReadViewSelect::path
+                )),
+                static_cast<size_t> (sqlite3_column_bytes (
+                    g_db::selectStmt, schema::UserReadViewSelect::path
+                ))
+            };
+            if (rowPath != curFile) {
+              if (seqWriteHead.y + 1 >= seqWriteLim.y) {
+                // no room for header plus a read
+                break;
+              }
+              curFile = rowPath;
+              e2::write_string (
+                  seqWriteHead, seqWriteLim.x, curFile, {.fg = TB_REVERSE}
+              );
+              seqWriteHead.y++;
+            }
+          }
+          const auto dHead = draw_aln::seq1 (
+              static_cast<int16_t> (seqWriteHead.y), g_db::selectStmt,
+              seq1Frame
+          );
+          if (showTable) {
+            draw_table::row1 (seqWriteHead.y, g_db::selectStmt, row1Frame);
+          }
+          seqWriteHead.y += dHead.dy;
+          ++nReadDrawn;
+        }
+        else {
+          // exhausted
+          break;
+        }
+      }
+      g_browsr::nReadOnscreen = nReadDrawn;
+
+      /* draw crosshair */
+      if (const int64_t pileupScreenXPosWide =
+              first (g_browsr::alnPaneDataBox.xspan) + alnPaneHalfWidth -
+              g_browsr::userPanOffset;
+          pileupScreenXPosWide >= first (g_browsr::alnPaneDataBox.xspan) &&
+          pileupScreenXPosWide < last (g_browsr::alnPaneDataBox.xspan)) {
+        // if user has not scrolled crosshair offscreen:
+        const auto pileupScreenXPos =
+            static_cast<int16_t> (pileupScreenXPosWide);
+        e2::VLine pileupCrosshair{
+            pileupScreenXPos, g_browsr::alnPaneDataBox.yspan
+        };
+        add_attr (pileupCrosshair, {.fg = TB_REVERSE});
+        // draw marker linking reference base and query position of pileup
+        set (
+            e2::GlobalCell{
+                pileupScreenXPos,
+                first (g_browsr::alnPaneDataBox.yspan) - 1
+            },
+            '|', {.fg = TB_DIM}
+        );
+      }
+      /* end draw crosshair */
+    }
+    else {
+      e2::write_string (
+          seqWriteHead, seqWriteLim.x,
+          "no reads at locus for current query", {.fg = TB_DIM}
+      );
+    }
+    /* end draw query data */
   }
 
   {
     // draw pileup ambient
     const auto& locusData = g_db::locusInfo;
-    // preconds
-    APB_ASSERT (locusData.valid(), locusData);
 
     auto writeHead = first (g_browsr::ambientLine);
     const auto lineEnd = last (g_browsr::ambientLine.xspan);
@@ -1044,12 +1054,11 @@ WidgetStatus draw_main_ui()
     );
   }
 
-  // should remain true (postcondition)
+  // postcondition:
   APB_ASSERT (validate::ui_is_valid());
-  return {};
 }
 
-void draw_overlay()
+void draw_overlay_to_buffer()
 {
   APB_ASSERT (validate::overlay_widget_is_valid());
   APB_ASSERT (!g_overlay::content.empty());

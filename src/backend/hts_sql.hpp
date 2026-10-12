@@ -1,7 +1,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <htslib/faidx.h>
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
@@ -59,13 +58,13 @@ std::expected<sqlite3_stmt*, int> prepare_select_reads (
 // returns status code, or sqlite3 integer return code in on failure.
 enum class RowIterStatus : uint8_t { rowAvail, exhausted };
 [[nodiscard]] std::expected<RowIterStatus, int> next_read (
-    sqlite3_stmt* stmt
+    sqlite3_stmt* br_stmt
 );
 
 // Steps `stmt` to exhaustion, counting rows.
 // Returns the row count, or the sqlite3 return code of the
 // first failing step.
-std::expected<uint32_t, int> count_rows (sqlite3_stmt* stmt);
+std::expected<uint32_t, int> count_rows (sqlite3_stmt* br_stmt);
 
 // locus metadata as extracted from db.
 // 1-indexed!
@@ -75,19 +74,21 @@ struct PileupMetadata {
   int64_t start = -1;
   int64_t end = -1;
   std::optional<std::string> refSlice;
+  int16_t nAln = -1;
 
   // Should be redundant with metadata's schema CHECK constraints
   // (schema.hpp) - kept as a backstop.
   bool valid() const noexcept
   {
     return !contig.empty() && start > 0 && end >= start && pos >= start &&
-           pos <= end;
+           pos <= end && nAln > 0;
   }
 };
-
 // Get locus metadata from db. Asserts internally; only call once
-// locus metadata is known to exist (post load_from_disk, or after
-// apb's own insert_pileup/insert_demo_data in the same process).
+// locus metadata is known to exist. Not actually reused, but
+// since the rest of the query API uses various fields from
+// PileupMetadata, it makes sense to collate the locus
+// table operations here.
 PileupMetadata get_locus_data (sqlite3* conn);
 
 struct DiskDumpStatus {
@@ -192,7 +193,7 @@ struct InsertPileupStatus {
 [[nodiscard]] int insert_metadata (
     sqlite3* conn, const std::string& contigName, int64_t pileupPos,
     const GenomicSpan& pileupSpan,
-    const std::optional<std::string>& refSlice
+    const std::optional<std::string>& refSlice, int16_t n_aln
 );
 
 // Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
@@ -204,7 +205,7 @@ sqlite3_stmt* prepare_insert_reads_stmt (sqlite3* conn);
 // stmt_str_InsertReads.
 // exposed for demo.cpp
 void bind_read_data (
-    sqlite3_stmt* stmt, const PileupFields& pf, sqlite3_int64 aln_id
+    sqlite3_stmt* br_stmt, const PileupFields& pf, sqlite3_int64 aln_id
 );
 
 // Render a CIGAR array as text (e.g. "151M").

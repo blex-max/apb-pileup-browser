@@ -1,7 +1,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <htslib/faidx.h>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 

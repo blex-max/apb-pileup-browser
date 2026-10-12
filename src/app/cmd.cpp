@@ -1,14 +1,20 @@
 #include "cmd.hpp"
 
-#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <sqlite3.h>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <span>
+#include <string>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "app/g_state.hpp"
 #include "app/helpblocks.hpp"
@@ -16,6 +22,7 @@
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/cleanup.hpp"
 #include "shared/version.hpp"
 
 namespace g_db = g_state::db;
@@ -456,6 +463,10 @@ struct CountCmd {
       }
     }
 
+    // FIXME: this is a good example of why output fill
+    // status/err parameters are a good idea. Makes
+    // cleanup awkward, and can't use o_ prefix on
+    // stmt.
     auto stmtResult = query::prepare_select_reads (
         g_db::conn, schema::UserReadViewSelect::sqlCountPrefix,
         {.where = where, .orderBy = {}}
@@ -471,8 +482,9 @@ struct CountCmd {
       };
     }
 
-    auto& stmt = *stmtResult;
-    if (const int rc = sqlite3_step (stmt); rc != SQLITE_ROW) {
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (*stmtResult); });
+
+    if (const int rc = sqlite3_step (*stmtResult); rc != SQLITE_ROW) {
       return {
           false, cmd_format_fail (
                      fmt::format (
@@ -486,7 +498,7 @@ struct CountCmd {
     return {
         true, fmt::format (
                   "{}: {} reads", stringify_where (where),
-                  sqlite3_column_int64 (stmt, 0)
+                  sqlite3_column_int64 (*stmtResult, 0)
               )
     };
   }
