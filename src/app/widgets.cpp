@@ -36,33 +36,39 @@ namespace g_ui = g_state::ui;
 
 // --- helpers --- //
 
-namespace validate {
+namespace {
 
-static bool browser_widget_is_valid()
+bool browser_widget_is_valid()
 {
   return valid (g_browsr::frame) &&
          size (g_browsr::frame.xspan) >= g_ui::kMinWidth &&
          size (g_browsr::frame.yspan) >= g_browsr::kMinWidgetHeight;
 };
-static bool cmd_widget_is_valid()
+bool cmd_widget_is_valid()
 {
   return valid (g_cmd::frame) &&
          size (g_cmd::frame.xspan) >= g_ui::kMinWidth &&
          size (g_cmd::frame.yspan) == g_cmd::kWidgetHeight;
 };
-static bool overlay_widget_is_valid()
-{
-  return valid (g_overlay::frame) &&
-         size (g_overlay::frame.xspan) >= g_overlay::kMinWidgetWidth &&
-         size (g_overlay::frame.yspan) >= g_overlay::kMinWidgetHeight;
-}
-static bool ui_is_valid()
-{
-  return tb_width() > 0 && tb_height() > 0 && cmd_widget_is_valid() &&
-         browser_widget_is_valid() && overlay_widget_is_valid();
-}
 
-}  // namespace validate
+#define APB_ASSERT_MAIN_UI_VALID          \
+  APB_ASSERT (tb_width() > 0);            \
+  APB_ASSERT (tb_height() > 0);           \
+  APB_ASSERT (browser_widget_is_valid()); \
+  APB_ASSERT (cmd_widget_is_valid());
+
+#define APB_ASSERT_OVERLAY_UI_VALID                                 \
+  APB_ASSERT (valid (g_overlay::frame), g_overlay::frame);          \
+  APB_ASSERT (                                                      \
+      size (g_overlay::frame.xspan) >= g_overlay::kMinWidgetWidth,  \
+      g_overlay::frame                                              \
+  );                                                                \
+  APB_ASSERT (                                                      \
+      size (g_overlay::frame.yspan) >= g_overlay::kMinWidgetHeight, \
+      g_overlay::frame                                              \
+  )
+
+}  // namespace
 
 // --- end helpers --- //
 
@@ -111,10 +117,12 @@ bool size_and_set_overlay_widget (helpblocks::TextBlockRef content)
   g_overlay::contentBox = e2::Box{body (xSpan), body (ySpan)};
   g_overlay::content = content;
 
+  // postconditions:
+  APB_ASSERT_OVERLAY_UI_VALID;
   return true;
 }
 
-bool size_widgets()
+bool size_main_widgets()
 {
   const auto screenW = tb_width();
   const auto screenH = tb_height();
@@ -174,7 +182,7 @@ bool size_widgets()
     g_cmd::msgLine = e2::HLine{body (screenX), y};
   }
 
-  APB_ASSERT (validate::ui_is_valid());
+  APB_ASSERT_MAIN_UI_VALID;
   return true;
 }
 // --- end sizing --- //
@@ -689,7 +697,7 @@ void draw_main_to_buffer()
   // NOTE: set order does matter,
   // since some places just overwrite
   // previous draw calls
-  APB_ASSERT (validate::ui_is_valid());
+  APB_ASSERT_MAIN_UI_VALID;
   APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
 
 
@@ -1054,13 +1062,13 @@ void draw_main_to_buffer()
     );
   }
 
-  // postcondition:
-  APB_ASSERT (validate::ui_is_valid());
+  // postconditions:
+  APB_ASSERT_MAIN_UI_VALID;
 }
 
 void draw_overlay_to_buffer()
 {
-  APB_ASSERT (validate::overlay_widget_is_valid());
+  APB_ASSERT_OVERLAY_UI_VALID;
   APB_ASSERT (!g_overlay::content.empty());
 
   const auto& box = g_overlay::contentBox;

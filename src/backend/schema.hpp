@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <string_view>
 
+inline constexpr auto kSchemaVersion = 1;
+#define APB_SCHEMA_VER "1"
+
 // Tests for this header live in schema.cpp (a test-only TU).
 
 // NOTE: sqlite3 bind indexing is 1-based, select indexing
@@ -28,7 +31,8 @@ CREATE TABLE locus_metadata (
      -- one row only; one locus per db
     id     INTEGER PRIMARY KEY CHECK (id = 1),
 
-    apb_version TEXT NOT NULL,
+    apb_db_version INTEGER NOT NULL CHECK (apb_db_version = )sql" APB_SCHEMA_VER
+    R"sql(),
 
     -- locus
     contig TEXT NOT NULL CHECK (contig <> ''),
@@ -50,14 +54,14 @@ CREATE TABLE locus_metadata (
 )sql";
 
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
-INSERT INTO locus_metadata (apb_version, contig, pos, start, end, ref, n_aln) VALUES (?,?,?,?,?,?,?);
+INSERT INTO locus_metadata (apb_db_version, contig, pos, start, end, ref, n_aln) VALUES (?,?,?,?,?,?,?);
 )sql";
 
 struct MetaTableSelect {
   // TIED TO EXPLICIT SELECT STATEMENT
   enum Idx : uint8_t {
     id,
-    version,
+    dbVersion,
     contig,
     pos,
     start,

@@ -5,7 +5,7 @@
 // Calculates and sets sizes on statically-sized UI elements.
 // Returns true on success, false on failure due
 // to insufficient space available.
-[[nodiscard]] bool size_widgets();
+[[nodiscard]] bool size_main_widgets();
 // Calculates and sets sizes on dynamically-sized overlay widget.
 // Returns true on success, false on failure due
 // to insufficient space available.

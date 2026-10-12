@@ -27,7 +27,7 @@ int insert_raw_metadata (
   );
 
   int col = 1;
-  sqlite3_bind_text (stmt, col++, "test", -1, SQLITE_STATIC);
+  sqlite3_bind_int64 (stmt, col++, kSchemaVersion);
   sqlite3_bind_text (stmt, col++, "chr1", -1, SQLITE_STATIC);
   sqlite3_bind_int64 (stmt, col++, pos);
   sqlite3_bind_int64 (stmt, col++, start);

@@ -14,27 +14,27 @@
 
 // NOTE: write in single line paragraphs. The reader should use a word-wrapping pager.
 
-static constexpr std::string_view manualChunk1 = R"txt(
-apb Manual - A Pileup Browser
+static constexpr std::string_view manualChunk1 = R"md(
+# apb Manual - A Pileup Browser
 
 **IMPORTANT**:
 The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
-This is the manual for apb version )txt" APB_VERSION R"txt(.
+This is the manual for apb version )md" APB_VERSION R"md(.
 
 It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
-1) Overview
+## 1) Overview
 
 Given an alignment file and a genomic locus apb retrieves all reads aligned to that position and loads the reads into a fast, queryable database structure. The TUI then displays the aligned reads alongside user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command line at which you can enter commands to query the reads or change the display. The display and command line can be navigated via simple arrow key navigation.
 
 **IMPORTANT**:
 apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line. See Section 5 ("A Word on Indexing Systems") for more detail.
 
-2) CLI Usage
+## 2) CLI Usage
 
 See the helptext from `apb --help` for the canonical guide to the CLI. Some additional context is given here.
 
-`apb FILE LOCUS [REF]` opens an alignment file (SAM/BAM/CRAM) at a locus (`chr1:12345`), loads the pileup, and launches the TUI. A locus is specified in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. If a reference is provided, the reference will be shown and the alignment view will be enriched indicating divergence from the reference in the displayed reads.
+`apb LOCUS FILE...` opens one or more alignment files (SAM/BAM/CRAM) at a locus (`chr1:12345`), loads the pileup, and launches the TUI. A locus is specified in the form `contig:coordinate` - only a single coordinate needs to be provided, rather than a length-1 range as in many `samtools` commands. If a reference is provided via `--ref PATH`, the reference will be shown and the alignment view will be enriched indicating divergence from the reference in the displayed reads.
 
 **IMPORTANT**:
 The locus coordinate is 1-based, as `samtools` CLI commands and the VCF spec - matching the coordinates displayed inside the browser (see Section 6, "A Word on Indexing Systems").
@@ -43,37 +43,35 @@ The locus coordinate is 1-based, as `samtools` CLI commands and the VCF spec - m
 
 `apb --db DB` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command). `--demo` and `--db` are mutually exclusive with each other and with the FILE/LOCUS/REF arguments.
 
-`apb --log <path.txt>` enables debug logging. Valuable to turn on during this early development stage in case any crashes are encountered!
-
-3) TUI Usage
+## 3) TUI Usage
 
 Note that TUI usage is subject to change pending user feedback.
 
-3.1) Basic Navigation
+### 3.1) Basic Navigation
 
 The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. Normal typing goes directly to the command line at the bottom of the TUI. `Enter` dispatches the contents as a command. This table is also available via `help nav` at the in-app command line.
 
 Navigation Keys:
 
-)txt";
+)md";
 
-static constexpr std::string_view manualChunk2 = R"txt(
+static constexpr std::string_view manualChunk2 = R"md(
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
-3.2) Command Reference
+### 3.2) Command Reference
 
 Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use. This table is built directly from the command implementation in src and is also available via `help cmd` at the in-app command line.
 
-)txt";
+)md";
 
-static constexpr std::string_view manualChunk3 = R"txt(
+static constexpr std::string_view manualChunk3 = R"md(
 
-3.3) Querying the Pileup
+### 3.3) Querying the Pileup
 
 The apb query commands provide a simple wrapper around (SQLite-flavoured) SQL. Whereas a more generic SQL REPL might be structured around dispatching known, predetermined queries, apb aims to support stepwise pattern discovery. The active query (a WHERE clause plus an ORDER BY) persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `order`). By example, a session might look like the following: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's uninformative and undo, filter by mapping quality instead, and so on. See Section 3.4 (Table Reference) for the full list of queryable columns.
 
-3.3.1) Query Walkthrough
+### 3.3.1) Query Walkthrough
 
 Imagine a putative variant locus under manual inspection. Starting broad, we can filter the view to show only reads with a non-reference base at the pileup position. Assume `G` is the reference base:
 ```
@@ -106,11 +104,11 @@ To count reads matching the current query, use `count`. You may also optionally 
 (base != 'G') AND mapq > 10: 17 reads
 ```
 
-3.3.2) Further Examples
+### 3.3.2) Further Examples
 
 Beyond plain comparisons, SQLite's full function library is available. A few examples:
 
-READ LENGTH:
+**READ LENGTH**:
 
 Arithemtic functions are available. For example:
 ```
@@ -118,7 +116,7 @@ where end - start < 100
 ```
 would filter the view to reads less than 100 bases long.
 
-CIGAR QUERYING:
+**CIGAR QUERYING**:
 
 Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing any insertion:
 ```
@@ -129,7 +127,7 @@ or, if you prefer
 where cigar like '%I%'
 ```
 
-AUX TAGS:
+**AUX TAGS**:
 
 Aux tags may be queried with `->>`. For example, to check a read group via the RG tag:
 ```
@@ -145,7 +143,7 @@ where tags ->> '$.RG' is null
 ```
 Would find reads missing the RG tag.
 
-MOTIFS AT THE QUERY POSITION:
+**MOTIFS AT THE QUERY POSITION**:
 
 This is a slightly more advanced example. `qpos` is the 1-based offset into `seq` for the base at the pileup position, matching SQLite's own 1-based `substr()` indexing, so to search for the 4-mer `GATC` starting at the query position:
 ```
@@ -160,15 +158,17 @@ You can also search for motifs within a window of the `seq` string. This command
 where instr(substr(seq, 1, 10), 'GATC') > 0
 ```
 
+---
+
 Any and all of these approaches may be combined, and more is possible. See SQLite's expression/function reference - https://sqlite.org/lang_expr.html.
 
-3.4) Table Reference
+### 3.4) Table Reference
 
 For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help table` at the in-app command line.
 
-)txt";
+)md";
 
-static constexpr std::string_view manualChunk4 = R"txt(
+static constexpr std::string_view manualChunk4 = R"md(
 
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
 
@@ -178,7 +178,7 @@ The first ten columns (`qname` through `mstart`) can be displayed in tabular for
 
 For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs - consult the schema.
 
-4) A Word on `dump` Functionality
+## 4) A Word on `dump` Functionality
 
 A dump is a small, self-contained sqlite3 file with just the reads at the specified locus. A few use cases:
 
@@ -189,7 +189,7 @@ A dump is a small, self-contained sqlite3 file with just the reads at the specif
 
 Note that coordinate data within the dump is 1-based, matching the display.
 
-5) A Word on Indexing Systems
+## 5) A Word on Indexing Systems
 
 htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 0-based half-open and 1-based closed coordinate systems. This can be tricky to navigate.
 
@@ -201,7 +201,7 @@ The 1-based coordinates as displayed in apb also match the behaviour of both `IG
 
 See the README or the project GitHub (https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap, and other background.
 
-)txt";
+)md";
 
 std::string_view get_manual()
 {

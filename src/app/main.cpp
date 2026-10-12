@@ -342,7 +342,7 @@ int main (int argc, char** argv)
 
   {
     // render first frame
-    if (!size_widgets()) {
+    if (!size_main_widgets()) {
       tb_cleanup.invoke();
       std::cerr << "Terminal too small to display TUI! Try resizing?"
                 << std::endl;

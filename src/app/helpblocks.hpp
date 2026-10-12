@@ -134,6 +134,12 @@ inline constexpr auto tableColumns = std::to_array<std::string_view> ({
     "      the read quality string in ASCII format   ",
     "  `ncig`:                                       ",
     "      number of CIGAR operations in the read    ",
+    "  `path`:                                       ",
+    "      Path to alignment file from which a read  ",
+    "      came. Note that shell variable expansion  ",
+    "      will have taken place when the path was   ",
+    "      provided at the CLI, so e.g. `*` will     ",
+    "      been expanded.                            ",
 });
 static_assert (
     !tableColumns.empty() && std::ranges::all_of (

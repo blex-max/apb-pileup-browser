@@ -189,7 +189,7 @@ void handle_event (const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
-    g_ui::tooSmall = !size_widgets();
+    g_ui::tooSmall = !size_main_widgets();
     if (g_ui::showOverlay &&
         !size_and_set_overlay_widget (g_overlay::content)) {
       g_ui::showOverlay = false;

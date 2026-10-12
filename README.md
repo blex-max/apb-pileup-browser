@@ -84,10 +84,10 @@ cmake --build build
 The compiled binary can be found at `build/apb`.
 
 ## Usage 
-For CLI/TUI usage, command syntax, and query examples, you can generate a manual specific to your version with `apb --manual > MANUAL.txt`
+For CLI/TUI usage, command syntax, and query examples, you can generate a manual specific to your version with `apb --manual > MANUAL.md`
 (Check `apb --help` for exact instructions for manual generation).
 
-You may also read the copy of [MANUAL.txt](MANUAL.txt) shipped with the repository without building,
+You may also read the copy of [MANUAL.md](MANUAL.md) shipped with the repository without building,
 but note that it may not exactly correspond to your version of the tool!
 
 If you are new to the tool, it is strongly recommend that you read the manual and play around with `apb --demo`. The manual is short and it's easy to miss some of the most powerful features otherwise!

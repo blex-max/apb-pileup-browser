@@ -12,7 +12,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "backend/hts_types.hpp"
@@ -913,9 +912,7 @@ InsertPileupStatus insert_pileup (
     }
   };
 
-  bindOK (
-      sqlite3_bind_text (o_stmt, col++, APB_VERSION, -1, SQLITE_TRANSIENT)
-  );
+  bindOK (sqlite3_bind_int64 (o_stmt, col++, kSchemaVersion));
   bindOK (sqlite3_bind_text (
       o_stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
   ));
