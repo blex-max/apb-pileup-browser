@@ -310,46 +310,70 @@ namespace draw_aln {
 namespace {
 // seq1 internals
 
-struct ReadFields {
+struct ReadAlnFields {
   int64_t rStart;
-  std::string seq;
-  std::string qual;
+  std::optional<std::string> seq;
+  std::optional<std::string> qual;
   const uint32_t* cig_br;
   uint64_t nCig;
 };
-ReadFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
+
+// placeholder drawn for bases when a read has SEQ '*'
+constexpr char kNoSeqChar = '?';
+
+char seq_char (const std::optional<std::string>& seq, size_t i)
+{
+  return seq ? (*seq)[i] : kNoSeqChar;
+}
+
+ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
 {
   // NOTE: currently does no error checking
   return {
       .rStart = sqlite3_column_int64 (
           br_stmtRow, schema::UserReadViewSelect::start
       ),
-      .seq =
-          [&br_stmtRow]() {
-            const auto* p = sqlite3_column_text (
+      .seq = [&br_stmtRow]() -> decltype (ReadAlnFields::seq) {
+        if (sqlite3_column_type (
                 br_stmtRow, schema::UserReadViewSelect::seq
-            );
-            const auto len = sqlite3_column_bytes (
-                br_stmtRow, schema::UserReadViewSelect::seq
-            );
-            return std::string (
+            ) == SQLITE_NULL) {
+          return std::nullopt;
+        }
+            // else
+        const auto* p = sqlite3_column_text (
+            br_stmtRow, schema::UserReadViewSelect::seq
+        );
+        const auto len = sqlite3_column_bytes (
+            br_stmtRow, schema::UserReadViewSelect::seq
+        );
+        return std::make_optional (
+            std::string (
                 reinterpret_cast<const char*> (p),
                 static_cast<size_t> (len)
-            );
-          }(),
-      .qual =
-          [&br_stmtRow]() {
-            const auto* br_p = sqlite3_column_text (
+            )
+        );
+      }(),
+      .qual = [&br_stmtRow]() -> decltype (ReadAlnFields::qual) {
+        if (sqlite3_column_type (
                 br_stmtRow, schema::UserReadViewSelect::qual
-            );
-            const auto len = sqlite3_column_bytes (
+            ) == SQLITE_NULL) {
+          return std::nullopt;
+        }
+            // else
+        const auto* br_rawQualBlob =
+            static_cast<const uint8_t*> (sqlite3_column_blob (
                 br_stmtRow, schema::UserReadViewSelect::qual
-            );
-            return std::string (
-                reinterpret_cast<const char*> (br_p),
-                static_cast<size_t> (len)
-            );
-          }(),
+            ));
+        const auto len = static_cast<size_t> (sqlite3_column_bytes (
+            br_stmtRow, schema::UserReadViewSelect::qual
+        ));
+        std::string asciiQual (len, ' ');
+        for (size_t i = 0; i < len; i++) {
+          // +33 phred offset
+          asciiQual[i] = static_cast<char> (br_rawQualBlob[i] + 33);
+        }
+        return asciiQual;
+      }(),
       .cig_br =
           [&br_stmtRow]() {
             return static_cast<const uint32_t*> (sqlite3_column_blob (
@@ -508,7 +532,10 @@ static e2::Delta seq1 (
                ++i, ++opInsWriteHead.x) {
             set (
                 opInsWriteHead,
-                static_cast<uint32_t> (readFields.seq[iQuery + i])
+                static_cast<uint32_t> (
+                    seq_char (readFields.seq, iQuery + i)
+                ),
+                readFields.seq ? e2::Style{} : e2::Style{.fg = TB_DIM}
             );
           }
           readInsDrawn = true;
@@ -518,7 +545,7 @@ static e2::Delta seq1 (
           e2::set_attr (anchorCell, {.fg = TB_UNDERLINE});
         }
 
-        if (enableQualTrack) {
+        if (enableQualTrack && readFields.qual) {
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
           if (opInsQualWriteHead.x < fa.writeLimits.x) {
@@ -530,7 +557,7 @@ static e2::Delta seq1 (
                ++i, ++opInsQualWriteHead.x) {
             set (
                 opInsQualWriteHead,
-                static_cast<uint32_t> (readFields.qual[iQuery + i]),
+                static_cast<uint32_t> ((*readFields.qual)[iQuery + i]),
                 {.fg = TB_DIM}
             );
           }
@@ -589,20 +616,24 @@ static e2::Delta seq1 (
       for (size_t i = 0; i < opLenRemain && writeHead.x < fa.writeLimits.x;
            ++i, ++writeHead.x) {
         e2::Style dispStyle;
-        auto dispChar = readFields.seq[iQuery + i];
+        auto dispChar = seq_char (readFields.seq, iQuery + i);
+        if (!readFields.seq) {
+          dispStyle = {.fg = TB_DIM};
+        }
         // mask bases that match the reference with '='.
-        if (ref && (std::toupper (static_cast<unsigned char> (dispChar)) ==
-                    std::toupper (
-                        static_cast<unsigned char> ((*ref)[iRef + i])
-                    ))) {
+        else if (ref &&
+                 (std::toupper (static_cast<unsigned char> (dispChar)) ==
+                  std::toupper (
+                      static_cast<unsigned char> ((*ref)[iRef + i])
+                  ))) {
           dispChar = '=';
           dispStyle = {.fg = TB_DIM};
         }
         set (writeHead, static_cast<uint32_t> (dispChar), dispStyle);
-        if (enableQualTrack) {
+        if (enableQualTrack && readFields.qual) {
           qualDisplayBuf[static_cast<uint16_t> (
               static_cast<int16_t> (writeHead.x) - fa.writeStartX
-          )] = readFields.qual[iQuery + i];
+          )] = (*readFields.qual)[iQuery + i];
         }
       }
 

@@ -145,18 +145,18 @@ struct PileupFields {
   hts_pos_t end = -1;
   uint8_t mapQ = UINT8_MAX;
 
-  std::optional<char> base;
-  std::optional<uint8_t> baseQual = UINT8_MAX;
+  std::optional<char> base = std::nullopt;
+  std::optional<uint8_t> baseQual = std::nullopt;
   int32_t qPos = -1;
   int indel = INT_MAX;
   bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
 
   std::string cig;
-  std::string seqBases;
-  std::string qualAscii;
+  std::optional<std::string> seq = std::nullopt;
+  std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
 
-  std::string mtidName;
-  hts_pos_t mStart = -1;
+  std::optional<std::string> mtidName = std::nullopt;
+  std::optional<hts_pos_t> mStart = std::nullopt;
 
   std::string auxJson;
 
@@ -165,9 +165,9 @@ struct PileupFields {
 
   bool valid() const noexcept
   {
-    return start >= 0 && end > start && qPos >= 0 && !seqBases.empty() &&
-           seqBases.size() == qualAscii.size() && nCig == rawCig.size() &&
-           !rawCig.empty();
+    return start >= 0 && end > start && qPos >= 0 &&
+           (!seq || !rawQual || seq->size() == rawQual->size()) &&
+           nCig == rawCig.size() && !rawCig.empty();
   }
 };
 
@@ -220,10 +220,9 @@ struct fmt::formatter<hts2sql::PileupFields>
   {
     return fmt::formatter<std::string>::format (
         fmt::format (
-            "PileupFields{{start: {}, end: {}, qPos: {}, seqBases.size: "
-            "{}, qualAscii.size: {}, nCig: {}, rawCig.size: {}}}",
-            pf.start, pf.end, pf.qPos, pf.seqBases.size(),
-            pf.qualAscii.size(), pf.nCig, pf.rawCig.size()
+            "PileupFields{{start: {}, end: {}, qPos: {}, "
+            "nCig: {}, rawCig.size: {}}}",
+            pf.start, pf.end, pf.qPos, pf.nCig, pf.rawCig.size()
         ),
         ctx
     );

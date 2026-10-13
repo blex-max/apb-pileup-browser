@@ -38,48 +38,6 @@ int insert_raw_metadata (
   return sqlite3_step (stmt);
 }
 
-// partially fixed values for read table insertion
-int insert_raw_read (sqlite3* conn, int64_t start, int64_t end)
-{
-  sqlite3_stmt* stmt;
-  REQUIRE (
-      sqlite3_prepare_v2 (
-          conn, schema::sqlInsertReads.data(),
-          static_cast<int> (schema::sqlInsertReads.size()), &stmt, NULL
-      ) == SQLITE_OK
-  );
-
-  const uint8_t cigBlob[4] = {0, 0, 0, 0};
-
-  int col = 1;
-  sqlite3_bind_text (stmt, col++, "dummy", -1, SQLITE_STATIC);
-  sqlite3_bind_int (stmt, col++, 0);  // flag
-  sqlite3_bind_int64 (stmt, col++, start);
-  sqlite3_bind_int64 (stmt, col++, end);
-  sqlite3_bind_int (stmt, col++, 0);  // mapq
-  sqlite3_bind_text (stmt, col++, "A", 1, SQLITE_STATIC);  // base
-  sqlite3_bind_int (stmt, col++, 30);  // basequal
-  sqlite3_bind_int64 (stmt, col++, 1);  // qpos
-  sqlite3_bind_int (stmt, col++, 0);  // indel
-  sqlite3_bind_int (stmt, col++, 0);  // is_del
-  sqlite3_bind_int (stmt, col++, 0);  // is_head
-  sqlite3_bind_int (stmt, col++, 0);  // is_tail
-  sqlite3_bind_int (stmt, col++, 0);  // is_refskip
-  sqlite3_bind_text (stmt, col++, "1M", -1, SQLITE_STATIC);  // cigar
-  sqlite3_bind_text (stmt, col++, "A", 1, SQLITE_STATIC);  // seq
-  sqlite3_bind_text (stmt, col++, "I", 1, SQLITE_STATIC);  // qual
-  sqlite3_bind_null (stmt, col++);  // mtid
-  sqlite3_bind_null (stmt, col++);  // mstart
-  sqlite3_bind_null (stmt, col++);  // tags
-  sqlite3_bind_blob (
-      stmt, col++, cigBlob, 4, SQLITE_STATIC
-  );  // cig_uint32
-  sqlite3_bind_int (stmt, col++, 1);  // ncig
-  sqlite3_bind_int64 (stmt, col++, 1);  // path_id
-
-  return sqlite3_step (stmt);
-}
-
 }  // namespace
 
 TEST_CASE ("metadata CHECK(id = 1) rejects a second row")
@@ -91,50 +49,4 @@ TEST_CASE ("metadata CHECK(id = 1) rejects a second row")
 
   const int rc = insert_raw_metadata (conn, 100, 100, 200);
   CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
-}
-
-TEST_CASE (
-    "validate_read_span trigger enforces read span against locus "
-    "metadata"
-)
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  REQUIRE (
-      sqlite3_exec (
-          conn,
-          "INSERT INTO alignment_files (id, path) VALUES (1, 'test.bam');",
-          nullptr, nullptr, nullptr
-      ) == SQLITE_OK
-  );
-  REQUIRE (insert_raw_metadata (conn, 150, 100, 200) == SQLITE_DONE);
-
-  SUBCASE ("span within locus bounds is accepted")
-  {
-    CHECK (insert_raw_read (conn, 120, 170) == SQLITE_DONE);
-  }
-
-  SUBCASE ("read start before locus start is rejected")
-  {
-    const int rc = insert_raw_read (conn, 50, 170);
-    CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
-  }
-
-  SUBCASE ("read end past locus end is rejected")
-  {
-    const int rc = insert_raw_read (conn, 120, 250);
-    CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
-  }
-
-  SUBCASE ("read start past pileup pos is rejected")
-  {
-    const int rc = insert_raw_read (conn, 160, 180);
-    CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
-  }
-
-  SUBCASE ("read end before pileup pos is rejected")
-  {
-    const int rc = insert_raw_read (conn, 100, 140);
-    CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
-  }
 }

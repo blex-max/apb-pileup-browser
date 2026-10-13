@@ -382,6 +382,8 @@ int main (int argc, char** argv)
     tb_clear();
 
     tb_poll_event (&ev);
+    // NOTE: input still processed if ui
+    // too small, to allow quitting.
     handle_event (ev);
     {
       if (g_state::ui::tooSmall) {
@@ -879,9 +881,13 @@ static std::expected<void, std::string> populate_db_mode_locus (
 
     // FIXME: a TRY_SQL macro would be great
     sqlite3_stmt* o_fileInsertStmt;
+    Defer stmt_cleanup ([&o_fileInsertStmt]() {
+      sqlite3_finalize (o_fileInsertStmt);
+    });
     if (const auto rc = sqlite3_prepare_v2 (
             g_db::conn, schema::sqlInsertFile.data(),
-            schema::sqlInsertFile.size(), &o_fileInsertStmt, NULL
+            static_cast<int> (schema::sqlInsertFile.size()),
+            &o_fileInsertStmt, NULL
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
@@ -911,7 +917,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
           )
       );
     }
-    sqlite3_finalize (o_fileInsertStmt);
+    stmt_cleanup.invoke();
     const auto alnID = sqlite3_last_insert_rowid (g_db::conn);
 
     const auto get_mtid_name = [&aln] (int mtid) {

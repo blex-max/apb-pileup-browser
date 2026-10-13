@@ -160,11 +160,11 @@ void generate_demo_data (
     // the read seq/qual buffers grow by insLen
     const size_t seqLen = qLen + insLen;
     std::string seq (seqLen, ' ');
-    std::string qual (seqLen, ' ');
-    std::array<char, 3> qualChars{'F', 'E', 'D'};
-    std::discrete_distribution<uint8_t> qualCharPicker ({100, 20, 10});
+    std::vector<uint8_t> qual (seqLen, ' ');
+    std::array<uint8_t, 3> qualVals{'F' - 33, 'E' - 33, 'D' - 33};
+    std::discrete_distribution<uint8_t> qualValPicker ({100, 20, 10});
     for (size_t j = 0; j < seqLen; ++j) {
-      qual[j] = qualChars[qualCharPicker (rng)];
+      qual[j] = qualVals[qualValPicker (rng)];
 
       if (j == static_cast<size_t> (finalQPos)) {
         constexpr char pileupAlt = 'T';
@@ -203,8 +203,8 @@ void generate_demo_data (
       const char refBase = refSeq[refOffset];
       seq[j] = mismatchDist (rng) ? mutate_base (refBase, rng) : refBase;
     }
-    elemBuf.seqBases = std::move (seq);
-    elemBuf.qualAscii = std::move (qual);
+    elemBuf.seq = std::move (seq);
+    elemBuf.rawQual = std::move (qual);
 
     std::vector<uint32_t> cigOps;
     if (leadClip) {
@@ -256,9 +256,9 @@ void generate_demo_data (
                               : static_cast<hts_pos_t> (qLen - clipLen));
 
     elemBuf.qPos = finalQPos;
-    elemBuf.base = elemBuf.seqBases[static_cast<size_t> (finalQPos)];
+    elemBuf.base = (*elemBuf.seq)[static_cast<size_t> (finalQPos)];
     elemBuf.baseQual = static_cast<uint8_t> (
-        elemBuf.qualAscii[static_cast<size_t> (finalQPos)] - 33
+        (*elemBuf.rawQual)[static_cast<size_t> (finalQPos)]
     );
     elemBuf.isHead = (finalQPos == 0);
     elemBuf.isTail = (finalQPos == static_cast<int32_t> (qLen - 1));

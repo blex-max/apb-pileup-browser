@@ -127,17 +127,6 @@ sqlite3* init()
     );
   }
 
-  if (const auto rc =
-          sqlite_exec (schema::sqlCreatePerRecordInsertTrigger);
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to create read insert trigger: {}",
-            sqlite3_errmsg (conn)
-        )
-    );
-  }
-
   if (const auto rc = sqlite_exec (schema::sqlCreateUserView);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
@@ -321,6 +310,9 @@ std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path)
           )
       };
     }
+    meta.nAln = static_cast<int16_t> (
+        sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
+    );
     if (!meta.valid()) {
       return std::unexpected (
           LoadErr{
@@ -714,7 +706,9 @@ static bool fill_fields (
 
   pf.qPos = br_p1->qpos;
   pf.start = br_b1->core.pos;
-  pf.mStart = br_b1->core.mpos;  // <0 == unaligned (or no mate)
+  if (br_b1->core.mpos >= 0) {  // <0 == unaligned (or no mate)
+    pf.mStart = br_b1->core.mpos;
+  }
 
   pf.indel = br_p1->indel;
   pf.isDel = br_p1->is_del;
@@ -726,27 +720,41 @@ static bool fill_fields (
   pf.qName = bam_get_qname (br_b1);
   pf.flag = br_b1->core.flag;
   pf.mapQ = br_b1->core.qual;
-  pf.mtidName = mTidName != NULL ? mTidName : "";
+  if (mTidName != NULL) {
+    pf.mtidName = mTidName;
+  }
   pf.rawCig = {br_cig, br_cig + nCig};
   pf.nCig = br_b1->core.n_cigar;
 
   {
     /* stringify seq, qual */
-    // ASSUMPTION: seq and qual data present.
     const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
-    pf.seqBases.resize (lq);
-    pf.qualAscii.resize (lq);
+    // Tests per sam format spec
+    const bool hasSeq = lq > 0;
+    const bool hasQual = hasSeq && bam_get_qual (br_b1)[0] != 0xFF;
+    if (hasSeq) {
+      pf.seq.emplace (lq, ' ');
 
-    const uint8_t* br_qs = bam_get_seq (br_b1);
-    const uint8_t* br_qq = bam_get_qual (br_b1);
-    for (size_t j = 0; j < lq; ++j) {
-      pf.seqBases[j] = seq_nt16_str[bam_seqi (br_qs, j)];
-      pf.qualAscii[j] = static_cast<char> (br_qq[j] + 33);
+      const uint8_t* br_qs = bam_get_seq (br_b1);
+      for (size_t j = 0; j < lq; ++j) {
+        (*pf.seq)[j] = seq_nt16_str[bam_seqi (br_qs, j)];
+      }
+      if (!br_p1->is_del) {
+        pf.base = (*pf.seq)[static_cast<size_t> (br_p1->qpos)];
+      }
     }
-    if (!br_p1->is_del) {
-      pf.baseQual = br_qq[br_p1->qpos];
-      pf.base = pf.seqBases[static_cast<size_t> (br_p1->qpos)];
+    if (hasQual) {
+      pf.rawQual.emplace (lq);
+      const uint8_t* br_qq = bam_get_qual (br_b1);
+      for (size_t j = 0; j < lq; ++j) {
+        // FIXME: 33 offset removed - to handle query side
+        (*pf.rawQual)[j] = br_qq[j];
+      }
+      if (!br_p1->is_del) {
+        pf.baseQual = br_qq[br_p1->qpos];
+      }
     }
+    // else these fields are nullopt
   }
 
   {
@@ -993,16 +1001,23 @@ void bind_read_data (
   bindOK (sqlite3_bind_int64 (stmt, col++, pf.start + 1));
   bindOK (sqlite3_bind_int64 (stmt, col++, pf.end));
   bindOK (sqlite3_bind_int (stmt, col++, pf.mapQ));
+
   if (pf.base) {
     bindOK (
         sqlite3_bind_text (stmt, col++, &(*pf.base), 1, SQLITE_TRANSIENT)
     );
+  }
+  else {
+    bindOK (sqlite3_bind_null (stmt, col++));
+  }
+
+  if (pf.baseQual) {
     bindOK (sqlite3_bind_int (stmt, col++, *pf.baseQual));
   }
   else {
     bindOK (sqlite3_bind_null (stmt, col++));
-    bindOK (sqlite3_bind_null (stmt, col++));
   }
+
   bindOK (sqlite3_bind_int64 (stmt, col++, pf.qPos + 1));
   bindOK (sqlite3_bind_int (stmt, col++, pf.indel));
   bindOK (sqlite3_bind_int (stmt, col++, static_cast<int> (pf.isDel)));
@@ -1013,29 +1028,44 @@ void bind_read_data (
       stmt, col++, pf.cig.data(), static_cast<int> (pf.cig.size()),
       SQLITE_TRANSIENT
   ));
-  bindOK (sqlite3_bind_text (
-      stmt, col++, pf.seqBases.data(),
-      static_cast<int> (pf.seqBases.size()), SQLITE_TRANSIENT
-  ));
-  bindOK (sqlite3_bind_text (
-      stmt, col++, pf.qualAscii.data(),
-      static_cast<int> (pf.qualAscii.size()), SQLITE_TRANSIENT
-  ));
-  if (!pf.mtidName.empty()) {
+
+  if (pf.seq) {
     bindOK (sqlite3_bind_text (
-        stmt, col++, pf.mtidName.data(),
-        static_cast<int> (pf.mtidName.size()), SQLITE_TRANSIENT
+        stmt, col++, pf.seq->data(), static_cast<int> (pf.seq->size()),
+        SQLITE_TRANSIENT
     ));
   }
   else {
     bindOK (sqlite3_bind_null (stmt, col++));
   }
-  if (pf.mStart < 0) {
-    bindOK (sqlite3_bind_null (stmt, col++));
+
+  if (pf.rawQual) {
+    bindOK (sqlite3_bind_blob (
+        stmt, col++, pf.rawQual->data(),
+        static_cast<int> (pf.rawQual->size()), SQLITE_TRANSIENT
+    ));
   }
   else {
-    bindOK (sqlite3_bind_int64 (stmt, col++, pf.mStart + 1));
+    bindOK (sqlite3_bind_null (stmt, col++));
   }
+
+  if (pf.mtidName) {
+    bindOK (sqlite3_bind_text (
+        stmt, col++, pf.mtidName->data(),
+        static_cast<int> (pf.mtidName->size()), SQLITE_TRANSIENT
+    ));
+  }
+  else {
+    bindOK (sqlite3_bind_null (stmt, col++));
+  }
+
+  if (pf.mStart) {
+    bindOK (sqlite3_bind_int64 (stmt, col++, pf.mStart.value() + 1));
+  }
+  else {
+    bindOK (sqlite3_bind_null (stmt, col++));
+  }
+
   if (pf.auxJson.empty()) {
     bindOK (sqlite3_bind_null (stmt, col++));
   }
@@ -1045,6 +1075,7 @@ void bind_read_data (
         static_cast<int> (pf.auxJson.size()), SQLITE_TRANSIENT
     ));
   }
+
   bindOK (sqlite3_bind_blob (
       stmt, col++, pf.rawCig.data(), static_cast<int> (pf.nCig << 2),
       SQLITE_TRANSIENT
@@ -1253,10 +1284,11 @@ hts2sql::PileupFields make_basic_fields (hts_pos_t mStart = -1)
   pf.isTail = false;
   pf.isRefSkip = false;
   pf.cig = "50M";
-  pf.seqBases = "ACGTACGTAC";
-  pf.qualAscii = "IIIIIIIIII";
-  pf.mtidName = "";
-  pf.mStart = mStart;
+  pf.seq = "ACGTACGTAC";
+  pf.rawQual = std::vector<uint8_t> (10, 37);
+  if (mStart >= 0) {
+    pf.mStart = mStart;
+  }
   pf.auxJson = "";
   pf.rawCig = {static_cast<uint32_t> (bam_cigar_gen (50, BAM_CMATCH))};
   pf.nCig = pf.rawCig.size();
@@ -1362,7 +1394,7 @@ TEST_CASE (
     CHECK (
         sqlite3_column_int64 (
             o_stmt, schema::UserReadViewSelect::mstart
-        ) == pf.mStart + 1
+        ) == *pf.mStart + 1
     );
     sqlite3_finalize (o_stmt);
   }
@@ -1389,6 +1421,56 @@ TEST_CASE (
     );
     sqlite3_finalize (o_stmt);
   }
+}
+
+TEST_CASE ("bind_read_data stores absent seq/qual/baseQual as NULL")
+{
+  sqlite3* conn = setup_db::init();
+  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
+  test::seed_file (conn);
+
+  auto pf = test::make_basic_fields();
+  bool expectSeq = true, expectQual = true, expectBaseQual = true;
+
+  SUBCASE ("QUAL * (qual absent, seq present)")
+  {
+    pf.rawQual.reset();
+    pf.baseQual.reset();
+    expectQual = false;
+    expectBaseQual = false;
+  }
+
+  SUBCASE ("SEQ * (seq, qual, base, baseQual all absent)")
+  {
+    pf.seq.reset();
+    pf.rawQual.reset();
+    pf.base.reset();
+    pf.baseQual.reset();
+    expectSeq = false;
+    expectQual = false;
+    expectBaseQual = false;
+  }
+
+  auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
+  hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
+  REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
+
+  sqlite3_stmt* o_stmt = NULL;
+  const std::string_view sql = "SELECT * FROM reads;";
+  REQUIRE (
+      sqlite3_prepare_v2 (
+          conn, sql.data(), static_cast<int> (sql.size()), &o_stmt, NULL
+      ) == SQLITE_OK
+  );
+  REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
+
+  const auto isNull = [&] (int col) {
+    return sqlite3_column_type (o_stmt, col) == SQLITE_NULL;
+  };
+  CHECK (isNull (schema::UserReadViewSelect::seq) == !expectSeq);
+  CHECK (isNull (schema::UserReadViewSelect::qual) == !expectQual);
+  CHECK (isNull (schema::UserReadViewSelect::basequal) == !expectBaseQual);
+  sqlite3_finalize (o_stmt);
 }
 
 TEST_CASE (
@@ -1457,10 +1539,8 @@ void seed_reads (sqlite3* conn)
     pf.isTail = false;
     pf.isRefSkip = false;
     pf.cig = "1M";
-    pf.seqBases = "A";
-    pf.qualAscii = "I";
-    pf.mtidName = "";
-    pf.mStart = -1;
+    pf.seq = "A";
+    pf.rawQual = std::vector<uint8_t> (1, 30);
     pf.auxJson = "";
     pf.rawCig = {static_cast<uint32_t> (bam_cigar_gen (1, BAM_CMATCH))};
     pf.nCig = pf.rawCig.size();

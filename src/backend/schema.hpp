@@ -50,7 +50,7 @@ CREATE TABLE locus_metadata (
     n_aln INTEGER NOT NULL CHECK (n_aln > 0),
     
     CHECK (pos >= start AND pos <= end)
-)
+) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
@@ -80,7 +80,7 @@ inline constexpr std::string_view sqlCreateFileTable = R"sql(
   CREATE TABLE alignment_files (
     id  INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE
-  );
+  ) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertFile = R"sql(
@@ -100,8 +100,9 @@ CREATE TABLE per_record_data (
     end         INTEGER NOT NULL CHECK (end >= start),     -- 1-based righmost mapping pos
     mapq        INTEGER NOT NULL CHECK (mapq >= 0 AND mapq <= 255),  -- MAPping Quality
 
-    base        CHAR(1) CHECK (base IS NULL OR length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
-    basequal    INTEGER CHECK (basequal IS NULL OR (basequal > -10 AND basequal < 100)),  -- query base quality. Bounds checks conservative, see base-quality-ranges.txt in repo.
+    base        TEXT CHECK (base IS NULL OR length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
+    -- query base quality. SAM format spec specifies [0, 93], but see base-quality-ranges.txt in repo...
+    basequal    INTEGER CHECK (basequal IS NULL OR (basequal >= 0 AND basequal <= 93)),  
     qpos        INTEGER NOT NULL CHECK (qpos > 0),  -- 1-based offset into seq/qual at this position
     indel       INTEGER NOT NULL,  -- indel length to the next position (0 none, >0 ins, <0 del)
     is_del      INTEGER NOT NULL CHECK (is_del IN (0, 1)),
@@ -110,12 +111,12 @@ CREATE TABLE per_record_data (
     is_refskip  INTEGER NOT NULL CHECK (is_refskip IN (0, 1)),
 
     -- bam1_t/alignment fields
-    cigar       TEXT NOT NULL CHECK (cigar <> ''),  -- CIGAR string, stored as text for querying purposes
-    -- these could legitamtely be empty for an entirely hard clipped read
-    seq         TEXT NOT NULL,  -- segment SEQuence
-    qual        TEXT NOT NULL,  -- ASCII of Phred-scaled base QUALity+33
+    cigar       TEXT NOT NULL CHECK (cigar <> ''),  -- CIGAR string, stored as text for querying purposes. Cannot be null/empty for a mapped read.
+    -- these can legitamtely be empty for an entirely hard clipped read
+    seq         TEXT,  -- segment SEQuence
+    qual        BLOB,  -- array of base qualities [0, 93] as uint8_t
 
-    mtid        TEXT,  -- Ref name of the mate/next read ('=' if same as tid per spec)
+    mtid        TEXT CHECK (mtid IS NULL OR mtid <> ''),  -- Ref name of the mate/next read ('=' if same as tid per spec)
     mstart      INTEGER CHECK (mstart IS NULL OR mstart > 0),  -- 1-based leftmost mapping position of the mate/next read, can be null
 
     -- Aux tags serialized as a JSON
@@ -124,30 +125,14 @@ CREATE TABLE per_record_data (
     tags        TEXT CHECK (json_valid (tags)),
 
     -- for frontend alignment purposes
-    cig_uint32  BLOB NOT NULL,  -- can be null per spec, but that would be an unmapped read, which apb does not handle
+    cig_uint32  BLOB NOT NULL,  -- cannot be null for a mapped read
     ncig        INTEGER NOT NULL,
 
     path_id INTEGER NOT NULL REFERENCES alignment_files(id),
 
     CHECK (length (seq) = length (qual)),
     CHECK (length (cig_uint32) = ncig * 4)
-);
-)sql";
-
-// cross-table invariant a CHECK constraint can't express.
-inline constexpr std::string_view sqlCreatePerRecordInsertTrigger =
-    R"sql(
-CREATE TRIGGER validate_read_span
-AFTER INSERT ON per_record_data
-FOR EACH ROW
-BEGIN
-  SELECT RAISE (ABORT, 'read span/position inconsistent with locus metadata')
-  FROM locus_metadata
-  WHERE NEW.start < locus_metadata.start
-     OR NEW.end   > locus_metadata.end
-     OR NEW.start > locus_metadata.pos
-     OR NEW.end   < locus_metadata.pos;
-END;
+) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertReads = R"sql(

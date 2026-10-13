@@ -21,6 +21,11 @@ constinit std::array<ColMetadata, 11> tableCols{{
      }},
     {true, "basequal", 12,
      [] (sqlite3_stmt* row) {
+       if (sqlite3_column_type (
+               row, schema::UserReadViewSelect::basequal
+           ) == SQLITE_NULL) {
+         return std::string{"*"};
+       }
        return std::to_string (
            sqlite3_column_int (row, schema::UserReadViewSelect::basequal)
        );
