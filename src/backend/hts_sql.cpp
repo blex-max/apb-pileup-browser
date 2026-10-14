@@ -1104,6 +1104,11 @@ std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
 
 #include "doctest.h"
 
+// NOTE:
+// The point of these tests is to catch bugs which will not
+// be trivially caught by the defensive programming (APB_ASSERT/UNREACHABLE etc.)
+// during test runs. So rare cases only rather than general behaviour verification.
+
 /* ---- TESTS append_json_escaped ---- */
 
 TEST_CASE ("append_json_escaped escapes per JSON string rules")
