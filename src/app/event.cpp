@@ -86,7 +86,7 @@ static bool handle_nav (const tb_event& ev)
         const auto lastRowOnscreen = static_cast<uint32_t> (
             stmtRowScrollOffset + g_browsr::nReadOnscreen
         );
-        if (lastRowOnscreen < g_db::nStmtRows) {
+        if (lastRowOnscreen < g_db::nScrollRows()) {
           stmtRowScrollOffset++;
         }
       }
@@ -119,7 +119,7 @@ static bool handle_nav (const tb_event& ev)
       const auto lastRowOnscreen = static_cast<uint32_t> (
           stmtRowScrollOffset + g_browsr::nReadOnscreen
       );
-      if (lastRowOnscreen < g_db::nStmtRows) {
+      if (lastRowOnscreen < g_db::nScrollRows()) {
         stmtRowScrollOffset += g_browsr::nReadOnscreen;
       }
       break;

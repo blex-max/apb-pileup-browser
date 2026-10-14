@@ -79,13 +79,30 @@ struct MetaTableSelect {
 inline constexpr std::string_view sqlCreateFileTable = R"sql(
   CREATE TABLE alignment_files (
     id  INTEGER PRIMARY KEY,
-    path TEXT NOT NULL UNIQUE
+    path TEXT NOT NULL UNIQUE,
+    has_contig INTEGER NOT NULL CHECK (has_contig IN (0, 1)),
+    has_reads INTEGER NOT NULL CHECK (has_reads IN (0, 1))
   ) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertFile = R"sql(
-  INSERT INTO alignment_files (path) VALUES (?);
+  INSERT INTO alignment_files (path, has_contig, has_reads) VALUES (?, ?, ?);
 )sql";
+
+struct FileTableSelect {
+  // FIXME: it's beefier,
+  // but it might make more sense perhaps to have fn ptrs
+  // for each row retrieval.
+  enum Idx : uint8_t {
+    id,
+    path,
+    hasContig,
+    hasReadsAtLocus,
+  };
+
+  static constexpr std::string_view sql =
+      R"sql(SELECT * FROM alignment_files;)sql";
+};
 
 // One row per read overlapping pileup reference position.
 inline constexpr std::string_view sqlCreatePerRecordTable =
@@ -112,7 +129,7 @@ CREATE TABLE per_record_data (
 
     -- bam1_t/alignment fields
     cigar       TEXT NOT NULL CHECK (cigar <> ''),  -- CIGAR string, stored as text for querying purposes. Cannot be null/empty for a mapped read.
-    -- these can legitamtely be empty for an entirely hard clipped read
+    -- these can legitamtely be empty for e.g. an entirely hard clipped read
     seq         TEXT,  -- segment SEQuence
     qual        BLOB,  -- array of base qualities [0, 93] as uint8_t
 
@@ -131,6 +148,8 @@ CREATE TABLE per_record_data (
     path_id INTEGER NOT NULL REFERENCES alignment_files(id),
 
     CHECK (length (seq) = length (qual)),
+    CHECK (base IS NULL OR seq IS NULL OR base = substr (seq, qpos, 1)),
+    CHECK (basequal IS NULL OR qual IS NULL OR hex (substr (qual, qpos, 1)) = printf ('%02X', basequal)),
     CHECK (length (cig_uint32) = ncig * 4)
 ) STRICT;
 )sql";

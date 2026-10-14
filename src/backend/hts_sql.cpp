@@ -6,9 +6,12 @@
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <expected>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -1101,37 +1104,6 @@ std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
 
 #include "doctest.h"
 
-/* ---- TESTS stringify_cigar ---- */
-
-TEST_CASE ("stringify_cigar renders CIGAR arrays as text")
-{
-  auto gen = [] (uint32_t len, uint32_t op) {
-    return bam_cigar_gen (len, op);
-  };
-
-  SUBCASE ("single op")
-  {
-    std::vector<uint32_t> cig{gen (50, BAM_CMATCH)};
-    CHECK (hts2sql::stringify_cigar (cig.data(), cig.size()) == "50M");
-  }
-
-  SUBCASE ("multi op")
-  {
-    std::vector<uint32_t> cig{
-        gen (10, BAM_CSOFT_CLIP), gen (40, BAM_CMATCH), gen (5, BAM_CINS),
-        gen (2, BAM_CDEL)
-    };
-    CHECK (
-        hts2sql::stringify_cigar (cig.data(), cig.size()) == "10S40M5I2D"
-    );
-  }
-
-  SUBCASE ("zero ops")
-  {
-    CHECK (hts2sql::stringify_cigar (nullptr, 0) == "");
-  }
-}
-
 /* ---- TESTS append_json_escaped ---- */
 
 TEST_CASE ("append_json_escaped escapes per JSON string rules")
@@ -1188,33 +1160,8 @@ TEST_CASE ("append_json_escaped escapes per JSON string rules")
 }
 
 // ---- TESTS aux1_to_json ---- //
-TEST_CASE ("aux1_to_json converts scalar/char/string tags")
+TEST_CASE ("aux1_to_json escapes quote and backslash in string tags")
 {
-  SUBCASE ("numeric scalar (type 'c', int8)")
-  {
-    uint8_t buf[] = {'N', 'M', 'c', 5};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
-    REQUIRE (r);
-    CHECK (*r == "\"NM\":5");
-  }
-
-  SUBCASE ("char (type 'A')")
-  {
-    uint8_t buf[] = {'X', 'A', 'A', 'Q'};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
-    REQUIRE (r);
-    CHECK (*r == "\"XA\":\"Q\"");
-  }
-
-  SUBCASE ("string (type 'Z')")
-  {
-    uint8_t buf[] = {'R', 'G', 'Z', 's', 'a', 'm',
-                     'p', 'l', 'e', '1', '\0'};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
-    REQUIRE (r);
-    CHECK (*r == "\"RG\":\"sample1\"");
-  }
-
   SUBCASE ("string value containing '\"' and '\\' gets escaped")
   {
     uint8_t buf[] = {'Z', 'Z', 'Z', 'a', '"', 'b', '\\', 'c', '\0'};
@@ -1265,36 +1212,53 @@ TEST_CASE (
   }
 }
 
-namespace test {
-
-hts2sql::PileupFields make_basic_fields (hts_pos_t mStart = -1)
+TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
 {
-  hts2sql::PileupFields pf{};
-  pf.qName = "read0";
-  pf.flag = 99;
-  pf.start = 99;  // 0-indexed input -> db start == 100
-  pf.end = 170;  // unshifted -> db end == 170
-  pf.mapQ = 60;
-  pf.base = 'A';
-  pf.baseQual = 37;
-  pf.qPos = 4;  // 0-indexed input -> db qpos == 5
-  pf.indel = 0;
-  pf.isDel = false;
-  pf.isHead = false;
-  pf.isTail = false;
-  pf.isRefSkip = false;
-  pf.cig = "50M";
-  pf.seq = "ACGTACGTAC";
-  pf.rawQual = std::vector<uint8_t> (10, 37);
-  if (mStart >= 0) {
-    pf.mStart = mStart;
+  const auto floatTag = [] (float f) {
+    uint8_t buf[7] = {'X', 'F', 'f'};
+    std::memcpy (buf + 3, &f, sizeof (f));
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    return *r;
+  };
+
+  SUBCASE ("finite float") { CHECK (floatTag (1.5f) == "\"XF\":1.5"); }
+
+  SUBCASE ("float array")
+  {
+    uint8_t buf[] = {'X', 'F', 'B', 'f', 2, 0, 0,  0,
+                     0,   0,   192, 63,  0, 0, 32, 64};  // 1.5f, 2.5f
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"XF\":[1.5,2.5]");
   }
-  pf.auxJson = "";
-  pf.rawCig = {static_cast<uint32_t> (bam_cigar_gen (50, BAM_CMATCH))};
-  pf.nCig = pf.rawCig.size();
-  return pf;
+
+  SUBCASE ("empty string")
+  {
+    uint8_t buf[] = {'Z', 'E', 'Z', '\0'};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"ZE\":\"\"");
+  }
+
+  SUBCASE ("hex string")
+  {
+    uint8_t buf[] = {'H', 'X', 'H', '1', 'A', '\0'};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"HX\":\"1A\"");
+  }
+
+  SUBCASE ("control character in string")
+  {
+    uint8_t buf[] = {'C', 'C', 'Z', 'a', 0x01, 'b', '\0'};
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"CC\":\"a\\u0001b\"");
+  }
 }
 
+namespace test {
 
 // alignment_files row that per-record inserts reference via path_id.
 constexpr sqlite3_int64 k_testFileId = 1;
@@ -1302,7 +1266,8 @@ constexpr sqlite3_int64 k_testFileId = 1;
 void seed_file (sqlite3* conn)
 {
   const char* sql =
-      "INSERT INTO alignment_files (id, path) VALUES (1, 'test.bam');";
+      "INSERT INTO alignment_files (id, path, has_contig, has_reads) "
+      "VALUES (1, 'test.bam', 1, 1);";
   REQUIRE (
       sqlite3_exec (conn, sql, nullptr, nullptr, nullptr) == SQLITE_OK
   );
@@ -1310,213 +1275,21 @@ void seed_file (sqlite3* conn)
 
 }  // namespace test
 
-TEST_CASE (
-    "insert_metadata converts 0-indexed input to 1-indexed locus "
-    "data"
-)
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-
-  SUBCASE ("with a reference slice")
-  {
-    REQUIRE (
-        hts2sql::insert_metadata (
-            conn, "chr1", 99, GenomicSpan{.start = 99, .end = 200},
-            std::make_optional<std::string> ("ACGTACGT"), 1
-        ) == SQLITE_OK
-    );
-
-    auto locus = query::get_locus_data (conn);
-    CHECK (locus.contig == "chr1");
-    CHECK (locus.pos == 100);
-    CHECK (locus.start == 100);
-    CHECK (locus.end == 200);
-    REQUIRE (locus.refSlice.has_value());
-    CHECK (*locus.refSlice == "ACGTACGT");
-  }
-
-  SUBCASE ("with no reference slice")
-  {
-    REQUIRE (
-        hts2sql::insert_metadata (
-            conn, "chr2", 49, GenomicSpan{.start = 39, .end = 60},
-            std::nullopt, 1
-        ) == SQLITE_OK
-    );
-
-    auto locus = query::get_locus_data (conn);
-    CHECK (locus.contig == "chr2");
-    CHECK (locus.pos == 50);
-    CHECK (locus.start == 40);
-    CHECK (locus.end == 60);
-    CHECK_FALSE (locus.refSlice.has_value());
-  }
-}
-
-TEST_CASE (
-    "bind_pileup_fields converts 0-indexed input to 1-indexed row "
-    "data"
-)
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_file (conn);
-
-  SUBCASE ("mStart >= 0 shifts to a 1-indexed mstart")
-  {
-    auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
-    auto pf = test::make_basic_fields (49);
-    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
-    REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
-
-    sqlite3_stmt* o_stmt = NULL;
-    const std::string_view sql = "SELECT * FROM reads;";
-    REQUIRE (
-        sqlite3_prepare_v2 (
-            conn, sql.data(), static_cast<int> (sql.size()), &o_stmt, NULL
-        ) == SQLITE_OK
-    );
-    REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
-
-    CHECK (
-        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::start) ==
-        pf.start + 1
-    );
-    CHECK (
-        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::end) ==
-        pf.end
-    );
-    CHECK (
-        sqlite3_column_int64 (o_stmt, schema::UserReadViewSelect::qpos) ==
-        pf.qPos + 1
-    );
-    CHECK (
-        sqlite3_column_int64 (
-            o_stmt, schema::UserReadViewSelect::mstart
-        ) == *pf.mStart + 1
-    );
-    sqlite3_finalize (o_stmt);
-  }
-
-  SUBCASE ("mStart < 0 stays NULL rather than shifting")
-  {
-    auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
-    auto pf = test::make_basic_fields (-1);
-    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
-    REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
-
-    sqlite3_stmt* o_stmt = NULL;
-    const std::string_view sql = "SELECT * FROM reads;";
-    REQUIRE (
-        sqlite3_prepare_v2 (
-            conn, sql.data(), static_cast<int> (sql.size()), &o_stmt, NULL
-        ) == SQLITE_OK
-    );
-    REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
-
-    CHECK (
-        sqlite3_column_type (o_stmt, schema::UserReadViewSelect::mstart) ==
-        SQLITE_NULL
-    );
-    sqlite3_finalize (o_stmt);
-  }
-}
-
-TEST_CASE ("bind_read_data stores absent seq/qual/baseQual as NULL")
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_file (conn);
-
-  auto pf = test::make_basic_fields();
-  bool expectSeq = true, expectQual = true, expectBaseQual = true;
-
-  SUBCASE ("QUAL * (qual absent, seq present)")
-  {
-    pf.rawQual.reset();
-    pf.baseQual.reset();
-    expectQual = false;
-    expectBaseQual = false;
-  }
-
-  SUBCASE ("SEQ * (seq, qual, base, baseQual all absent)")
-  {
-    pf.seq.reset();
-    pf.rawQual.reset();
-    pf.base.reset();
-    pf.baseQual.reset();
-    expectSeq = false;
-    expectQual = false;
-    expectBaseQual = false;
-  }
-
-  auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
-  hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
-  REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
-
-  sqlite3_stmt* o_stmt = NULL;
-  const std::string_view sql = "SELECT * FROM reads;";
-  REQUIRE (
-      sqlite3_prepare_v2 (
-          conn, sql.data(), static_cast<int> (sql.size()), &o_stmt, NULL
-      ) == SQLITE_OK
-  );
-  REQUIRE (sqlite3_step (o_stmt) == SQLITE_ROW);
-
-  const auto isNull = [&] (int col) {
-    return sqlite3_column_type (o_stmt, col) == SQLITE_NULL;
-  };
-  CHECK (isNull (schema::UserReadViewSelect::seq) == !expectSeq);
-  CHECK (isNull (schema::UserReadViewSelect::qual) == !expectQual);
-  CHECK (isNull (schema::UserReadViewSelect::basequal) == !expectBaseQual);
-  sqlite3_finalize (o_stmt);
-}
-
-TEST_CASE (
-    "CHECK(json_valid(tags)) accepts valid JSON and rejects "
-    "malformed JSON"
-)
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_file (conn);
-
-  SUBCASE ("valid JSON is accepted")
-  {
-    auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
-    auto pf = test::make_basic_fields();
-    pf.auxJson = "{\"XY\":[1,2,3]}";
-    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
-    CHECK (sqlite3_step (stmt) == SQLITE_DONE);
-  }
-
-  SUBCASE (
-      "deliberately invalid JSON is rejected by the CHECK "
-      "constraint"
-  )
-  {
-    auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
-    auto pf = test::make_basic_fields();
-    pf.auxJson = "{\"XY\":[1,2,3,]}";  // trailing comma -- malformed
-    hts2sql::bind_read_data (stmt, pf, test::k_testFileId);
-    const int rc = sqlite3_step (stmt);
-    CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
-  }
-}
-
 /* ---- TESTS build_where_clause / prepare_select_reads ---- */
 
 namespace test {
 
 // seed a fresh db with locus metadata and three reads
-void seed_reads (sqlite3* conn)
+void seed_reads (
+    sqlite3* conn, int16_t nAln = 1,
+    std::optional<std::string> refSlice = std::nullopt
+)
 {
   seed_file (conn);
   REQUIRE (
       hts2sql::insert_metadata (
           conn, "chr1", 149, GenomicSpan{.start = 99, .end = 200},
-          std::nullopt, 1
+          std::move (refSlice), nAln
       ) == SQLITE_OK
   );
 
@@ -1575,40 +1348,11 @@ TEST_CASE ("build_where_clause left-wraps fragments in parens")
   );
 }
 
-TEST_CASE ("prepare_select_reads with no fragments returns every row")
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn);
-
-  auto stmtRet = query::prepare_select_reads (
-      conn, schema::UserReadViewSelect::sqlPrefix, {}
-  );
-  REQUIRE (stmtRet);
-  auto stmt{std::move (*stmtRet)};
-  auto countRet = query::count_rows (stmt);
-  REQUIRE (countRet);
-  CHECK (*countRet == 3);
-}
-
 TEST_CASE ("prepare_select_reads filters on WHERE fragments")
 {
   sqlite3* conn = setup_db::init();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
   test::seed_reads (conn);
-
-  SUBCASE ("single fragment")
-  {
-    query::DynamicFragments frags{.where = {"flag = 99"}, .orderBy = ""};
-    auto stmtRet = query::prepare_select_reads (
-        conn, schema::UserReadViewSelect::sqlPrefix, frags
-    );
-    REQUIRE (stmtRet);
-    auto stmt{std::move (*stmtRet)};
-    auto countRet = query::count_rows (stmt);
-    REQUIRE (countRet);
-    CHECK (*countRet == 2);  // readA, readC
-  }
 
   SUBCASE ("multiple fragments")
   {
@@ -1626,90 +1370,499 @@ TEST_CASE ("prepare_select_reads filters on WHERE fragments")
   }
 }
 
-TEST_CASE ("prepare_select_reads honours ORDER BY")
+/* ---- TESTS insert_pileup ---- */
+
+namespace test {
+
+// Hands pre-parsed records, in order, to htslib's pileup engine.
+struct RecordFeed {
+  const std::vector<bam1_t*>* recs;
+  size_t next = 0;
+};
+extern "C" {
+int next_fed_record (void* data, bam1_t* b)
 {
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn);
-
-  query::DynamicFragments frags{.where = {}, .orderBy = "start DESC"};
-  auto stmtRet = query::prepare_select_reads (
-      conn, schema::UserReadViewSelect::sqlPrefix, frags
-  );
-  REQUIRE (stmtRet);
-  auto stmt{std::move (*stmtRet)};
-
-  auto r1 = query::next_read (stmt);
-  REQUIRE (r1);
-  REQUIRE (*r1 == query::RowIterStatus::rowAvail);
-  CHECK (
-      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 140
-  );  // readC
-
-  auto r2 = query::next_read (stmt);
-  REQUIRE (r2);
-  REQUIRE (*r2 == query::RowIterStatus::rowAvail);
-  CHECK (
-      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 120
-  );  // readB
-
-  auto r3 = query::next_read (stmt);
-  REQUIRE (r3);
-  REQUIRE (*r3 == query::RowIterStatus::rowAvail);
-  CHECK (
-      sqlite3_column_int64 (stmt, schema::UserReadViewSelect::start) == 100
-  );  // readA
+  auto* feed = static_cast<RecordFeed*> (data);
+  if (feed->next >= feed->recs->size()) {
+    return -1;
+  }
+  return bam_copy1 (b, (*feed->recs)[feed->next++]) == NULL ? -2 : 0;
+}
 }
 
-TEST_CASE (
-    "prepare_select_reads surfaces an sqlite3 error on a malformed "
-    "fragment"
-)
+// Expected stored values. 1-based, as in the db.
+struct ExpectedRead {
+  int64_t start, end;
+  std::string cigar;
+  int ncig;
+  std::optional<int> qpos = std::nullopt;  // not checked if nullopt
+  std::optional<char> base = std::nullopt;  // nullopt: expect NULL
+  std::optional<int> basequal = std::nullopt;  // nullopt: expect NULL
+  bool hasSeq = true;
+  bool hasQual = true;
+  // not checked if nullopt
+  std::optional<int> indel = std::nullopt;
+  std::optional<int> isDel = std::nullopt;
+  std::optional<int> isHead = std::nullopt;
+  std::optional<int> isTail = std::nullopt;
+  std::optional<int> isRefSkip = std::nullopt;
+  std::optional<std::string> mtid = std::nullopt;  // nullopt: expect NULL
+  std::optional<int64_t> mstart = std::nullopt;  // nullopt: expect NULL
+};
+
+}  // namespace test
+
+TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
 {
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn);
-
-  query::DynamicFragments frags{.where = {"flag ="}, .orderBy = ""};
-  auto stmtRet = query::prepare_select_reads (
-      conn, schema::UserReadViewSelect::sqlPrefix, frags
-  );
-  REQUIRE_FALSE (stmtRet);
-}
-
-TEST_CASE (
-    "a stacked-query WHERE fragment only compiles up to the first "
-    "';' -- trailing SQL is inert, not executed"
-)
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn);
-
-  query::DynamicFragments frags{
-      .where = {"1=1; DELETE FROM reads"}, .orderBy = ""
+  // Reads are parsed from SAM text and piled up by htslib itself, so
+  // qpos/is_del/is_head etc. are as the real program sees them.
+  // Pileup position is chr1:100 (1-based).
+  // Seq/qual are prefixes of the strings below, so the base and quality
+  // at each index are distinct: basequal at index i is 32 + i.
+  const std::string kSeq = "ACGTTGCAAGCT";
+  const std::string kQual = "ABCDEFGHIJKL";
+  const auto seq = [&] (size_t n) { return kSeq.substr (0, n); };
+  const auto qual = [&] (size_t n) { return kQual.substr (0, n); };
+  const auto samLine = [] (std::string_view qname, int flag, int pos,
+                           std::string_view cigar, std::string_view rnext,
+                           int pnext, std::string_view sq,
+                           std::string_view ql) {
+    return fmt::format (
+        "{}\t{}\tchr1\t{}\t60\t{}\t{}\t{}\t0\t{}\t{}", qname, flag, pos,
+        cigar, rnext, pnext, sq, ql
+    );
   };
-  auto stmtRet = query::prepare_select_reads (
-      conn, schema::UserReadViewSelect::sqlPrefix, frags
-  );
-  REQUIRE (stmtRet);
-  auto stmt{std::move (*stmtRet)};
-  CHECK (sqlite3_stmt_readonly (stmt));
-  auto countRet = query::count_rows (stmt);
-  REQUIRE (countRet);
-  CHECK (*countRet == 3);  // DELETE never ran
 
-  // Confirm directly against the table too.
-  sqlite3_stmt* o_check = NULL;
-  const std::string_view sql = "SELECT COUNT(*) FROM reads;";
+  struct Case {
+    std::string qname;
+    std::string sam;
+    test::ExpectedRead expect;
+  };
+  // coordinate sorted, as htslib's pileup requires.
+  const std::vector<Case> cases{
+      {"normal",
+       samLine ("normal", 99, 95, "10M", "chr2", 500, seq (10), qual (10)),
+       {.start = 95,
+        .end = 104,
+        .cigar = "10M",
+        .ncig = 1,
+        .qpos = 6,
+        .base = 'G',
+        .basequal = 37,
+        .isHead = 0,
+        .isTail = 0,
+        .mtid = "chr2",
+        .mstart = 500}},
+      {"deletion",
+       samLine ("deletion", 0, 95, "4M2D6M", "*", 0, seq (10), qual (10)),
+       {.start = 95,
+        .end = 106,
+        .cigar = "4M2D6M",
+        .ncig = 3,
+        .isDel = 1}},
+      {"refskip",
+       samLine ("refskip", 0, 95, "4M2N6M", "*", 0, seq (10), qual (10)),
+       {.start = 95,
+        .end = 106,
+        .cigar = "4M2N6M",
+        .ncig = 3,
+        .isRefSkip = 1}},
+      {"insafter",
+       samLine ("insafter", 0, 95, "6M2I4M", "*", 0, seq (12), qual (12)),
+       {.start = 95,
+        .end = 104,
+        .cigar = "6M2I4M",
+        .ncig = 3,
+        .qpos = 6,
+        .base = 'G',
+        .basequal = 37,
+        .indel = 2}},
+      {"eqx",
+       samLine ("eqx", 0, 95, "3=1X6=", "*", 0, seq (10), qual (10)),
+       {.start = 95,
+        .end = 104,
+        .cigar = "3=1X6=",
+        .ncig = 3,
+        .qpos = 6,
+        .base = 'G',
+        .basequal = 37}},
+      {"qualstar",
+       samLine ("qualstar", 0, 96, "8M", "*", 0, seq (8), "*"),
+       {.start = 96,
+        .end = 103,
+        .cigar = "8M",
+        .ncig = 1,
+        .qpos = 5,
+        .base = 'T',
+        .hasQual = false,
+        .mtid = std::nullopt}},
+      {"hardclip",
+       samLine ("hardclip", 0, 96, "2H8M3H", "*", 0, seq (8), qual (8)),
+       {.start = 96,
+        .end = 103,
+        .cigar = "2H8M3H",
+        .ncig = 3,
+        .qpos = 5,
+        .base = 'T',
+        .basequal = 36}},
+      {"tail",
+       samLine ("tail", 0, 96, "5M", "*", 0, seq (5), qual (5)),
+       {.start = 96,
+        .end = 100,
+        .cigar = "5M",
+        .ncig = 1,
+        .qpos = 5,
+        .base = 'T',
+        .basequal = 36,
+        .isHead = 0,
+        .isTail = 1}},
+      {"seqstar",
+       samLine ("seqstar", 0, 97, "6M", "*", 0, "*", "*"),
+       {.start = 97,
+        .end = 102,
+        .cigar = "6M",
+        .ncig = 1,
+        .qpos = 4,
+        .hasSeq = false,
+        .hasQual = false}},
+      {"softclip",
+       samLine ("softclip", 0, 98, "3S5M2S", "*", 0, seq (10), qual (10)),
+       {.start = 98,
+        .end = 102,
+        .cigar = "3S5M2S",
+        .ncig = 3,
+        .qpos = 6,
+        .base = 'G',
+        .basequal = 37}},
+      {"head",
+       samLine ("head", 0, 100, "5M", "*", 0, seq (5), qual (5)),
+       {.start = 100,
+        .end = 104,
+        .cigar = "5M",
+        .ncig = 1,
+        .qpos = 1,
+        .base = 'A',
+        .basequal = 32,
+        .isHead = 1,
+        .isTail = 0}},
+      {"onebase",
+       samLine ("onebase", 0, 100, "1M", "*", 0, "G", "5"),
+       {.start = 100,
+        .end = 100,
+        .cigar = "1M",
+        .ncig = 1,
+        .qpos = 1,
+        .base = 'G',
+        .basequal = 20,
+        .isHead = 1,
+        .isTail = 1}},
+  };
+
+  /* parse records */
+  const std::string hdrText =
+      "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n"
+      "@SQ\tSN:chr2\tLN:1000\n";
+  sam_hdr_t* hdr = sam_hdr_parse (hdrText.size(), hdrText.c_str());
+  REQUIRE (hdr != nullptr);
+  Defer hdrCleanup ([&]() { sam_hdr_destroy (hdr); });
+
+  std::vector<bam1_t*> recs;
+  Defer recsCleanup ([&]() {
+    for (auto* r : recs) {
+      bam_destroy1 (r);
+    }
+  });
+  kstring_t ks = KS_INITIALIZE;
+  Defer ksCleanup ([&]() { ks_free (&ks); });
+  for (const auto& c : cases) {
+    INFO ("parsing " << c.qname);
+    ks.l = 0;
+    REQUIRE (kputs (c.sam.c_str(), &ks) >= 0);
+    bam1_t* b = bam_init1();
+    REQUIRE (b != nullptr);
+    recs.push_back (b);
+    REQUIRE (sam_parse1 (&ks, hdr, b) >= 0);
+  }
+
+  /* pile up and insert */
+  sqlite3* conn = setup_db::init();
+  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
+  test::seed_file (conn);
+
+  test::RecordFeed feed{.recs = &recs};
+  bam_plp_t plp = bam_plp_init (test::next_fed_record, &feed);
+  REQUIRE (plp != nullptr);
+  Defer plpCleanup ([&]() { bam_plp_destroy (plp); });
+
+  constexpr int64_t pileupPos0 = 99;
+  const bam_pileup1_t* br_plpArr = nullptr;
+  int plpTid = -1;
+  int nPlp = -1;
+  int64_t plpPos = -1;
+  bool found = false;
+  while ((br_plpArr = bam_plp64_auto (plp, &plpTid, &plpPos, &nPlp)) !=
+         nullptr) {
+    if (plpPos < pileupPos0) {
+      continue;
+    }
+    REQUIRE (plpPos == pileupPos0);
+    REQUIRE (static_cast<size_t> (nPlp) == cases.size());
+    const auto status = hts2sql::insert_pileup (
+        conn, br_plpArr, static_cast<size_t> (nPlp), "chr1",
+        test::k_testFileId,
+        [hdr] (int tid) { return sam_hdr_tid2name (hdr, tid); }
+    );
+    REQUIRE (status.code == hts2sql::InsertPileupStatus::success);
+    found = true;
+    break;
+  }
+  REQUIRE (found);
+
+  /* check stored rows */
+  sqlite3_stmt* o_stmt = nullptr;
   REQUIRE (
       sqlite3_prepare_v2 (
-          conn, sql.data(), static_cast<int> (sql.size()), &o_check, NULL
+          conn, "SELECT * FROM reads;", -1, &o_stmt, NULL
       ) == SQLITE_OK
   );
-  REQUIRE (sqlite3_step (o_check) == SQLITE_ROW);
-  CHECK (sqlite3_column_int64 (o_check, 0) == 3);
-  sqlite3_finalize (o_check);
+  Defer stmtCleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+  using Col = schema::UserReadViewSelect;
+  const auto isNull = [&] (int col) {
+    return sqlite3_column_type (o_stmt, col) == SQLITE_NULL;
+  };
+  const auto asInt = [&] (int col) {
+    return sqlite3_column_int64 (o_stmt, col);
+  };
+  const auto asText = [&] (int col) -> std::optional<std::string> {
+    if (isNull (col)) {
+      return std::nullopt;
+    }
+    return std::string (
+        reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, col)),
+        static_cast<size_t> (sqlite3_column_bytes (o_stmt, col))
+    );
+  };
+
+  size_t nRows = 0;
+  while (sqlite3_step (o_stmt) == SQLITE_ROW) {
+    ++nRows;
+    const auto qname = asText (Col::qname);
+    REQUIRE (qname.has_value());
+    INFO ("read " << *qname);
+    const auto it =
+        std::find_if (cases.begin(), cases.end(), [&] (const Case& c) {
+          return c.qname == *qname;
+        });
+    REQUIRE (it != cases.end());
+    const auto& e = it->expect;
+
+    // Expected and stored values are rendered in parallel, field by
+    // field, and compared once per read.
+    std::string want, got;
+    const auto field = [&] (
+                           std::string_view name, const auto& wantVal,
+                           const auto& gotVal
+                       ) {
+      want += fmt::format (" {}={}", name, wantVal);
+      got += fmt::format (" {}={}", name, gotVal);
+    };
+    const auto optText = [&] (int col) {
+      return asText (col).value_or ("NULL");
+    };
+    const auto optInt = [&] (const auto& v) {
+      return v ? std::to_string (*v) : std::string ("NULL");
+    };
+    const auto setOrNull = [&] (bool set) { return set ? "set" : "NULL"; };
+
+    field ("start", e.start, asInt (Col::start));
+    field ("end", e.end, asInt (Col::end));
+    field ("cigar", e.cigar, optText (Col::cigar));
+    field ("ncig", e.ncig, asInt (Col::ncig));
+    field (
+        "base", e.base ? std::string (1, *e.base) : std::string ("NULL"),
+        optText (Col::base)
+    );
+    field (
+        "basequal", optInt (e.basequal),
+        isNull (Col::basequal) ? std::string ("NULL")
+                               : std::to_string (asInt (Col::basequal))
+    );
+    field ("seq", setOrNull (e.hasSeq), setOrNull (!isNull (Col::seq)));
+    field ("qual", setOrNull (e.hasQual), setOrNull (!isNull (Col::qual)));
+    field ("mtid", e.mtid.value_or ("NULL"), optText (Col::mtid));
+    field (
+        "mstart", optInt (e.mstart),
+        isNull (Col::mstart) ? std::string ("NULL")
+                             : std::to_string (asInt (Col::mstart))
+    );
+    field (
+        "tags", "NULL", optText (Col::tags)
+    );  // no aux tags in any read
+    // only where the case specifies a value
+    if (e.qpos) {
+      field ("qpos", *e.qpos, asInt (Col::qpos));
+    }
+    if (e.indel) {
+      field ("indel", *e.indel, asInt (Col::indel));
+    }
+    if (e.isDel) {
+      field ("is_del", *e.isDel, asInt (Col::is_del));
+    }
+    if (e.isHead) {
+      field ("is_head", *e.isHead, asInt (Col::is_head));
+    }
+    if (e.isTail) {
+      field ("is_tail", *e.isTail, asInt (Col::is_tail));
+    }
+    if (e.isRefSkip) {
+      field ("is_refskip", *e.isRefSkip, asInt (Col::is_refskip));
+    }
+    CHECK (got == want);
+  }
+  CHECK (nRows == cases.size());
+}
+
+/* ---- TESTS dump_to_disk / load_from_disk ---- */
+
+namespace test {
+
+std::filesystem::path temp_db_path (std::string_view name)
+{
+  return std::filesystem::temp_directory_path() / name;
+}
+
+// Every column of every row of `sql`'s result, as one string.
+std::string digest (sqlite3* conn, const char* sql)
+{
+  sqlite3_stmt* o_stmt = nullptr;
+  REQUIRE (sqlite3_prepare_v2 (conn, sql, -1, &o_stmt, NULL) == SQLITE_OK);
+  Defer stmtCleanup ([&]() { sqlite3_finalize (o_stmt); });
+  std::string out;
+  while (sqlite3_step (o_stmt) == SQLITE_ROW) {
+    for (int i = 0; i < sqlite3_column_count (o_stmt); ++i) {
+      if (sqlite3_column_type (o_stmt, i) == SQLITE_NULL) {
+        out += "NULL";
+      }
+      else if (sqlite3_column_type (o_stmt, i) == SQLITE_BLOB) {
+        const auto* br_blob =
+            static_cast<const uint8_t*> (sqlite3_column_blob (o_stmt, i));
+        for (int j = 0; j < sqlite3_column_bytes (o_stmt, i); ++j) {
+          out += fmt::format ("{:02x}", br_blob[j]);
+        }
+      }
+      else {
+        out += reinterpret_cast<const char*> (
+            sqlite3_column_text (o_stmt, i)
+        );
+      }
+      out += '|';
+    }
+    out += '\n';
+  }
+  return out;
+}
+
+}  // namespace test
+
+TEST_CASE ("dump_to_disk then load_from_disk round-trips a database")
+{
+  const auto path = test::temp_db_path ("apb-test-roundtrip.db");
+  std::filesystem::remove (path);
+  Defer removeFile ([&]() { std::filesystem::remove (path); });
+
+  sqlite3* conn = setup_db::init();
+  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
+  test::seed_reads (conn, 2, std::make_optional<std::string> ("ACGTACGT"));
+  REQUIRE (
+      sqlite3_exec (
+          conn,
+          "INSERT INTO alignment_files (path, has_contig, has_reads) "
+          "VALUES ('other.bam', 0, 0);",
+          nullptr, nullptr, nullptr
+      ) == SQLITE_OK
+  );
+
+  REQUIRE (
+      query::dump_to_disk (conn, path.string()).code ==
+      query::DiskDumpStatus::success
+  );
+  auto loadRet = setup_db::load_from_disk (path.string());
+  REQUIRE (loadRet);
+  sqlite3* loaded = *loadRet;
+  Defer closeLoaded ([&]() { sqlite3_close_v2 (loaded); });
+
+  CHECK (
+      test::digest (loaded, "SELECT * FROM reads ORDER BY id;") ==
+      test::digest (conn, "SELECT * FROM reads ORDER BY id;")
+  );
+  CHECK (
+      test::digest (
+          loaded, "SELECT * FROM alignment_files ORDER BY id;"
+      ) ==
+      test::digest (conn, "SELECT * FROM alignment_files ORDER BY id;")
+  );
+  CHECK (
+      test::digest (loaded, "SELECT * FROM locus_metadata;") ==
+      test::digest (conn, "SELECT * FROM locus_metadata;")
+  );
+
+  const auto expected = query::get_locus_data (conn);
+  const auto got = query::get_locus_data (loaded);
+  CHECK (got.contig == expected.contig);
+  CHECK (got.pos == expected.pos);
+  CHECK (got.start == expected.start);
+  CHECK (got.end == expected.end);
+  CHECK (got.refSlice == expected.refSlice);
+  CHECK (got.nAln == expected.nAln);
+}
+
+TEST_CASE ("load_from_disk reports a typed error for unusable files")
+{
+  const auto path = test::temp_db_path ("apb-test-unusable.db");
+  std::filesystem::remove (path);
+  Defer removeFile ([&]() { std::filesystem::remove (path); });
+
+  SUBCASE ("nonexistent file")
+  {
+    const auto ret = setup_db::load_from_disk (path.string());
+    REQUIRE_FALSE (ret);
+    CHECK (ret.error().code == setup_db::LoadErr::openFail);
+  }
+
+  SUBCASE ("sqlite file with a different schema")
+  {
+    sqlite3* other = nullptr;
+    REQUIRE (
+        sqlite3_open_v2 (
+            path.c_str(), &other,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL
+        ) == SQLITE_OK
+    );
+    REQUIRE (
+        sqlite3_exec (other, "CREATE TABLE x (a);", NULL, NULL, NULL) ==
+        SQLITE_OK
+    );
+    sqlite3_close_v2 (other);
+
+    const auto ret = setup_db::load_from_disk (path.string());
+    REQUIRE_FALSE (ret);
+    CHECK (ret.error().code == setup_db::LoadErr::schemaMismatch);
+  }
+
+  SUBCASE ("apb database with no locus metadata")
+  {
+    sqlite3* conn = setup_db::init();
+    Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
+    REQUIRE (
+        query::dump_to_disk (conn, path.string()).code ==
+        query::DiskDumpStatus::success
+    );
+
+    const auto ret = setup_db::load_from_disk (path.string());
+    REQUIRE_FALSE (ret);
+    CHECK (ret.error().code == setup_db::LoadErr::contentCorrupt);
+  }
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

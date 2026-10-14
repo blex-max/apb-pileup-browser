@@ -256,9 +256,6 @@ int main (int argc, char** argv)
   // via a dumped db).
   g_db::locusInfo = query::get_locus_data (g_db::conn);
   APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
-  if (g_db::locusInfo.nAln > 1) {
-    g_state::multialn = true;
-  }
   // count, and as a consequence verify data presence.
   if (const auto setStatus = g_db::set_query ({});
       setStatus.code != g_db::SetQueryStatus::success) {
@@ -783,142 +780,148 @@ static std::expected<void, std::string> populate_db_mode_locus (
       );
     }
 
+    bool hasContig = false;
     switch (const auto rc =
                 sam_hdr_name2tid (aln.o_hdr, locusContigName.c_str());
             rc) {
       case -2:
         APB_UNREACHABLE ("Could not parse header despite successful read");
       case -1:
-        // FIXME prompt user for confirmation here
-        std::cerr << "Alignment at " << aln.path
-                  << " does not contain contig " << locusContigName
-                  << ", skipping" << std::endl;
-        continue;
+        break;
       default:
+        hasContig = true;
         aln.locusTid = static_cast<uint32_t> (rc);
     };
 
-    /*
-      Creates new hts_itr_t each call since in this program there is
-      at present only a single call to this function per program instance,
-      and even in future there is no expected pattern to loci at which pileups
-      might be needed, hence little advantage to keeping the iterator alive between calls.
-    */
     PileupIterator pileup;
     Defer pileup_destroy ([&pileup]() { pileup.destroy(); });
+    bool hasReads = false;
+    if (hasContig) {
+      /*
+        Creates new hts_itr_t each call since in this program there is
+        at present only a single call to this function per program instance,
+        and even in future there is no expected pattern to loci at which pileups
+        might be needed, hence little advantage to keeping the iterator alive between calls.
+      */
 
-    auto* o_alnIter =
-        sam_itr_queryi (aln.o_idx, aln.locusTid, locusPos, locusPos + 1);
-    if (o_alnIter == NULL) {
-      // FIXME: is this (and pileup iterator fail) actually plausible?
-      return std::unexpected (
-          fmt::format (
-              "Failed to create read iterator for alignment at {}",
-              aln.path
-          )
-      );
-    }
-
-    pileup.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
-    pileup.o_plp = bam_plp_init (pileup_func, pileup.o_cap);
-    if (pileup.o_plp == NULL) {
-      return std::unexpected (
-          fmt::format (
-              "Failed to create pileup iterator for alignment at {}",
-              aln.path
-          )
-      );
-    }
-    bam_plp_set_maxcnt (pileup.o_plp, kMaxReads);
-
-    int64_t plpPos = -1;
-    int plpTid = -1;
-    int nPlp = -1;
-    bool locusFound = false;
-    const bam_pileup1_t* br_plpArr;
-    while ((br_plpArr =
-                bam_plp64_auto (pileup.o_plp, &plpTid, &plpPos, &nPlp)) !=
-           0) {
-      if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
-        // FIXME: what is the error space here? should this be a crash or a skip. read src.
+      auto* o_alnIter =
+          sam_itr_queryi (aln.o_idx, aln.locusTid, locusPos, locusPos + 1);
+      if (o_alnIter == NULL) {
+        // FIXME: is this (and pileup iterator fail) actually plausible?
         return std::unexpected (
             fmt::format (
-                "Unexpected error encountered when iterating pileup for "
-                "alignment at {}",
+                "Failed to create read iterator for alignment at {}",
                 aln.path
             )
         );
       }
-      if (plpPos < locusPos) {
-        continue;  // yet to reach locus
+
+      pileup.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
+      pileup.o_plp = bam_plp_init (pileup_func, pileup.o_cap);
+      if (pileup.o_plp == NULL) {
+        return std::unexpected (
+            fmt::format (
+                "Failed to create pileup iterator for alignment at {}",
+                aln.path
+            )
+        );
       }
-      if (plpPos > locusPos) {
+      bam_plp_set_maxcnt (pileup.o_plp, kMaxReads);
+
+      int64_t plpPos = -1;
+      int plpTid = -1;
+      int nPlp = -1;
+      const bam_pileup1_t* br_plpArr;
+      while ((br_plpArr = bam_plp64_auto (
+                  pileup.o_plp, &plpTid, &plpPos, &nPlp
+              )) != 0) {
+        if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
+          // FIXME: what is the error space here? should this be a crash or a skip. read src.
+          return std::unexpected (
+              fmt::format (
+                  "Unexpected error encountered when iterating pileup for "
+                  "alignment at {}",
+                  aln.path
+              )
+          );
+        }
+        if (plpPos < locusPos) {
+          continue;  // yet to reach locus
+        }
+        if (plpPos > locusPos) {
+          break;
+        }
+        // else locus found (implying reads present)
+        hasReads = true;
+        pileup.br_plpArr = br_plpArr;
+        pileup.nPlp = static_cast<size_t> (nPlp);
+        for (int j = 0; j < nPlp; j++) {
+          auto* const b1 = br_plpArr[j].b;
+          const auto rStart = b1->core.pos;
+          const auto rEnd =
+              rStart +
+              bam_cigar2rlen (
+                  static_cast<int> (b1->core.n_cigar), bam_get_cigar (b1)
+              );
+          maxPileupSpan.start = std::min (maxPileupSpan.start, rStart);
+          maxPileupSpan.end = std::max (maxPileupSpan.end, rEnd);
+        }
         break;
       }
-      // else locus found
-      locusFound = true;
-      pileup.br_plpArr = br_plpArr;
-      pileup.nPlp = static_cast<size_t> (nPlp);
-      for (int j = 0; j < nPlp; j++) {
-        auto* const b1 = br_plpArr[j].b;
-        const auto rStart = b1->core.pos;
-        const auto rEnd = rStart + bam_cigar2rlen (
-                                       static_cast<int> (b1->core.n_cigar),
-                                       bam_get_cigar (b1)
-                                   );
-        maxPileupSpan.start = std::min (maxPileupSpan.start, rStart);
-        maxPileupSpan.end = std::max (maxPileupSpan.end, rEnd);
-      }
-      break;
-    }
-    if (!locusFound) {
-      std::cerr << "No reads in alignment file at " << aln.path
-                << " align to the specified locus, skipping" << std::endl;
-      continue;
     }
 
-    readsFoundAtLocus = true;
-
-    // FIXME: a TRY_SQL macro would be great
     sqlite3_stmt* o_fileInsertStmt;
     Defer stmt_cleanup ([&o_fileInsertStmt]() {
       sqlite3_finalize (o_fileInsertStmt);
     });
-    if (const auto rc = sqlite3_prepare_v2 (
+    SQ3_TRY_OR_UNREACHABLE (
+        sqlite3_prepare_v2 (
             g_db::conn, schema::sqlInsertFile.data(),
             static_cast<int> (schema::sqlInsertFile.size()),
             &o_fileInsertStmt, NULL
-        );
-        rc != SQLITE_OK) {
-      APB_UNREACHABLE (
-          fmt::format (
-              "failed to prepare file insert statement: {}",
-              sqlite3_errmsg (g_db::conn)
-          )
-      );
-    }
-    if (const auto rc = sqlite3_bind_text (
+        ),
+        SQLITE_OK,
+        fmt::format (
+            "failed to prepare file insert statement: {}",
+            sqlite3_errmsg (g_db::conn)
+        )
+    )
+    SQ3_TRY_OR_UNREACHABLE (
+        sqlite3_bind_text (
             o_fileInsertStmt, 1, fp.c_str(),
             static_cast<int> (fp.string().size()), SQLITE_TRANSIENT
-        );
-        rc != SQLITE_OK) {
-      APB_UNREACHABLE (
-          fmt::format (
-              "failed to bind path to file table insert statement: {}",
-              sqlite3_errstr (rc)
-          )
-      );
-    }
-    if (const auto rc = sqlite3_step (o_fileInsertStmt);
-        rc != SQLITE_DONE) {
-      APB_UNREACHABLE (
-          fmt::format (
-              "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
-          )
-      );
-    }
+        ),
+        SQLITE_OK,
+        fmt::format (
+            "failed to bind path to file table insert statement: {}",
+            sqlite3_errstr (rc)
+        )
+    )
+    SQ3_TRY_OR_UNREACHABLE (
+        sqlite3_bind_int (
+            o_fileInsertStmt, 2, static_cast<int> (hasContig)
+        ),
+        SQLITE_OK, fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
+    )
+    SQ3_TRY_OR_UNREACHABLE (
+        sqlite3_bind_int (
+            o_fileInsertStmt, 3, static_cast<int> (hasReads)
+        ),
+        SQLITE_OK, fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
+    )
+    SQ3_TRY_OR_UNREACHABLE (
+        sqlite3_step (o_fileInsertStmt), SQLITE_DONE,
+        fmt::format (
+            "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
+        )
+    )
     stmt_cleanup.invoke();
+    if (!hasContig || !hasReads) {
+      continue;
+    }
     const auto alnID = sqlite3_last_insert_rowid (g_db::conn);
+
+    readsFoundAtLocus = true;
 
     const auto get_mtid_name = [&aln] (int mtid) {
       return sam_hdr_tid2name (aln.o_hdr, mtid);
@@ -986,6 +989,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
   }
   else {
+    // FIXME: because they didn't have the contig, or because there were no reads?
     return std::unexpected (
         "No reads at locus in any input alignment file"
     );

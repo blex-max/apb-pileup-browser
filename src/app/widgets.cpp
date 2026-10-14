@@ -26,6 +26,7 @@
 #include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
 
+
 namespace e2 = extb;
 
 namespace g_db = g_state::db;
@@ -781,10 +782,9 @@ void draw_main_to_buffer()
 
   /* --- draw query data --- */
   {
-    // draw reads and data table
     sqlite3_reset (g_db::selectStmt);
 
-    /* size widgets */
+    /* size dynamic widgets */
     uint16_t tableWidth = 0;
     std::vector<const ColMetadata*> activeCols;
     for (const auto& col : g_ui::tableCols) {
@@ -864,7 +864,7 @@ void draw_main_to_buffer()
         width (g_browsr::alnPaneDataBox) > 0,
         width (g_browsr::alnPaneDataBox)
     );
-    /* end size widgets */
+    /* end size dynamic widgets */
 
     /* configure/validate draw coordinates */
     const auto alnPaneHalfWidth = width (g_browsr::alnPaneDataBox) / 2;
@@ -938,10 +938,12 @@ void draw_main_to_buffer()
         .cols = activeCols,
     };
     APB_ASSERT (row1Frame.valid(), row1Frame);
-    // FIXME: display path of current reads
-    std::string curFile;
+    const bool multiAln = g_db::locusInfo.nAln > 1;
+    // scroll units drawn on this page: reads, then empty-file labels
+    uint16_t nReadDrawn = 0;
     if (g_db::nStmtRows > 0) {
-      uint16_t nReadDrawn = 0;
+      // file of the last header drawn on this page
+      std::string headerFile;
       for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
         const auto iterStatus = query::next_read (g_db::selectStmt);
         if (!iterStatus) {
@@ -953,12 +955,9 @@ void draw_main_to_buffer()
           );
         }
         if (*iterStatus == query::RowIterStatus::rowAvail) {
-          if (static_cast<int64_t> (iRead) < g_db::stmtRowScrollOffset) {
-            // reads hidden by scrolling
-            continue;
-          }
-          if (g_state::multialn) {
-            std::string_view rowPath{
+          std::string_view rowFile;
+          if (multiAln) {
+            rowFile = std::string_view{
                 reinterpret_cast<const char*> (sqlite3_column_text (
                     g_db::selectStmt, schema::UserReadViewSelect::path
                 )),
@@ -966,16 +965,20 @@ void draw_main_to_buffer()
                     g_db::selectStmt, schema::UserReadViewSelect::path
                 ))
             };
-            if (rowPath != curFile) {
-              if (seqWriteHead.y + 1 >= seqWriteLim.y) {
-                // no room for header plus a read
-                break;
-              }
-              curFile = rowPath;
-              e2::write_string (
-                  seqWriteHead, seqWriteLim.x, curFile, {.fg = TB_REVERSE}
-              );
-              seqWriteHead.y++;
+          }
+          if (static_cast<int64_t> (iRead) < g_db::stmtRowScrollOffset) {
+            // reads hidden by scrolling
+            continue;
+          }
+          if (multiAln && rowFile != headerFile) {
+            headerFile = rowFile;
+            e2::write_string (
+                seqWriteHead, seqWriteLim.x, headerFile, {.fg = TB_REVERSE}
+            );
+            seqWriteHead.y++;
+            if (seqWriteHead.y >= seqWriteLim.y) {
+              // header drawn, no room for its read
+              break;
             }
           }
           const auto dHead = draw_aln::seq1 (
@@ -993,8 +996,49 @@ void draw_main_to_buffer()
           break;
         }
       }
-      g_browsr::nReadOnscreen = nReadDrawn;
+    }
 
+    // files with no reads in the query follow the reads. The scroll
+    // offset runs past the last read into them.
+    {
+      const auto nReads = static_cast<int64_t> (g_db::nStmtRows);
+      const auto firstLabel = static_cast<size_t> (
+          std::max<int64_t> (g_db::stmtRowScrollOffset - nReads, 0)
+      );
+      for (size_t i = firstLabel;
+           i < g_db::emptyFiles.size() && seqWriteHead.y < seqWriteLim.y;
+           ++i) {
+        const auto& file = g_db::emptyFiles[i];
+        e2::write_string (
+            seqWriteHead, seqWriteLim.x, file.path, {.fg = TB_REVERSE}
+        );
+        seqWriteHead.y++;
+        if (seqWriteHead.y >= seqWriteLim.y) {
+          break;  // no room for reason; not counted, so shown next page
+        }
+        std::string_view reason;
+        switch (file.reason) {
+          case g_db::EmptyFileReason::contigAbsent:
+            reason = "File does not contain contig";
+            break;
+          case g_db::EmptyFileReason::noReadsAtLocus:
+            reason = "File has no reads at locus";
+            break;
+          case g_db::EmptyFileReason::noMatchingReads:
+            reason = "No reads match query";
+            break;
+        }
+        e2::write_string (
+            seqWriteHead, seqWriteLim.x, std::string (reason),
+            {.fg = TB_DIM}
+        );
+        seqWriteHead.y++;
+        ++nReadDrawn;
+      }
+    }
+
+    g_browsr::nReadOnscreen = nReadDrawn;
+    if (g_db::nStmtRows > 0) {
       /* draw crosshair */
       if (const int64_t pileupScreenXPosWide =
               first (g_browsr::alnPaneDataBox.xspan) + alnPaneHalfWidth -
@@ -1019,10 +1063,10 @@ void draw_main_to_buffer()
       }
       /* end draw crosshair */
     }
-    else {
+    else if (!multiAln) {
       e2::write_string (
-          seqWriteHead, seqWriteLim.x,
-          "no reads at locus for current query", {.fg = TB_DIM}
+          seqWriteHead, seqWriteLim.x, "No reads match query",
+          {.fg = TB_DIM}
       );
     }
     /* end draw query data */

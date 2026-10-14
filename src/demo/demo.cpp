@@ -100,8 +100,6 @@ void generate_demo_data (
     elemBuf.isDel = false;
     elemBuf.isRefSkip = false;
     elemBuf.mapQ = mapQGen (rng);
-    elemBuf.mStart = -1;
-    elemBuf.mtidName = "";  // not present
     elemBuf.qName = "read" + std::to_string (i);
 
     elemBuf.start = static_cast<hts_pos_t> (gstartGen (rng));
@@ -307,7 +305,9 @@ void insert_demo_data (sqlite3* conn, const DemoDataPack& data)
 
   // per-record rows reference a file row via path_id
   if (const auto rc = sqlite3_exec (
-          conn, "INSERT INTO alignment_files (path) VALUES ('demo');",
+          conn,
+          "INSERT INTO alignment_files (path, has_contig, has_reads) "
+          "VALUES ('demo', 1, 1);",
           NULL, NULL, NULL
       );
       rc != SQLITE_OK) {

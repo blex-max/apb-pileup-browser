@@ -14,6 +14,12 @@
 
 #include "backend/hts_types.hpp"
 
+#define SQ3_TRY_OR_UNREACHABLE(fn, exp_rc, crash_msg) \
+  if (const auto rc = fn; rc != exp_rc) {             \
+    APB_UNREACHABLE (crash_msg);                      \
+  }
+
+
 namespace setup_db {
 
 // Initialise db with pileup schema (see schema.hpp).

@@ -120,7 +120,6 @@ target_link_libraries(apb
 add_executable(apb-tests
   tests/test.cpp
   src/backend/hts_sql.cpp
-  src/backend/schema.cpp
   src/frontend/tb2_impl.cpp
 )
 target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})

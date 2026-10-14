@@ -131,7 +131,7 @@ inline constexpr auto tableColumns = std::to_array<std::string_view> ({
     "  `seq`:                                        ",
     "      the read sequence                         ",
     "  `qual`:                                       ",
-    "      the read Phred base qualities             ",
+    "      An array of the read Phred base qualities ",
     "  `ncig`:                                       ",
     "      number of CIGAR operations in the read    ",
     "  `path`:                                       ",

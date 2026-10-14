@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "app/helpblocks.hpp"
 #include "backend/hts_sql.hpp"
@@ -23,7 +24,6 @@ struct ColMetadata {
 namespace g_state {
 
 inline constinit bool run = true;
-inline constinit bool multialn = false;
 
 namespace db {
 
@@ -32,6 +32,25 @@ inline constinit query::DynamicFragments userClause;
 inline constinit sqlite3_stmt* selectStmt = nullptr;
 inline constinit uint32_t nStmtRows = 0;  // rows in current stmt
 inline constinit int32_t stmtRowScrollOffset = 0;
+
+// Files (multi-aln only) with no reads in the current query, and why.
+// Displayed after the reads; counted as scrollable rows.
+enum class EmptyFileReason : uint8_t {
+  contigAbsent,
+  noReadsAtLocus,
+  noMatchingReads
+};
+struct EmptyFile {
+  std::string path;
+  EmptyFileReason reason;
+};
+inline constinit std::vector<EmptyFile> emptyFiles;
+
+// total scrollable rows: reads, then empty-file labels
+inline uint32_t nScrollRows()
+{
+  return nStmtRows + static_cast<uint32_t> (emptyFiles.size());
+}
 
 inline constinit query::PileupMetadata
     locusInfo;  // cached metadata-table row; queried once at init()
@@ -90,7 +109,7 @@ inline constinit extb::VLine vSep;
 inline constinit extb::Box tablePaneDataBox;
 inline constinit extb::HLine ambientSep;
 inline constinit extb::HLine ambientLine;
-inline constinit uint16_t nReadOnscreen = 0;
+inline constinit uint16_t nReadOnscreen = 0;  // reads + empty-file labels
 inline constinit int64_t userPanOffset = 0;
 
 }  // namespace browsr
