@@ -750,7 +750,6 @@ static bool fill_fields (
       pf.rawQual.emplace (lq);
       const uint8_t* br_qq = bam_get_qual (br_b1);
       for (size_t j = 0; j < lq; ++j) {
-        // FIXME: 33 offset removed - to handle query side
         (*pf.rawQual)[j] = br_qq[j];
       }
       if (!br_p1->is_del) {

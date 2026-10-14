@@ -550,12 +550,12 @@ struct ShowTableCmd {
       return valRet.error();
     }
 
-    g_ui::drawPaneSwitches.table = !g_ui::drawPaneSwitches.table;
+    g_ui::drawTable = !g_ui::drawTable;
     return {
-        true, fmt::format (
-                  "{} table pane",
-                  (g_ui::drawPaneSwitches.table) ? "Unfolded" : "Folded"
-              )
+        true,
+        fmt::format (
+            "{} table pane", (g_ui::drawTable) ? "Unfolded" : "Folded"
+        )
     };
   }
 
@@ -597,12 +597,10 @@ struct ShowTrackCmd {
 
   static CmdResult operator() (std::string_view args)
   {
-    auto& switches = g_ui::drawTrackSwitches;
-
     if (args.empty()) {
       // reset
-      switches.qual = false;
-      switches.ins = true;
+      g_ui::drawQualTrack = false;
+      g_ui::drawInsTrack = true;
       return {
           true,
           fmt::format (
@@ -648,12 +646,12 @@ struct ShowTrackCmd {
     std::vector<std::string_view> nowHidden;
     for (const auto& track : tracksToToggle) {
       if (track == trackNames[TrackID::qual]) {
-        switches.qual = !switches.qual;
-        (switches.qual ? nowShown : nowHidden).push_back (track);
+        g_ui::drawQualTrack = !g_ui::drawQualTrack;
+        (g_ui::drawQualTrack ? nowShown : nowHidden).push_back (track);
       }
       else if (track == trackNames[TrackID::ins]) {
-        switches.ins = !switches.ins;
-        (switches.ins ? nowShown : nowHidden).push_back (track);
+        g_ui::drawInsTrack = !g_ui::drawInsTrack;
+        (g_ui::drawInsTrack ? nowShown : nowHidden).push_back (track);
       }
       else {
         // we have already verified the tokens,

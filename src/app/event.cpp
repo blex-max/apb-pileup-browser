@@ -105,11 +105,10 @@ static bool handle_nav (const tb_event& ev)
       // since number of tracks is dynamic both by setting
       // and onscreen content, must derive safe number
       // of rows to scroll up
-      const auto& trackSwitches = g_ui::drawTrackSwitches;
       const auto minReadsPerPage =
           height (g_browsr::alnPaneDataBox) /
-          (1 + static_cast<int> (trackSwitches.qual) +
-           static_cast<int> (trackSwitches.ins));
+          (1 + static_cast<int> (g_ui::drawQualTrack) +
+           static_cast<int> (g_ui::drawInsTrack));
       stmtRowScrollOffset =
           std::max (stmtRowScrollOffset - minReadsPerPage, 0);
       break;

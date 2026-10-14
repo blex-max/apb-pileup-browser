@@ -422,8 +422,8 @@ static e2::Delta seq1 (
 
   const auto& ref = g_db::locusInfo.refSlice;
   const auto pileupSpanGStart = g_db::locusInfo.start;
-  const bool drawInsTrack = g_ui::drawTrackSwitches.ins;
-  const bool drawQualTrack = g_ui::drawTrackSwitches.qual;
+  const bool drawInsTrack = g_ui::drawInsTrack;
+  const bool drawQualTrack = g_ui::drawQualTrack;
 
   constexpr uint8_t consumesNeitherQueryOrRef = 0b00;
   constexpr uint8_t consumesQueryOnly = 0b01;
@@ -804,7 +804,7 @@ void draw_main_to_buffer()
     tableWidth = std::min (tableWidth, maxTableWidth);
     // No visible columns leaves nothing to lay the table pane out
     // with; fall back to the no-table-pane layout below.
-    const bool showTable = g_ui::drawPaneSwitches.table && tableWidth > 0;
+    const bool showTable = g_ui::drawTable && tableWidth > 0;
 
     const auto& [frameX, frameY] = spans (g_browsr::frame);
     const auto& contentX = body (frameX);

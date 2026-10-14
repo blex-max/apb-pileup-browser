@@ -84,14 +84,9 @@ inline constinit bool showOverlay = false;
 // last resize left terminal too small; widget geometry is stale
 inline constinit bool tooSmall = false;
 
-inline constinit struct {
-  bool qual = false;
-  bool ins = true;
-} drawTrackSwitches;
-
-inline constinit struct {
-  bool table = true;
-} drawPaneSwitches;
+inline constinit bool drawQualTrack = false;
+inline constinit bool drawInsTrack = true;
+inline constinit bool drawTable = true;
 
 inline constexpr auto kMinWidth = 20;
 
