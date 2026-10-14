@@ -565,8 +565,6 @@ static std::expected<ApbCliArgs, std::string> parse_args (
     argsOut.locus = posArgV[0];
 
     /* --- verify paths --- */
-    // FIXME: pending review. working having made limited
-    // tests so far.
     std::vector<std::filesystem::path> alnUserPaths;
     std::vector<std::filesystem::path> alnAbsPaths;
     for (size_t i = 0; i < posArgV.size() - 1; ++i) {
@@ -752,6 +750,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
 
   // iterate alignment paths. Open, validate, pileup,
   // transform to db
+  bool contigFound = false;
   bool readsFoundAtLocus = false;
   GenomicSpan maxPileupSpan{
       INT64_MAX, 0
@@ -790,6 +789,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
         break;
       default:
         hasContig = true;
+        contigFound = true;
         aln.locusTid = static_cast<uint32_t> (rc);
     };
 
@@ -804,8 +804,10 @@ static std::expected<void, std::string> populate_db_mode_locus (
         might be needed, hence little advantage to keeping the iterator alive between calls.
       */
 
-      auto* o_alnIter =
-          sam_itr_queryi (aln.o_idx, aln.locusTid, locusPos, locusPos + 1);
+      auto* o_alnIter = sam_itr_queryi (
+          aln.o_idx, static_cast<int> (aln.locusTid), locusPos,
+          locusPos + 1
+      );
       if (o_alnIter == NULL) {
         // FIXME: is this (and pileup iterator fail) actually plausible?
         return std::unexpected (
@@ -951,6 +953,12 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
   }
 
+  if (!contigFound) {
+    return std::unexpected (
+        "Contig not found in any input alignment file"
+    );
+  }
+
   if (readsFoundAtLocus) {
     // Fetch reference and insert metadata
     std::optional<std::string> refSlice;
@@ -989,7 +997,6 @@ static std::expected<void, std::string> populate_db_mode_locus (
     }
   }
   else {
-    // FIXME: because they didn't have the contig, or because there were no reads?
     return std::unexpected (
         "No reads at locus in any input alignment file"
     );
