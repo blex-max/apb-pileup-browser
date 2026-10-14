@@ -14,17 +14,12 @@ See the roadmap in [README.md](README.md).
 
 ## Open Non-Feature Work
 
-- Consistently assert invariants, preconditions, and postconditions in all functions,
-  and log values of variables asserted against.
 - Currently the demo mode database is fixed at compile time, meaning different builds will have different demo data.
   The demo data is generated in a parameterised manner so this isn't a big problem but it would be nice if a single
   demo database could be distributed within the src.
 - On a failure to parse an aux tag reported back to main.cpp, the qname of the read with the corrupt data
   should be reported.
-- Some light validation of user sql statements would be useful, e.g. ensuring no semicolons in statement.
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
-- Better handling of resizing to tiny sizes - see TODO comments in src/.
-- Add version-match checking to db load mode - if and when breaking changes apply.
 - There's some wasted computation since all user input will naively redraw the entire screen.
   There's not been any perf impact, but it would be more economical to only recompute and redraw
   whatever is specifically necessary.

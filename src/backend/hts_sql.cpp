@@ -22,18 +22,6 @@
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 
-// Error handling convention for sqlite3 calls in this file:
-//
-// - APB_ASSERT/APB_UNREACHABLE where statements apb builds itself, run
-//   against a schema apb created or has already verified (schema
-//   fingerprint match, or a fresh setup_db::init()). Any prepare/bind
-//   failure, or a SQLITE_CONSTRAINT step failure, means apb's own
-//   SQL/schema/bind order/invariants are corrupt and therefore a bug.
-//   These states should not be reachable with valid input. Some invariants
-//   are validated at multiple points - after the first validation, they
-//   are considered unreachable
-// - Returned/propagated error where failures are not within the control
-//   of apb - i.e. user input/ouput, out of memory, etc.
 
 // returns a fingerprint of the schema of the input database,
 static std::string schema_fingerprint (sqlite3* conn)
