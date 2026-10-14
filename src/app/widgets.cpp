@@ -558,8 +558,7 @@ static e2::Delta seq1 (
                ++i, ++opInsQualWriteHead.x) {
             set (
                 opInsQualWriteHead,
-                static_cast<uint32_t> ((*readFields.qual)[iQuery + i]),
-                {.fg = TB_DIM}
+                static_cast<uint32_t> ((*readFields.qual)[iQuery + i])
             );
           }
         }
@@ -643,7 +642,7 @@ static e2::Delta seq1 (
       iGc += opSz;
     }
     else if (opConsumeType == consumesNeitherQueryOrRef) {
-      // as soft clipping (TODO factor out)
+      // hard clip, as soft clipping (TODO factor out)
       if (opType == BAM_CHARD_CLIP && iOp == 0 && startToLEdge > 0) {
         std::string clipLabel = "h(" + std::to_string (opSz) + ")";
         const int labSz = static_cast<int> (clipLabel.size());
@@ -690,7 +689,7 @@ static e2::Delta seq1 (
     // for correctness and readability in some cases.
     e2::write_string (
         e2::GlobalCell{{.x = fa.writeStartX, .y = writeHead.y}},
-        fa.writeLimits.x, qualDisplayBuf, {.fg = TB_DIM}
+        fa.writeLimits.x, qualDisplayBuf
     );
     writeHead.y++;
   }

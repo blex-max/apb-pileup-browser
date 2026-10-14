@@ -11,4 +11,5 @@ check the following:
 - README.md is updated, including the readme roadmap.
 - The docker images build on amd64 and arm64.
 - The app builds and runs!
+  - run every command at least once
 - The tests pass!
