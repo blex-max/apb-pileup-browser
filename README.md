@@ -105,12 +105,19 @@ General suggestions regarding improvements to commands and navigation are also a
 - Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
   e.g. `where @at(+3, cigar, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
   This is not plausible in direct SQL. Exact syntax TBD!
+- Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
+  like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
 
 ### Speculative Features
 
 These are items that I think might be useful and could implement, but am unlikely to do so without requests - if you see something you would like, please ask!
 
 - Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
+- Arbitrary locus-jumping from within TUI - e.g. `goto chr1:2500`.
+  - This feels like a nice idea, but I'm skeptical of how much time it saves over exiting the TUI and starting up again
+    at the new locus via the CLI.
+  - At very high depth it could give better performance as it would allow caching databases per locus if the user
+    is likely to revisit each locus more than once within a session.
 - Allow providing a list or file of loci at the CLI, and jumping between them in the TUI.
   - Three-column format - `contig`, `pos`, and, optionally, `id`. `id` would be arbitrary user data
     to identify each locus, e.g. a string like `REF:A-ALT:C`.
@@ -118,17 +125,9 @@ These are items that I think might be useful and could implement, but am unlikel
     this 3-col format. e.g. for VCF `bcftools view my.vcf | awk <extract columns and create id> > loci.txt`
   - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
     not familiar with those tools.
-- Arbitrary locus-jumping from within TUI - e.g. `goto chr1:2500`.
-  - This feels like a nice idea, but I'm skeptical of how much time it saves over exiting the TUI and starting up again
-    at the new locus via the CLI.
-  - At very high depth it could give better performance as it would allow caching databases per locus if the user
-    is likely to revisit each locus more than once within a session.
 - Allow saving queries and returning to them within the same session, without having to type them out again.
-- Optionally use unicode block characters to draw the quality string as a sparkline graph for reading at a glance,
-  like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
 - Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
 - Display of reads aligned to adjacent bases at the specified locus.
-
 
 ## Development
 
