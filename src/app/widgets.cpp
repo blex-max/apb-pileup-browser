@@ -939,7 +939,7 @@ void draw_main_to_buffer()
     APB_ASSERT (row1Frame.valid(), row1Frame);
     const bool multiAln = g_db::locusInfo.nAln > 1;
     // scroll units drawn on this page: reads, then empty-file labels
-    uint16_t nReadDrawn = 0;
+    uint16_t nUnitsDrawn = 0;
     if (g_db::nStmtRows > 0) {
       // file of the last header drawn on this page
       std::string headerFile;
@@ -976,7 +976,7 @@ void draw_main_to_buffer()
             );
             seqWriteHead.y++;
             if (seqWriteHead.y >= seqWriteLim.y) {
-              // header drawn, no room for its read
+              // header drawn, no room for read
               break;
             }
           }
@@ -988,7 +988,7 @@ void draw_main_to_buffer()
             draw_table::row1 (seqWriteHead.y, g_db::selectStmt, row1Frame);
           }
           seqWriteHead.y += dHead.dy;
-          ++nReadDrawn;
+          ++nUnitsDrawn;
         }
         else {
           // exhausted
@@ -997,14 +997,14 @@ void draw_main_to_buffer()
       }
     }
 
-    // files with no reads in the query follow the reads. The scroll
-    // offset runs past the last read into them.
+    // if space avail, draw empty file labels
     {
       const auto nReads = static_cast<int64_t> (g_db::nStmtRows);
-      const auto firstLabel = static_cast<size_t> (
+      // get scroll position relative to file labels
+      const auto labelOffset = static_cast<size_t> (
           std::max<int64_t> (g_db::stmtRowScrollOffset - nReads, 0)
       );
-      for (size_t i = firstLabel;
+      for (size_t i = labelOffset;
            i < g_db::emptyFiles.size() && seqWriteHead.y < seqWriteLim.y;
            ++i) {
         const auto& file = g_db::emptyFiles[i];
@@ -1013,7 +1013,7 @@ void draw_main_to_buffer()
         );
         seqWriteHead.y++;
         if (seqWriteHead.y >= seqWriteLim.y) {
-          break;  // no room for reason; not counted, so shown next page
+          break;
         }
         std::string_view reason;
         switch (file.reason) {
@@ -1032,11 +1032,11 @@ void draw_main_to_buffer()
             {.fg = TB_DIM}
         );
         seqWriteHead.y++;
-        ++nReadDrawn;
+        ++nUnitsDrawn;
       }
     }
 
-    g_browsr::nReadOnscreen = nReadDrawn;
+    g_browsr::nUnitsOnscreen = nUnitsDrawn;
     if (g_db::nStmtRows > 0) {
       /* draw crosshair */
       if (const int64_t pileupScreenXPosWide =

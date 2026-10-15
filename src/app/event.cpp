@@ -6,7 +6,6 @@
 #include "app/cmd.hpp"
 #include "app/g_state.hpp"
 #include "app/widgets.hpp"
-#include "frontend/extb/extb.hpp"
 #include "frontend/history.hpp"
 #include "frontend/input.hpp"
 
@@ -84,7 +83,7 @@ static bool handle_nav (const tb_event& ev)
       }
       else {
         const auto lastRowOnscreen = static_cast<uint32_t> (
-            stmtRowScrollOffset + g_browsr::nReadOnscreen
+            stmtRowScrollOffset + g_browsr::nUnitsOnscreen
         );
         if (lastRowOnscreen < g_db::nScrollRows()) {
           stmtRowScrollOffset++;
@@ -104,11 +103,20 @@ static bool handle_nav (const tb_event& ev)
     case TB_KEY_PGUP: {
       // since number of tracks is dynamic both by setting
       // and onscreen content, must derive safe number
-      // of rows to scroll up
+      // of rows to scroll up.
+      auto rowsPerRead = [&]() {
+        auto rowsInUse = 1 + static_cast<int> (g_ui::drawInsTrack) +
+                         static_cast<int> (g_ui::drawQualTrack);
+        if (g_ui::drawInsTrack && g_ui::drawQualTrack) {
+          rowsInUse += 1;
+        }
+        if (g_db::locusInfo.nAln > 1) {
+          rowsInUse += 1;  // file header, worst case one per read
+        }
+        return rowsInUse;
+      }();
       const auto minReadsPerPage =
-          height (g_browsr::alnPaneDataBox) /
-          (1 + static_cast<int> (g_ui::drawQualTrack) +
-           static_cast<int> (g_ui::drawInsTrack));
+          height (g_browsr::alnPaneDataBox) / rowsPerRead;
       stmtRowScrollOffset =
           std::max (stmtRowScrollOffset - minReadsPerPage, 0);
       break;
@@ -116,10 +124,10 @@ static bool handle_nav (const tb_event& ev)
 
     case TB_KEY_PGDN: {
       const auto lastRowOnscreen = static_cast<uint32_t> (
-          stmtRowScrollOffset + g_browsr::nReadOnscreen
+          stmtRowScrollOffset + g_browsr::nUnitsOnscreen
       );
       if (lastRowOnscreen < g_db::nScrollRows()) {
-        stmtRowScrollOffset += g_browsr::nReadOnscreen;
+        stmtRowScrollOffset += g_browsr::nUnitsOnscreen;
       }
       break;
     }

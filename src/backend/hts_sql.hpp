@@ -14,11 +14,6 @@
 
 #include "backend/hts_types.hpp"
 
-#define SQ3_TRY_OR_UNREACHABLE(fn, exp_rc, crash_msg) \
-  if (const auto rc = fn; rc != exp_rc) {             \
-    APB_UNREACHABLE (crash_msg);                      \
-  }
-
 
 namespace setup_db {
 
@@ -66,11 +61,6 @@ enum class RowIterStatus : uint8_t { rowAvail, exhausted };
 [[nodiscard]] std::expected<RowIterStatus, int> next_read (
     sqlite3_stmt* br_stmt
 );
-
-// Steps `stmt` to exhaustion, counting rows.
-// Returns the row count, or the sqlite3 return code of the
-// first failing step.
-std::expected<uint32_t, int> count_rows (sqlite3_stmt* br_stmt);
 
 // locus metadata as extracted from db.
 // 1-indexed!

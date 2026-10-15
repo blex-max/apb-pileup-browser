@@ -20,9 +20,9 @@ See the roadmap in [README.md](README.md).
 - On a failure to parse an aux tag reported back to main.cpp, the qname of the read with the corrupt data
   should be reported.
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
-- There's some wasted computation since all user input will naively redraw the entire screen.
-  There's not been any perf impact, but it would be more economical to only recompute and redraw
-  whatever is specifically necessary.
+- There's some wasted computation since all user input will naively redraw the entire screen and
+  redo the entire query. This only noticable at depths above 50k, but in any case it would be more economical/
+  to only recompute and redraw whatever is specifically necessary per frame.
 
 ## Development Adages
 

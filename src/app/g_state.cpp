@@ -18,7 +18,7 @@
 
 namespace g_state::ui {
 
-constinit std::array<ColMetadata, 11> tableCols{{
+constinit std::array<ColMetadata, 10> tableCols{{
     {false, "qpos", 6,
      [] (sqlite3_stmt* row) {
        return std::to_string (
@@ -121,63 +121,57 @@ SetQueryStatus set_query (query::DynamicFragments clause)
   if (!prepResult) {
     return {.code = SetQueryStatus::prepareFail, .rc = prepResult.error()};
   }
-  auto* newStmt = *prepResult;
-  const auto rowCountResult = query::count_rows (newStmt);
-  if (!rowCountResult) {
-    sqlite3_finalize (newStmt);
-    return {
-        .code = SetQueryStatus::countFail, .rc = rowCountResult.error()
-    };
-  }
+  auto* br_newStmt = *prepResult;
+  Defer stmt_err_cleanup ([&br_newStmt]() {
+    sqlite3_finalize (br_newStmt);
+  });
 
-  // files with no reads in this query (multi-aln only)
+  uint32_t rowCount = 0;
   std::vector<EmptyFile> newEmptyFiles;
   if (locusInfo.nAln > 1) {
+    // check which files have reads for this query,
+    // count rows, and update g_state::emptyFiles.
     // precondition:
     // - query is sorted by path as primary key
-    std::vector<std::string> matchedPaths;
-    sqlite3_reset (newStmt);
-    int matchRc;
-    while ((matchRc = sqlite3_step (newStmt)) == SQLITE_ROW) {
+    std::vector<std::string> filesWithReads;
+    sqlite3_reset (br_newStmt);
+    int rcQueryStep;
+    while ((rcQueryStep = sqlite3_step (br_newStmt)) == SQLITE_ROW) {
+      rowCount++;
       const std::string_view rowPath{
           reinterpret_cast<const char*> (sqlite3_column_text (
-              newStmt, schema::UserReadViewSelect::path
+              br_newStmt, schema::UserReadViewSelect::path
           )),
           static_cast<size_t> (sqlite3_column_bytes (
-              newStmt, schema::UserReadViewSelect::path
+              br_newStmt, schema::UserReadViewSelect::path
           ))
       };
-      if (matchedPaths.empty() || matchedPaths.back() != rowPath) {
-        matchedPaths.emplace_back (rowPath);
+      if (filesWithReads.empty() || filesWithReads.back() != rowPath) {
+        filesWithReads.emplace_back (rowPath);
       }
     }
-    SQ3_TRY_OR_UNREACHABLE (
-        matchRc, SQLITE_DONE,
-        fmt::format (
-            "failed to step query for matching files: {}",
-            sqlite3_errmsg (conn)
-        )
-    );
-    sqlite3_reset (newStmt);
+    if (rcQueryStep != SQLITE_DONE) {
+      return {.code = SetQueryStatus::countFail, .rc = rcQueryStep};
+    }
+    sqlite3_reset (br_newStmt);
 
     sqlite3_stmt* o_fileStmt = nullptr;
     Defer fileStmtCleanup ([&o_fileStmt]() {
       sqlite3_finalize (o_fileStmt);
     });
-    SQ3_TRY_OR_UNREACHABLE (
+    APB_CATCH_UNREACHABLE (
         sqlite3_prepare_v2 (
             conn, schema::FileTableSelect::sql.data(),
             static_cast<int> (schema::FileTableSelect::sql.size()),
             &o_fileStmt, NULL
-        ),
-        SQLITE_OK,
+        ) != SQLITE_OK,
         fmt::format (
             "failed to prepare file select statement: {}",
             sqlite3_errmsg (conn)
         )
     );
-    int fileRc;
-    while ((fileRc = sqlite3_step (o_fileStmt)) == SQLITE_ROW) {
+    int rcFileStep;
+    while ((rcFileStep = sqlite3_step (o_fileStmt)) == SQLITE_ROW) {
       std::string path (
           reinterpret_cast<const char*> (sqlite3_column_text (
               o_fileStmt, schema::FileTableSelect::path
@@ -186,8 +180,8 @@ SetQueryStatus set_query (query::DynamicFragments clause)
               o_fileStmt, schema::FileTableSelect::path
           ))
       );
-      if (std::find (begin (matchedPaths), end (matchedPaths), path) !=
-          end (matchedPaths)) {
+      if (std::find (begin (filesWithReads), end (filesWithReads), path) !=
+          end (filesWithReads)) {
         continue;
       }
       EmptyFileReason reason = EmptyFileReason::noMatchingReads;
@@ -203,21 +197,38 @@ SetQueryStatus set_query (query::DynamicFragments clause)
       }
       newEmptyFiles.push_back ({std::move (path), reason});
     }
-    SQ3_TRY_OR_UNREACHABLE (
-        fileRc, SQLITE_DONE,
-        fmt::format (
-            "failed to step file select statement: {}",
-            sqlite3_errmsg (conn)
-        )
-    );
+    if (rcFileStep != SQLITE_DONE) {
+      APB_UNREACHABLE (
+          fmt::format (
+              "failed to step file table statement: {}",
+              sqlite3_errmsg (conn)
+          )
+      );
+    }
+    emptyFiles = std::move (newEmptyFiles);
   }
-  emptyFiles = std::move (newEmptyFiles);
+  else {
+    // just count rows
+    for (;; ++rowCount) {
+      const auto iterStatus = query::next_read (br_newStmt);
+      if (!iterStatus) {
+        return {
+            .code = SetQueryStatus::countFail, .rc = iterStatus.error()
+        };
+      }
+      if (*iterStatus == query::RowIterStatus::exhausted) {
+        break;
+      }
+    }
+  }
 
   sqlite3_finalize (selectStmt);
-  selectStmt = newStmt;
+  stmt_err_cleanup.cancel();
+  // update state
+  selectStmt = br_newStmt;
   userClause = std::move (clause);
   stmtRowScrollOffset = 0;  // reset row view
-  nStmtRows = *rowCountResult;
+  nStmtRows = rowCount;
   return {.code = SetQueryStatus::success};
 }
 

@@ -12,6 +12,7 @@
 #include <cstring>
 #include <expected>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -369,13 +370,14 @@ std::expected<sqlite3_stmt*, int> prepare_select_reads (
   }
 
   // hardcoded default ordering by path
-  rsql_builtStmt.append (" ORDER BY path");
+  // newline so a trailing -- comment in user SQL cannot swallow it
+  rsql_builtStmt.append ("\nORDER BY path");
   if (!frags.orderBy.empty()) {
     rsql_builtStmt.append (", ");
     rsql_builtStmt.append (frags.orderBy);
   }
 
-  rsql_builtStmt.append (";");  // end stmt
+  rsql_builtStmt.append ("\n;");  // end stmt
 
   // If these fail, then the user statement is not valid,
   // hence they are not unreachable
@@ -466,20 +468,6 @@ std::expected<RowIterStatus, int> next_read (sqlite3_stmt* br_stmt)
     return std::unexpected (rc);
   }
   return RowIterStatus::rowAvail;
-}
-
-std::expected<uint32_t, int> count_rows (sqlite3_stmt* br_stmt)
-{
-  uint32_t nRow = 0;
-  for (;; ++nRow) {
-    const auto iterStatus = next_read (br_stmt);
-    if (!iterStatus) {
-      return std::unexpected (iterStatus.error());
-    }
-    if (*iterStatus == RowIterStatus::exhausted) {
-      return nRow;
-    }
-  }
 }
 
 DiskDumpStatus dump_to_disk (sqlite3* conn, std::string_view path)
@@ -652,7 +640,14 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
         if (!firstTok) {
           out += ',';
         }
-        out.append (tok, tokLen);
+        // JSON has no nan/inf (finite values end in a digit)
+        if (tokLen > 0 &&
+            isdigit (static_cast<unsigned char> (tok[tokLen - 1]))) {
+          out.append (tok, tokLen);
+        }
+        else {
+          out += "null";
+        }
         firstTok = false;
       }
     }
@@ -672,8 +667,18 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
         out += '"';
         break;
       default:
-        // payload as numeric
-        out.append (payloadStartPtr, payloadLen);
+        // payload as numeric; JSON has no nan/inf (finite values
+        // end in a digit)
+        if (payloadLen > 0 && isdigit (
+                                  static_cast<unsigned char> (
+                                      payloadStartPtr[payloadLen - 1]
+                                  )
+                              )) {
+          out.append (payloadStartPtr, payloadLen);
+        }
+        else {
+          out += "null";
+        }
         break;
     }
   }
@@ -1223,6 +1228,32 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
     auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"XF\":[1.5,2.5]");
+  }
+
+  SUBCASE ("non-finite float becomes null")
+  {
+    CHECK (
+        floatTag (std::numeric_limits<float>::quiet_NaN()) == "\"XF\":null"
+    );
+    CHECK (
+        floatTag (std::numeric_limits<float>::infinity()) == "\"XF\":null"
+    );
+    CHECK (
+        floatTag (-std::numeric_limits<float>::infinity()) == "\"XF\":null"
+    );
+  }
+
+  SUBCASE ("non-finite in float array becomes null")
+  {
+    const float v[] = {
+        1.5f, std::numeric_limits<float>::quiet_NaN(),
+        -std::numeric_limits<float>::infinity()
+    };
+    uint8_t buf[8 + sizeof (v)] = {'X', 'F', 'B', 'f', 3, 0, 0, 0};
+    std::memcpy (buf + 8, v, sizeof (v));
+    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    REQUIRE (r);
+    CHECK (*r == "\"XF\":[1.5,null,null]");
   }
 
   SUBCASE ("empty string")

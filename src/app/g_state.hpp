@@ -60,11 +60,8 @@ struct SetQueryStatus {
   Code code;
   std::optional<int> rc = std::nullopt;  // sqlite rc on failure
 };
-// Replace the active query with `clause`: prepares and counts it, then
-// swaps in the new statement (finalising the old), clause and row count,
-// and resets the row scroll. On failure the active query is untouched;
-// details are available from sqlite3_errmsg (conn).
-// defined in g_state.cpp
+// Replace the active query with `clause`.
+// On failure extra details are available from sqlite3_errmsg (conn).
 [[nodiscard]] SetQueryStatus set_query (query::DynamicFragments clause);
 
 inline void shutdown()
@@ -78,7 +75,7 @@ inline void shutdown()
 namespace ui {
 
 // defined in g_state.cpp
-extern std::array<ColMetadata, 11> tableCols;
+extern std::array<ColMetadata, 10> tableCols;
 
 inline constinit bool showOverlay = false;
 // last resize left terminal too small; widget geometry is stale
@@ -104,7 +101,8 @@ inline constinit extb::VLine vSep;
 inline constinit extb::Box tablePaneDataBox;
 inline constinit extb::HLine ambientSep;
 inline constinit extb::HLine ambientLine;
-inline constinit uint16_t nReadOnscreen = 0;  // reads + empty-file labels
+// scroll units: reads + empty-file labels
+inline constinit uint16_t nUnitsOnscreen = 0;
 inline constinit int64_t userPanOffset = 0;
 
 }  // namespace browsr

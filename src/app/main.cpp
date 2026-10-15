@@ -876,43 +876,44 @@ static std::expected<void, std::string> populate_db_mode_locus (
     Defer stmt_cleanup ([&o_fileInsertStmt]() {
       sqlite3_finalize (o_fileInsertStmt);
     });
-    SQ3_TRY_OR_UNREACHABLE (
+    APB_CATCH_UNREACHABLE (
         sqlite3_prepare_v2 (
             g_db::conn, schema::sqlInsertFile.data(),
             static_cast<int> (schema::sqlInsertFile.size()),
             &o_fileInsertStmt, NULL
-        ),
-        SQLITE_OK,
+        ) != SQLITE_OK,
         fmt::format (
             "failed to prepare file insert statement: {}",
             sqlite3_errmsg (g_db::conn)
         )
     )
-    SQ3_TRY_OR_UNREACHABLE (
-        sqlite3_bind_text (
+    APB_CATCH_UNREACHABLE (
+        const auto rc = sqlite3_bind_text (
             o_fileInsertStmt, 1, fp.c_str(),
             static_cast<int> (fp.string().size()), SQLITE_TRANSIENT
-        ),
-        SQLITE_OK,
+        );
+        rc != SQLITE_OK,
         fmt::format (
             "failed to bind path to file table insert statement: {}",
             sqlite3_errstr (rc)
         )
     )
-    SQ3_TRY_OR_UNREACHABLE (
-        sqlite3_bind_int (
+    APB_CATCH_UNREACHABLE (
+        const auto rc = sqlite3_bind_int (
             o_fileInsertStmt, 2, static_cast<int> (hasContig)
-        ),
-        SQLITE_OK, fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
+        );
+        rc != SQLITE_OK,
+        fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
     )
-    SQ3_TRY_OR_UNREACHABLE (
-        sqlite3_bind_int (
+    APB_CATCH_UNREACHABLE (
+        const auto rc = sqlite3_bind_int (
             o_fileInsertStmt, 3, static_cast<int> (hasReads)
-        ),
-        SQLITE_OK, fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
+        );
+        rc != SQLITE_OK,
+        fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
     )
-    SQ3_TRY_OR_UNREACHABLE (
-        sqlite3_step (o_fileInsertStmt), SQLITE_DONE,
+    APB_CATCH_UNREACHABLE (
+        sqlite3_step (o_fileInsertStmt) != SQLITE_DONE,
         fmt::format (
             "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
         )

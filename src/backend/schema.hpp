@@ -6,10 +6,9 @@
 inline constexpr auto kSchemaVersion = 1;
 #define APB_SCHEMA_VER "1"
 
-// Tests for this header live in schema.cpp (a test-only TU).
 
 // NOTE: sqlite3 bind indexing is 1-based, select indexing
-// is 0-based, so enum can only be used with select
+// is 0-based, so enums are for use with with select statements only
 
 namespace schema {
 
