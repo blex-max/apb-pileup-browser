@@ -99,7 +99,7 @@ General suggestions regarding improvements to commands and navigation are also a
 
 ### Planned Features
 
-- Multiple alignment pileups.
+- ~Multiple alignment pileups.~ Added in `0.2.0`.
 - More stats in the status bar; allele counts/VAF, reference span complexity (useful when
   assessing artefactual variants), etc.
 - Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
