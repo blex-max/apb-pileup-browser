@@ -145,7 +145,7 @@ struct ShowTableColCmd {
   constexpr static std::string_view desc{
       "Show/hide read data columns in the table pane."
       "For a list of available columns, check the "
-      "manual or run `? table`."
+      "manual or run `? col`."
   };
 
   static CmdResult operator() (std::string_view args)
@@ -263,7 +263,7 @@ struct WhereCmd {
       "Start a new WHERE clause, overwriting any existing "
       "clause. Omitting the [clause] argument will clear the current "
       "WHERE clause. For a reference of queryable columns, check the "
-      "manual or run `? table`."
+      "manual or run `? col`."
   };
 
   static CmdResult operator() (std::string_view args)
@@ -756,7 +756,7 @@ struct HelpCmd {
   constexpr static std::array<std::string_view, Topic::COUNT> topicNames{{
       [Topic::nav] = "nav",
       [Topic::cmd] = "cmd",
-      [Topic::tableColumns] = "table",
+      [Topic::tableColumns] = "col",
   }};
 
   inline static const std::string usage =

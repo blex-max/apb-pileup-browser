@@ -28,7 +28,7 @@ inline constexpr auto app = std::to_array<std::string_view> ({
     "  For list of available commands:                   ",
     "    `help cmd`                                      ",
     "  For list of queryable data:                       ",
-    "    `help table`                                    ",
+    "    `help col`                                      ",
     "                                                    ",
     "  Read the manual for a complete guide to usage,    ",
     "  including query examples - run                    ",
