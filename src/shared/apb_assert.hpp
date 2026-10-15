@@ -41,6 +41,9 @@ template <typename... Args>
     varInfo += fmt::format ("{}={}", name, value);
     pos = (comma == std::string_view::npos) ? varNames.size() : comma + 1;
   };
+  // The most cpp thing ever: comma-fold expression.
+  // The comma "operator" is overloaded and will apply
+  // appendNext to each item in values (which can be any type).
   (appendNext (values), ...);
 
   std::cerr << fmt::format (
