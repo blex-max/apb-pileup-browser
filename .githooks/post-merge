@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fast-forward merges run no pre-merge-commit hook, so regenerate MANUAL.md
+# here. No commit is being made, so the result is left in the working tree.
+current_branch=$(git symbolic-ref --short -q HEAD || true)
+[ "$current_branch" = "main" ] || exit 0
+
+if [ ! -f build/CMakeCache.txt ]; then
+  cmake -S . -B build
+fi
+cmake --build build -j
+build/apb --manual > MANUAL.md
+if ! git diff --quiet -- MANUAL.md || ! git ls-files --error-unmatch MANUAL.md >/dev/null 2>&1; then
+  echo "post-merge: MANUAL.md regenerated, commit it" >&2
+fi
