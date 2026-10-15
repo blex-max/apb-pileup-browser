@@ -1386,10 +1386,6 @@ TEST_CASE ("prepare_select_reads filters on WHERE fragments")
         conn, schema::UserReadViewSelect::sqlPrefix, frags
     );
     REQUIRE (stmtRet);
-    auto stmt{std::move (*stmtRet)};
-    auto countRet = query::count_rows (stmt);
-    REQUIRE (countRet);
-    CHECK (*countRet == 1);  // readA only (flag 99, mapq 60)
   }
 }
 

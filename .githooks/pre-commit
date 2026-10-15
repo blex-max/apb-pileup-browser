@@ -4,10 +4,8 @@ set -euo pipefail
 staged=$(git diff --name-only --staged)
 current_branch=$(git symbolic-ref --short -q HEAD || true)
 
-# Commits to main must compile. Building and dumping MANUAL.md (derived from
-# the built binary's live command registry) is done here directly, rather
-# than by shelling out to dev-scripts/gen-manual.sh, so this guarantee can't
-# silently break if that script's own implementation changes later.
+# Commits to main must compile. MANUAL.md is derived from the built binary's
+# live command registry.
 if [ "$current_branch" = "main" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
   if [ ! -f build/CMakeCache.txt ]; then
     cmake -S . -B build
