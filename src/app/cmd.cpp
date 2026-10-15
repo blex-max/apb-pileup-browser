@@ -258,11 +258,12 @@ struct WhereCmd {
   constexpr static std::string_view call{"where"};
   constexpr static std::array<std::string_view, 2> callAlias{"w", "wh"};
   inline static const std::string usage =
-      fmt::format ("{} <clause>", call);
+      fmt::format ("{} [clause]", call);
   constexpr static std::string_view desc{
       "Start a new WHERE clause, overwriting any existing "
-      "clause. For a reference of queryable columns, check "
-      "the manual or run `? table`."
+      "clause. Omitting the [clause] argument will clear the current "
+      "WHERE clause. For a reference of queryable columns, check the "
+      "manual or run `? table`."
   };
 
   static CmdResult operator() (std::string_view args)
@@ -270,7 +271,9 @@ struct WhereCmd {
     // copy in case sql compile fails
     auto newClause = g_db::userClause;
     newClause.where.clear();
-    newClause.where.emplace_back (args);
+    if (!args.empty()) {
+      newClause.where.emplace_back (args);
+    }
 
     return try_apply_query_clause (
         std::move (newClause), CMD_GENERIC_SUCCESS
@@ -384,31 +387,6 @@ struct BackCmd {
   constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
 };
 
-struct ClearWhereCmd {
-  constexpr static std::string_view call{"clear-where"};
-  constexpr static std::array<std::string_view, 1> callAlias{"cw"};
-  constexpr static std::string_view usage{call};
-  constexpr static std::string_view desc{
-      "Clear WHERE clause, retaining ORDER BY."
-  };
-
-  static CmdResult operator() (std::string_view args)
-  {
-    if (const auto res = cmd_validate_args_empty (args, usage); !res) {
-      return res.error();
-    };
-
-    auto newClause = g_db::userClause;
-    newClause.where.clear();
-
-    return try_apply_query_clause (
-        std::move (newClause), "Cleared WHERE clause"
-    );
-  }
-
-  constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
-};
-
 struct OrderCmd {
   constexpr static std::string_view call{"order-by"};
   constexpr static std::array<std::string_view, 3> callAlias{
@@ -418,7 +396,8 @@ struct OrderCmd {
       fmt::format ("{} [clause]", call);
   constexpr static std::string_view desc{
       "Sort reads by ORDER BY expression. Clears order by with no args, "
-      "resetting to default ordering."
+      "resetting to default ordering. When viewing multiple"
+      "alignments, reads are always sorted by file as the primary key."
   };
 
   static CmdResult operator() (std::string_view args)
@@ -497,17 +476,10 @@ struct CountCmd {
 
     return {
         true, fmt::format (
-                  "{}: {} reads", stringify_where (where),
+                  "{}: {} reads", query::build_where_clause (where),
                   sqlite3_column_int64 (*stmtResult, 0)
               )
     };
-  }
-
-  static std::string stringify_where (
-      const std::vector<std::string>& where
-  )
-  {
-    return query::build_where_clause (where);
   }
 
   inline static const CmdView view{
@@ -519,7 +491,9 @@ struct ClearCmd {
   constexpr static std::string_view call{"clear"};
   constexpr static std::array<std::string_view, 1> callAlias{"cl"};
   constexpr static std::string_view usage{call};
-  constexpr static std::string_view desc{"Clear current query."};
+  constexpr static std::string_view desc{
+      "Clear current query, resetting both WHERE and ORDER BY."
+  };
 
   static CmdResult operator() (std::string_view args)
   {
@@ -685,8 +659,7 @@ struct DumpCmd {
   constexpr static std::string_view call{"dump"};
   inline static const std::string usage = fmt::format ("{} <path>", call);
   constexpr static std::string_view desc{
-      "Write the in-memory database to a file. Takes a single "
-      "path. The current query is not preserved."
+      "Write the pileup database to an sqlite3 dump file."
   };
 
   static CmdResult operator() (std::string_view args)
@@ -852,21 +825,20 @@ struct HelpCmd {
   inline static const CmdView view{call, alias, &operator(), usage, desc};
 };
 
-static constexpr std::array<const CmdView*, 14> kCmdRegistry{{
+static constexpr std::array<const CmdView*, 13> kCmdRegistry{{
     &HelpCmd::view,
     &QuitCmd::view,
     &WhereCmd::view,
     &AndCmd::view,
     &OrCmd::view,
     &BackCmd::view,
-    &ClearWhereCmd::view,
     &OrderCmd::view,
     &ClearCmd::view,
-    &DumpCmd::view,
-    &ShowTableCmd::view,
+    &CountCmd::view,
     &ShowTrackCmd::view,
     &ShowTableColCmd::view,
-    &CountCmd::view,
+    &ShowTableCmd::view,
+    &DumpCmd::view,
 }};
 
 // `view`s are not constexpr, so here's somewhat horrible
@@ -882,7 +854,6 @@ static constexpr bool all_aliases_unique()
            {},
            {},
            BackCmd::callAlias,
-           ClearWhereCmd::callAlias,
            OrderCmd::callAlias,
            ClearCmd::callAlias,
            {},

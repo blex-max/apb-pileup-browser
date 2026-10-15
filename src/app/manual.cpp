@@ -106,7 +106,18 @@ To count reads matching the current query, use `count`. You may also optionally 
 
 ### 3.3.2) Further Examples
 
-Beyond plain comparisons, SQLite's full function library is available. A few examples:
+The query syntax is flexible and powerful. A few examples:
+
+**INDELS AT THE PILEUP LOCUS**:
+
+This is made quite simple by the `indel` column. For example, to search for an 3-base insertion:
+```
+where indel = 3
+```
+deletions are represented by negative numbers, so for a 3-base deletion:
+```
+where indel = -3
+```
 
 **READ LENGTH**:
 

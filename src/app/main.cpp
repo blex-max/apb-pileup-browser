@@ -256,17 +256,15 @@ int main (int argc, char** argv)
   // via a dumped db).
   g_db::locusInfo = query::get_locus_data (g_db::conn);
   APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
-  // count, and as a consequence verify data presence.
-  if (const auto setStatus = g_db::set_query ({});
-      setStatus.code != g_db::SetQueryStatus::success) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to run startup query: rc {} ({}): {}",
-            setStatus.rc.value(), sqlite3_errstr (setStatus.rc.value()),
-            sqlite3_errmsg (g_db::conn)
-        )
-    );
-  }
+  APB_CATCH_UNREACHABLE (
+      const auto setStatus = g_db::set_query ({});
+      setStatus.code != g_db::SetQueryStatus::success,
+      fmt::format (
+          "failed to run startup query: rc {} ({}): {}",
+          setStatus.rc.value(), sqlite3_errstr (setStatus.rc.value()),
+          sqlite3_errmsg (g_db::conn)
+      )
+  )
 
   g_state::ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "

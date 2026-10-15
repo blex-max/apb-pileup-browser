@@ -11,8 +11,6 @@
 #include <cstdio>
 #include <cstring>
 #include <expected>
-#include <filesystem>
-#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -367,15 +365,23 @@ std::expected<sqlite3_stmt*, int> prepare_select_reads (
   if (!frags.where.empty()) {
     rsql_builtStmt.append (" WHERE ");
     rsql_builtStmt.append (build_where_clause (frags.where));
+    // add newline to avoid issues from user sql e.g. trailing
+    // -- comment
+    rsql_builtStmt.append ("\n");
   }
 
-  // hardcoded default ordering by path
-  // newline so a trailing -- comment in user SQL cannot swallow it
-  rsql_builtStmt.append ("\nORDER BY path");
+  rsql_builtStmt.append (" ORDER BY path");
   if (!frags.orderBy.empty()) {
     rsql_builtStmt.append (", ");
     rsql_builtStmt.append (frags.orderBy);
   }
+
+  // prevent bad user SQL
+  // FIXME: improve handling/reporting
+  if (std::find (begin (rsql_builtStmt), end (rsql_builtStmt), ';') !=
+      end (rsql_builtStmt)) {
+    return std::unexpected (SQLITE_MISUSE);
+  };
 
   rsql_builtStmt.append ("\n;");  // end stmt
 
@@ -642,7 +648,8 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
         }
         // JSON has no nan/inf (finite values end in a digit)
         if (tokLen > 0 &&
-            isdigit (static_cast<unsigned char> (tok[tokLen - 1]))) {
+            (isdigit (static_cast<unsigned char> (tok[tokLen - 1])) !=
+             0)) {
           out.append (tok, tokLen);
         }
         else {
@@ -669,11 +676,11 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
       default:
         // payload as numeric; JSON has no nan/inf (finite values
         // end in a digit)
-        if (payloadLen > 0 && isdigit (
-                                  static_cast<unsigned char> (
-                                      payloadStartPtr[payloadLen - 1]
-                                  )
-                              )) {
+        if (payloadLen > 0 && (isdigit (
+                                   static_cast<unsigned char> (
+                                       payloadStartPtr[payloadLen - 1]
+                                   )
+                               ) != 0)) {
           out.append (payloadStartPtr, payloadLen);
         }
         else {
@@ -1093,6 +1100,9 @@ std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
 }  // namespace hts2sql
 
 #ifndef DOCTEST_CONFIG_DISABLE
+
+#include <filesystem>
+#include <limits>
 
 #include "doctest.h"
 

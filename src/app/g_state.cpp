@@ -115,6 +115,16 @@ namespace g_state::db {
 
 SetQueryStatus set_query (query::DynamicFragments clause)
 {
+  // minor guard/cleanup of user sql
+  for (auto& whereFrag : clause.where) {
+    if (!whereFrag.empty() && whereFrag.back() == ';') {
+      whereFrag.pop_back();
+    }
+  }
+  if (!clause.orderBy.empty() && clause.orderBy.back() == ';') {
+    clause.orderBy.pop_back();
+  }
+
   auto prepResult = query::prepare_select_reads (
       conn, schema::UserReadViewSelect::sqlPrefix, clause
   );
