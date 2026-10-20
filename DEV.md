@@ -8,20 +8,15 @@ Before merging to main/making a release, please run through [PRERELEASE.md](PRER
 
 See the roadmap in [README.md](README.md).
 
-### Query syntax relative locus syntax
-  - This could be implemented via a post-hoc filter on the returned sql rows,
-    or via an internal custom sql function (https://www.sqlite.org/appfunc.html).
-
 ## Open Non-Feature Work
 
 - Currently the demo mode database is fixed at compile time, meaning different builds will have different demo data.
   The demo data is generated in a parameterised manner so this isn't a big problem but it would be nice if a single
   demo database could be distributed within the src.
-- On a failure to parse an aux tag reported back to main.cpp, the qname of the read with the corrupt data
-  should be reported.
+- On a failure to parse an aux tag, the qname of the read with the corrupt data should be reported.
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
 - There's some wasted computation since all user input will naively redraw the entire screen and
-  redo the entire query. This only noticable at depths above 50k, but in any case it would be more economical/
+  redo the entire query. This only noticable at high depth, but in any case it would be more economical/
   to only recompute and redraw whatever is specifically necessary per frame.
 
 ## Development Adages
@@ -30,7 +25,7 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
 
 - Good error handling is paramount.
   - Prefer Err/Status types and/or expected<T, E> over exceptions.
-    Exceptions have complex implications and not really justified in a code base of this size.
+    Exceptions have complex implications and are not really justified in a code base of this size.
   - Prefer tightly-scoped error types over shared error types - the shared type
     just leads to pushing the error back up the chain without ever properly handling it.
     Scoped types can feel a bit clunky at boundaries but I think they're worthwhile.
@@ -62,7 +57,7 @@ I am almost certainly not using these reliably, but I do find them helpful.
 ## Use of Hungarian Notation
 
 **o_** - owned pointer, this scope must handle lifetime.  
-**br_** - borrowed pointer, this scope must not affect lifetime.
+**br_** - borrowed pointer, this scope must not affect lifetime.  
 **g_** - global state.  
 **k** - file-level constant used across multiple scopes. I don't use an underscore with this one.
 

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <clocale>
 #include <cstdint>
 #include <cstdlib>
@@ -33,7 +34,6 @@
 #include "frontend/extb/box/span.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
-#include "shared/bounds.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/version.hpp"
 
@@ -41,9 +41,22 @@ namespace e2 = extb;
 
 namespace g_db = g_state::db;
 
+/* bounds */
+// max pileup size, to prevent accidentally loading
+// some RAM-destroying pileup.
+#define DEPTH_LIMIT 500'000
+#define GB_LIMIT 4
+#define STR_(x) #x
+#define STR(x) STR_ (x)
+
+constexpr auto kBytesLimit =
+    static_cast<uint64_t> (GB_LIMIT) * 1'000'000'000;
+
+
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
 // have not drifted.
+// clang-format off
 static constexpr std::string_view cliHelp =
     R"txt(usage: apb [options] LOCUS ALN...
 
@@ -63,7 +76,8 @@ arguments:
   LOCUS     genomic locus, e.g. chr1:12345 (1-based)
 
 options:
-  -r, --ref FASTA     reference fasta; TUI will display divergence
+  -r, --ref FASTA     reference fasta; TUI will display
+                      divergence from reference in reads
                       (invalid with --demo/--db)
   --demo              view demo data, in place of
                       LOCUS/ALN.
@@ -74,11 +88,13 @@ options:
                       dump to disk, and exit.
                       (invalid with --db)
   --manual            Print the apb manual to stdout and exit.
-  --log               print extra startup/shutdown diagnostics to
-                      stderr.
+  --log               print extra startup/shutdown diagnostics
+                      to stderr.
   -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
                       file) instead of 1-based. Not valid
                       with --demo/--db.
+  --no-limit-mem      Remove the default limits of ~)txt" STR(GB_LIMIT) R"txt(Gb max
+                      pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file.
   -h, --help          show this help message and exit.
   -v, --version       print version information and exit.
 
@@ -93,8 +109,8 @@ options:
  See README.md for project background and development
  information.
 )txt"
-    "\napb version " APB_VERSION "\n";
-
+"\napb version " APB_VERSION "\n";
+// clang-format on
 
 enum class ApbMode : uint8_t { locus, demo, db, UNSET };
 struct ApbCliArgs {
@@ -108,6 +124,7 @@ struct ApbCliArgs {
 
   bool verboseLog = false;
   bool zeroBased = false;
+  bool limitHeapSize = true;
 };
 
 static std::expected<ApbCliArgs, std::string> parse_args (
@@ -118,7 +135,8 @@ static std::expected<ApbCliArgs, std::string> parse_args (
 populate_db_mode_locus (
     const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
-    const std::optional<std::filesystem::path>& refPath, bool zeroBased
+    const std::optional<std::filesystem::path>& refPath, bool zeroBased,
+    bool limitMemUsage
 );
 
 int main (int argc, char** argv)
@@ -141,19 +159,6 @@ int main (int argc, char** argv)
                  "stats will be invalid"
               << std::endl;
   }
-#ifdef HAVE_HEAP_LIM
-  if (const auto rc = sqlite3_hard_heap_limit64 (kMaxSqliteHeapBytes);
-      verboseLog && rc != SQLITE_OK) {
-    std::cerr << "Hard heap limit failed, database size uncapped"
-              << std::endl;
-  }
-#else
-  if (verboseLog) {
-    std::cerr << "Hard heap limiting not available, database size uncapped"
-              << std::endl;
-  }
-#endif
-
 
   Defer db_shutdown ([]() { g_db::shutdown(); });
 
@@ -163,7 +168,8 @@ int main (int argc, char** argv)
       APB_ASSERT (!args.alnPaths.empty());
       g_db::conn = setup_db::init();
       if (const auto popRet = populate_db_mode_locus (
-              args.alnPaths, args.locus, args.refPath, args.zeroBased
+              args.alnPaths, args.locus, args.refPath, args.zeroBased,
+              args.limitHeapSize
           );
           !popRet) {
         std::cerr << "Error: " << popRet.error() << std::endl;
@@ -172,6 +178,7 @@ int main (int argc, char** argv)
       break;
     case ApbMode::demo: {
       g_db::conn = setup_db::init();
+      // locate demo locus at realistic position
       constexpr hts_pos_t demoGOffset = 10'000'000;
       DemoDataPack demoData;
       generate_demo_data (300, 100, demoGOffset, demoData);
@@ -264,7 +271,7 @@ int main (int argc, char** argv)
           setStatus.rc.value(), sqlite3_errstr (setStatus.rc.value()),
           sqlite3_errmsg (g_db::conn)
       )
-  )
+  );
 
   g_state::ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "
@@ -445,120 +452,122 @@ static std::expected<ApbCliArgs, std::string> parse_args (
   std::vector<std::string> posArgV;
   ApbCliArgs argsOut;
 
-  auto parseFail = [] (std::string msg) -> std::unexpected<std::string> {
-    return std::unexpected (fmt::format ("{}\n{}\n", msg, cliHelp));
-  };
+#define EXIT_W_USAGE(_msg) \
+  return std::unexpected (fmt::format ("{}\n{}\n", (_msg), cliHelp))
 
-  auto getFlagValue = [&] (
-                          int& i, std::string_view flag
-                      ) -> std::expected<std::string, std::string> {
-    if (i + 1 >= argc) {
-      return std::unexpected (
-          fmt::format ("{}: expected one argument", flag)
-      );
-    }
-    return std::string (argv[++i]);
-  };
 
-  for (int i = 1; i < argc; ++i) {
-    std::string_view arg = argv[i];
+  {
+    /* collect and validate inputs */
+    int i = 1;
+#define OPT_VAL_OR_EXIT(_flag_name, _out_str)                   \
+  do {                                                          \
+    if (i + 1 >= argc) {                                        \
+      EXIT_W_USAGE (                                            \
+          fmt::format ("{} requires an argument", (_flag_name)) \
+      );                                                        \
+    }                                                           \
+    (_out_str) = argv[++i];                                     \
+  } while (false)
+    for (; i < argc; ++i) {
+      std::string_view arg = argv[i];
 
-    if (arg == "-h" || arg == "--help") {
-      std::cout << cliHelp << "\n";
-      std::exit (0);
-    }
-    else if (arg == "-v" || arg == "--version") {
-      std::cout << APB_VERSION << "\n";
-      std::exit (0);
-    }
-    else if (arg == "--manual") {
-      std::cout << get_manual();
-      std::exit (EXIT_SUCCESS);
-    }
-    else if (arg == "-0" || arg == "--zero-based") {
-      argsOut.zeroBased = true;
-    }
-    else if (arg == "--demo") {
-      if (argsOut.mode != ApbMode::UNSET) {
-        return parseFail (
-            "arguments --db and --demo are mutually exclusive"
-        );
+      if (arg == "-h" || arg == "--help") {
+        std::cout << cliHelp << "\n";
+        std::exit (0);
       }
-      argsOut.mode = ApbMode::demo;
-    }
-    else if (arg == "--dump") {
-      auto val = getFlagValue (i, "--dump");
-      if (!val) {
-        return parseFail (val.error());
+      else if (arg == "-v" || arg == "--version") {
+        std::cout << APB_VERSION << "\n";
+        std::exit (0);
       }
-      argsOut.dumpPath = *val;
-    }
-    else if (arg == "--log") {
-      argsOut.verboseLog = true;
-    }
-    else if (arg == "--db") {
-      auto val = getFlagValue (i, "--db");
-      if (!val) {
-        return parseFail (val.error());
+      else if (arg == "--manual") {
+        std::cout << get_manual();
+        std::exit (EXIT_SUCCESS);
       }
-      if (argsOut.mode != ApbMode::UNSET) {
-        return parseFail (
-            "arguments --db and --demo are mutually exclusive"
-        );
+      else if (arg == "-0" || arg == "--zero-based") {
+        argsOut.zeroBased = true;
       }
-      argsOut.mode = ApbMode::db;
-      argsOut.dbPath = *val;
-    }
-    else if (arg == "-r" || arg == "--ref") {
-      auto val = getFlagValue (i, "--ref");
-      if (!val) {
-        return parseFail (val.error());
+      else if (arg == "--demo") {
+        if (argsOut.mode != ApbMode::UNSET) {
+          EXIT_W_USAGE (
+              "arguments --db and --demo are mutually exclusive"
+          );
+        }
+        argsOut.mode = ApbMode::demo;
       }
-      argsOut.refPath = *val;
+      else if (arg == "--dump") {
+        OPT_VAL_OR_EXIT ("--dump", argsOut.dumpPath);
+      }
+      else if (arg == "--log") {
+        argsOut.verboseLog = true;
+      }
+      else if (arg == "--db") {
+        OPT_VAL_OR_EXIT ("--db", argsOut.dbPath);
+        if (argsOut.mode != ApbMode::UNSET) {
+          EXIT_W_USAGE (
+              "arguments --db and --demo are mutually exclusive"
+          );
+        }
+        argsOut.mode = ApbMode::db;
+      }
+      else if (arg == "-r" || arg == "--ref") {
+        OPT_VAL_OR_EXIT ("--ref", argsOut.refPath);
+      }
+      else if (arg == "--no-limit-mem") {
+        argsOut.limitHeapSize = false;
+      }
+      else if (arg.starts_with ("-")) {
+        EXIT_W_USAGE (fmt::format ("unrecognized argument: {}", arg));
+      }
+      else {
+        // options finished
+        break;
+      }
     }
-    else if (arg.starts_with ("-")) {
-      return parseFail (fmt::format ("unrecognized argument: {}", arg));
-    }
-    else {
-      posArgV.emplace_back (arg);
+#undef OPT_VAL_OR_EXIT
+    for (; i < argc; ++i) {
+      if (*argv[i] == '-') {
+        EXIT_W_USAGE ("option encountered after positional argument");
+      }
+      posArgV.emplace_back (argv[i]);
     }
   }
 
+  /* validate args */
   if (argsOut.mode == ApbMode::demo) {
     if (argsOut.refPath) {
-      return parseFail ("--ref is not valid with --demo");
+      EXIT_W_USAGE ("--ref is not valid with --demo");
     }
     if (!posArgV.empty()) {
-      return parseFail ("--demo takes no positional arguments");
+      EXIT_W_USAGE ("--demo takes no positional arguments");
     }
     if (argsOut.zeroBased) {
-      return parseFail ("-0/--zero-based is not valid with --demo");
+      EXIT_W_USAGE ("-0/--zero-based is not valid with --demo");
     }
   }
   else if (argsOut.mode == ApbMode::db) {
     if (!posArgV.empty()) {
-      return parseFail ("--db takes no positional arguments");
+      EXIT_W_USAGE ("--db takes no positional arguments");
     }
     if (argsOut.refPath) {
-      return parseFail ("--ref is not valid with --db");
+      EXIT_W_USAGE ("--ref is not valid with --db");
     }
     if (argsOut.dumpPath) {
-      return parseFail ("--dump is not valid with --db");
+      EXIT_W_USAGE ("--dump is not valid with --db");
     }
     if (argsOut.zeroBased) {
-      return parseFail ("-0/--zero-based is not valid with --db");
+      EXIT_W_USAGE ("-0/--zero-based is not valid with --db");
     }
   }
   else {
     // locus mode
     argsOut.mode = ApbMode::locus;
     if (posArgV.size() < 2) {
-      return parseFail (
+      EXIT_W_USAGE (
           "expected LOCUS ALN...\n\t(or pass --demo / --db PATH)"
       );
     }
     if (posArgV.size() > 100) {
-      return parseFail ("apb takes a maximum of 99 alignments");
+      EXIT_W_USAGE ("apb takes a maximum of 99 alignments");
     }
     argsOut.locus = posArgV[0];
 
@@ -608,6 +617,7 @@ static std::expected<ApbCliArgs, std::string> parse_args (
   }
 
   return argsOut;
+#undef EXIT_W_USAGE
 }
 
 
@@ -632,7 +642,8 @@ int pileup_func (void* br_data, bam1_t* br_b)
 static std::expected<void, std::string> populate_db_mode_locus (
     const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
-    const std::optional<std::filesystem::path>& refPath, bool zeroBased
+    const std::optional<std::filesystem::path>& refPath, bool zeroBased,
+    bool limitMemUsage
 )
 {
   // helper types for this fn
@@ -687,7 +698,8 @@ static std::expected<void, std::string> populate_db_mode_locus (
     );
   }
   if (std::all_of (
-          begin (locus) + locusStrSepPos + 1, locus.end(), isdigit
+          begin (locus) + static_cast<long> (locusStrSepPos) + 1,
+          locus.end(), isdigit
       )) {
     try {
       locusPos = std::stoll (locus.substr (locusStrSepPos + 1));
@@ -750,6 +762,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
   // transform to db
   bool contigFound = false;
   bool readsFoundAtLocus = false;
+  uint64_t estLocusBytes = 0;
   GenomicSpan maxPileupSpan{
       INT64_MAX, 0
   };  // for fetching appropriate reference slice
@@ -826,7 +839,9 @@ static std::expected<void, std::string> populate_db_mode_locus (
             )
         );
       }
-      bam_plp_set_maxcnt (pileup.o_plp, kMaxReads);
+      bam_plp_set_maxcnt (
+          pileup.o_plp, limitMemUsage ? DEPTH_LIMIT : INT_MAX
+      );
 
       int64_t plpPos = -1;
       int plpTid = -1;
@@ -855,8 +870,29 @@ static std::expected<void, std::string> populate_db_mode_locus (
         hasReads = true;
         pileup.br_plpArr = br_plpArr;
         pileup.nPlp = static_cast<size_t> (nPlp);
+        if (limitMemUsage && pileup.nPlp >= DEPTH_LIMIT) {
+          return std::unexpected (
+              fmt::format (
+                  "Pileup at locus exceeds {} reads in alignment file {}, "
+                  "aborting. To uncap memory usage, use --no-limit-mem",
+                  DEPTH_LIMIT, aln.path
+              )
+          );
+        }
         for (int j = 0; j < nPlp; j++) {
-          auto* const b1 = br_plpArr[j].b;
+          const auto* b1 = br_plpArr[j].b;
+          if (limitMemUsage) {
+            estLocusBytes += sizeof (bam_pileup1_t) + sizeof (bam1_t) +
+                             static_cast<unsigned long> (b1->l_data);
+            if (estLocusBytes > kBytesLimit) {
+              return std::unexpected (
+                  "Pileup at locus exceeds ~" STR (
+                      GB_LIMIT
+                  ) "Gb in size, "
+                    "aborting. To uncap memory usage, use --no-limit-mem"
+              );
+            }
+          }
           const auto rStart = b1->core.pos;
           const auto rEnd =
               rStart +
@@ -884,7 +920,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
             "failed to prepare file insert statement: {}",
             sqlite3_errmsg (g_db::conn)
         )
-    )
+    );
     APB_CATCH_UNREACHABLE (
         const auto rc = sqlite3_bind_text (
             o_fileInsertStmt, 1, fp.c_str(),
@@ -895,27 +931,27 @@ static std::expected<void, std::string> populate_db_mode_locus (
             "failed to bind path to file table insert statement: {}",
             sqlite3_errstr (rc)
         )
-    )
+    );
     APB_CATCH_UNREACHABLE (
         const auto rc = sqlite3_bind_int (
             o_fileInsertStmt, 2, static_cast<int> (hasContig)
         );
         rc != SQLITE_OK,
         fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
-    )
+    );
     APB_CATCH_UNREACHABLE (
         const auto rc = sqlite3_bind_int (
             o_fileInsertStmt, 3, static_cast<int> (hasReads)
         );
         rc != SQLITE_OK,
         fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
-    )
+    );
     APB_CATCH_UNREACHABLE (
         sqlite3_step (o_fileInsertStmt) != SQLITE_DONE,
         fmt::format (
             "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
         )
-    )
+    );
     stmt_cleanup.invoke();
     if (!hasContig || !hasReads) {
       continue;

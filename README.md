@@ -100,6 +100,7 @@ General suggestions regarding improvements to commands and navigation are also a
 ### Planned Features
 
 - ~Multiple alignment pileups.~ Added in `0.2.0`.
+- Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
 - More stats in the status bar; allele counts/VAF, reference span complexity (useful when
   assessing artefactual variants), etc.
 - Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
@@ -112,7 +113,6 @@ General suggestions regarding improvements to commands and navigation are also a
 
 These are items that I think might be useful and could implement, but am unlikely to do so without requests - if you see something you would like, please ask!
 
-- Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
 - Arbitrary locus-jumping from within TUI - e.g. `goto chr1:2500`.
   - This feels like a nice idea, but I'm skeptical of how much time it saves over exiting the TUI and starting up again
     at the new locus via the CLI.

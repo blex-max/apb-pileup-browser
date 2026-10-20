@@ -68,10 +68,11 @@ template <typename... Args>
     }                                             \
   } while (false)
 
-
 #define APB_UNREACHABLE(msg) apb_fatal (__FILE__, __LINE__, (msg))
 
 #define APB_CATCH_UNREACHABLE(expr, crash_msg) \
-  if (expr) {                                  \
-    APB_UNREACHABLE (crash_msg);               \
-  }
+  do {                                         \
+    if (expr) {                                \
+      APB_UNREACHABLE (crash_msg);             \
+    }                                          \
+  } while (false)

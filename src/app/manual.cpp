@@ -9,7 +9,6 @@
 
 #include "app/cmd.hpp"
 #include "app/helpblocks.hpp"
-#include "shared/bounds.hpp"
 #include "shared/version.hpp"
 
 // NOTE: write in single line paragraphs. The reader should use a word-wrapping pager.
@@ -210,26 +209,11 @@ See the README or the project GitHub (https://github.com/blex-max/apb-pileup-bro
 
 std::string_view get_manual()
 {
-  static const std::string manual =
-      fmt::format (
-          "{}{}{}{}{}{}{}", manualChunk1,
-          fmt::join (helpblocks::navigation, "\n"), manualChunk2,
-          fmt::join (build_cmd_ref_table(), "\n"), manualChunk3,
-          fmt::join (helpblocks::tableColumns, "\n"), manualChunk4
-      ) +
-      fmt::format (
-          "The version of apb from which this manual was generated will "
-          "load up to {} reads at a locus.\n",
-          kMaxReads
-      )
-#ifdef HAVE_HEAP_LIM
-      + fmt::format (
-            "The version of apb from which this manual was generated will "
-            "cap maximum memory used for storing read at {} mb",
-            kMaxSqliteHeapBytes / 1'000'000
-        );
-#else
-      ;
-#endif
+  static const std::string manual = fmt::format (
+      "{}{}{}{}{}{}{}", manualChunk1,
+      fmt::join (helpblocks::navigation, "\n"), manualChunk2,
+      fmt::join (build_cmd_ref_table(), "\n"), manualChunk3,
+      fmt::join (helpblocks::tableColumns, "\n"), manualChunk4
+  );
   return manual;
 }
