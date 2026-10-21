@@ -52,27 +52,30 @@ template <typename... Args>
   if (!varInfo.empty()) {
     std::cerr << varInfo << "\n";
   }
-  std::cerr << " - report to maintainer\n\nnow aborting" << std::endl;
+  std::cerr << " - please report to maintainer\n\nnow aborting"
+            << std::endl;
   std::abort();
 }
 
-#define APB_ASSERT(cond, ...)                     \
+// will print name and value of any
+// variable provided to ...
+// Cannot use commas in expr without enclosing expr in brackets!
+#define APB_ASSERT(expr, ...)                     \
   do {                                            \
-    if (!(cond)) {                                \
+    if (expr) [[likely]] {                        \
+      /* success, do nothing */                   \
+    }                                             \
+    else [[unlikely]] {                           \
       apb_fatal (                                 \
           __FILE__, __LINE__,                     \
-          "assertion failed: " #cond __VA_OPT__ ( \
+          "assertion failed: " #expr __VA_OPT__ ( \
               , #__VA_ARGS__, __VA_ARGS__         \
           )                                       \
       );                                          \
     }                                             \
   } while (false)
 
-#define APB_UNREACHABLE(msg) apb_fatal (__FILE__, __LINE__, (msg))
-
-#define APB_CATCH_UNREACHABLE(expr, crash_msg) \
-  do {                                         \
-    if (expr) {                                \
-      APB_UNREACHABLE (crash_msg);             \
-    }                                          \
+#define APB_UNREACHABLE(msg)               \
+  do {                                     \
+    apb_fatal (__FILE__, __LINE__, (msg)); \
   } while (false)

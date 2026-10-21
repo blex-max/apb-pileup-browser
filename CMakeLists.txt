@@ -71,6 +71,7 @@ set(APB_COMPILE_DEFINITIONS
 add_executable(apb
   src/app/main.cpp
   src/app/g_state.cpp
+  src/app/sql.cpp
   src/app/widgets.cpp
   src/app/cmd.cpp
   src/app/manual.cpp
@@ -112,6 +113,7 @@ target_link_libraries(apb
 # Any source containing tests must be listed here.
 add_executable(apb-tests
   tests/test.cpp
+  src/app/sql.cpp
   src/backend/hts_sql.cpp
   src/frontend/tb2_impl.cpp
 )

@@ -18,9 +18,9 @@
 
 #include "app/g_state.hpp"
 #include "app/helpblocks.hpp"
+#include "app/sql.hpp"
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
-#include "backend/schema.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/version.hpp"
@@ -224,34 +224,29 @@ struct ShowTableColCmd {
   };
 };
 
+// incomingSql: the user sql this command just added to newClause, shown
+// on failure. Any earlier sql already compiled, so can't be at fault.
+// Empty for commands that add none.
 static CmdResult try_apply_query_clause (
-    query::DynamicFragments newClause, std::string_view successMsg
+    sql::QueryFragments newClause, std::string_view incomingSql,
+    std::string_view successMsg
 )
 {
-  switch (const auto setStatus = g_db::set_query (std::move (newClause));
-          setStatus.code) {
+  std::string failReason;
+  switch (g_db::set_query (std::move (newClause))) {
     case g_db::SetQueryStatus::success:
+      return {true, std::string (successMsg)};
+    case g_db::SetQueryStatus::guardFail:
+      failReason = "semicolon in query!";
       break;
-    case g_db::SetQueryStatus::prepareFail:
-      return {
-          false, cmd_format_fail (
-                     fmt::format (
-                         "Could not compile statement - {}",
-                         sqlite3_errmsg (g_db::conn)
-                     )
-                 )
-      };
-    case g_db::SetQueryStatus::countFail:
-      return {
-          false, cmd_format_fail (
-                     fmt::format (
-                         "Could not execute query - {}",
-                         sqlite3_errmsg (g_db::conn)
-                     )
-                 )
-      };
+    case g_db::SetQueryStatus::s3Fail:
+      failReason = sqlite3_errmsg (g_db::conn);
+      break;
   }
-  return {true, std::string (successMsg)};
+  if (!incomingSql.empty()) {
+    failReason = fmt::format ("{} - {}", failReason, incomingSql);
+  }
+  return {false, cmd_format_fail (failReason)};
 }
 
 struct WhereCmd {
@@ -276,7 +271,7 @@ struct WhereCmd {
     }
 
     return try_apply_query_clause (
-        std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), args, CMD_GENERIC_SUCCESS
     );
   }
 
@@ -313,7 +308,7 @@ struct AndCmd {
 
     // validates clause
     return try_apply_query_clause (
-        std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), newCond, CMD_GENERIC_SUCCESS
     );
   }
 
@@ -347,7 +342,7 @@ struct OrCmd {
     newClause.where.emplace_back (newCond);
 
     return try_apply_query_clause (
-        std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), newCond, CMD_GENERIC_SUCCESS
     );
   }
 
@@ -379,7 +374,7 @@ struct BackCmd {
     newClause.where.pop_back();
 
     return try_apply_query_clause (
-        std::move (newClause),
+        std::move (newClause), {},
         fmt::format ("Removed clause: {}", rmClauseElem)
     );
   }
@@ -406,7 +401,7 @@ struct OrderCmd {
     newClause.orderBy = args;
 
     return try_apply_query_clause (
-        std::move (newClause), CMD_GENERIC_SUCCESS
+        std::move (newClause), args, CMD_GENERIC_SUCCESS
     );
   }
 
@@ -441,44 +436,45 @@ struct CountCmd {
         where.emplace_back (clause);
       }
     }
+    // FIXME: no validation performed on count cmd. May not matter
 
-    // FIXME: this is a good example of why output fill
-    // status/err parameters are a good idea. Makes
-    // cleanup awkward, and can't use o_ prefix on
-    // stmt.
-    auto stmtResult = query::prepare_select_reads (
-        g_db::conn, schema::UserReadViewSelect::sqlCountPrefix,
-        {.where = where, .orderBy = {}}
-    );
-    if (!stmtResult) {
-      return {
-          false, cmd_format_fail (
-                     fmt::format (
-                         "Could not compile statement - {}",
-                         sqlite3_errmsg (g_db::conn)
-                     )
-                 )
-      };
+    std::string sqlCountQuery{"SELECT COUNT(*) FROM reads"};
+    const auto sqlUserWhere = sql::process_where (where);
+    if (!where.empty()) {
+      sqlCountQuery.append (" WHERE ");
+      sqlCountQuery.append (sqlUserWhere);
+      // add newline to avoid issues from user sql e.g. trailing
+      // -- comment
+      sqlCountQuery.append ("\n");
     }
+    sqlCountQuery.append (";");
 
-    Defer stmt_cleanup ([&]() { sqlite3_finalize (*stmtResult); });
+    // only the new args can be at fault; the rest already compiled
+    const auto fail_with_args = [&args]() {
+      std::string reason = sqlite3_errmsg (g_db::conn);
+      if (!args.empty()) {
+        reason = fmt::format ("{} - {}", reason, args);
+      }
+      return cmd_format_fail (reason);
+    };
 
-    if (const int rc = sqlite3_step (*stmtResult); rc != SQLITE_ROW) {
-      return {
-          false, cmd_format_fail (
-                     fmt::format (
-                         "Could not execute count - {}",
-                         sqlite3_errmsg (g_db::conn)
-                     )
-                 )
-      };
+    sqlite3_stmt* o_stmt = nullptr;
+    if (sqlite3_prepare_v2 (
+            g_db::conn, sqlCountQuery.data(), -1, &o_stmt, NULL
+        ) != SQLITE_OK) {
+      return {false, fail_with_args()};
+    }
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+    if (const int rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
+      return {false, fail_with_args()};
     }
 
     return {
-        true, fmt::format (
-                  "{}: {} reads", query::build_where_clause (where),
-                  sqlite3_column_int64 (*stmtResult, 0)
-              )
+        true,
+        fmt::format (
+            "{}: {} reads", sqlUserWhere, sqlite3_column_int64 (o_stmt, 0)
+        )
     };
   }
 
@@ -505,7 +501,9 @@ struct ClearCmd {
     newClause.where.clear();
     newClause.orderBy.clear();
 
-    return try_apply_query_clause (std::move (newClause), "Reset query");
+    return try_apply_query_clause (
+        std::move (newClause), {}, "Reset query"
+    );
   }
 
   constexpr static CmdView view{call, callAlias, &operator(), usage, desc};
@@ -671,13 +669,14 @@ struct DumpCmd {
     }
 
     const std::string path{tokens[0]};
-    switch (const auto dumpStatus = query::dump_to_disk (g_db::conn, path);
+    switch (const auto dumpStatus =
+                setup_db::dump_to_disk (g_db::conn, path);
             dumpStatus.code) {
-      case query::DiskDumpStatus::success:
+      case setup_db::DiskDumpStatus::success:
         return {true, fmt::format ("Dumped database to {}", path)};
-      case query::DiskDumpStatus::fail:
+      case setup_db::DiskDumpStatus::fail:
         return {
-            false, query::describe_sqlite_failure (
+            false, setup_db::describe_sqlite_failure (
                        dumpStatus.sqlRc.value(), "dump database to disk",
                        dumpStatus.dumpDbMsg
                    )

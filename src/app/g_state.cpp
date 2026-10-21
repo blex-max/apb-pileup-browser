@@ -6,11 +6,12 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "app/sql.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 #include "shared/apb_assert.hpp"
@@ -113,133 +114,177 @@ constinit std::array<ColMetadata, 10> tableCols{{
 
 namespace g_state::db {
 
-SetQueryStatus set_query (query::DynamicFragments clause)
+SetQueryStatus set_query (sql::QueryFragments userFrags)
 {
   // minor guard/cleanup of user sql
-  for (auto& whereFrag : clause.where) {
+  for (auto& whereFrag : userFrags.where) {
     if (!whereFrag.empty() && whereFrag.back() == ';') {
       whereFrag.pop_back();
     }
   }
-  if (!clause.orderBy.empty() && clause.orderBy.back() == ';') {
-    clause.orderBy.pop_back();
+  if (!userFrags.orderBy.empty() && userFrags.orderBy.back() == ';') {
+    userFrags.orderBy.pop_back();
   }
 
-  auto prepResult = query::prepare_select_reads (
-      conn, schema::UserReadViewSelect::sqlPrefix, clause
-  );
-  if (!prepResult) {
-    return {.code = SetQueryStatus::prepareFail, .rc = prepResult.error()};
+  std::string userQuerySuffix;
+  // build WHERE
+  if (!userFrags.where.empty()) {
+    userQuerySuffix.append ("WHERE ");
+    userQuerySuffix.append (sql::process_where (userFrags.where));
+    // add newline to avoid issues from user sql e.g. trailing
+    // -- comment
+    userQuerySuffix.append ("\n");
   }
-  auto* br_newStmt = *prepResult;
-  Defer stmt_err_cleanup ([&br_newStmt]() {
-    sqlite3_finalize (br_newStmt);
-  });
 
-  uint32_t rowCount = 0;
-  std::vector<EmptyFile> newEmptyFiles;
-  if (locusInfo.nAln > 1) {
-    // check which files have reads for this query,
-    // count rows, and update g_state::emptyFiles.
-    // precondition:
-    // - query is sorted by path as primary key
-    std::vector<std::string> filesWithReads;
-    sqlite3_reset (br_newStmt);
-    int rcQueryStep;
-    while ((rcQueryStep = sqlite3_step (br_newStmt)) == SQLITE_ROW) {
-      rowCount++;
-      const std::string_view rowPath{
-          reinterpret_cast<const char*> (sqlite3_column_text (
-              br_newStmt, schema::UserReadViewSelect::path
-          )),
-          static_cast<size_t> (sqlite3_column_bytes (
-              br_newStmt, schema::UserReadViewSelect::path
-          ))
-      };
-      if (filesWithReads.empty() || filesWithReads.back() != rowPath) {
-        filesWithReads.emplace_back (rowPath);
-      }
-    }
-    if (rcQueryStep != SQLITE_DONE) {
-      return {.code = SetQueryStatus::countFail, .rc = rcQueryStep};
-    }
-    sqlite3_reset (br_newStmt);
+  // order by path is mandatory for purposes
+  // of multi-alignment view. Irrelevant
+  // for single-file view.
+  userQuerySuffix.append (" ORDER BY path");
+  if (!userFrags.orderBy.empty()) {
+    userQuerySuffix.append (", ");
+    userQuerySuffix.append (userFrags.orderBy);
+    userQuerySuffix.append ("\n");
+  }
 
-    sqlite3_stmt* o_fileStmt = nullptr;
-    Defer fileStmtCleanup ([&o_fileStmt]() {
-      sqlite3_finalize (o_fileStmt);
-    });
-    APB_CATCH_UNREACHABLE (
-        sqlite3_prepare_v2 (
-            conn, schema::FileTableSelect::sql.data(),
-            static_cast<int> (schema::FileTableSelect::sql.size()),
-            &o_fileStmt, NULL
-        ) != SQLITE_OK,
-        fmt::format (
-            "failed to prepare file select statement: {}",
-            sqlite3_errmsg (conn)
-        )
+  // FIXME - can qname or tag values contain ;? if so,
+  // the user might want to legitmately use the ; char
+  // in a query suffix...
+  if (std::find (begin (userQuerySuffix), end (userQuerySuffix), ';') !=
+      end (userQuerySuffix)) {
+    return SetQueryStatus::guardFail;
+  }
+
+  {
+    // NOTE: it is at this point that we first attempt usage of the
+    // user-provided suffix, and the user sql is therefore validated.
+    const auto sqlCreateTempTable = fmt::format (
+        "CREATE TEMP TABLE new_ordered_query AS SELECT id, path_id FROM "
+        "reads "
+        "{}\n;",
+        userQuerySuffix
     );
-    int rcFileStep;
-    while ((rcFileStep = sqlite3_step (o_fileStmt)) == SQLITE_ROW) {
-      std::string path (
-          reinterpret_cast<const char*> (sqlite3_column_text (
-              o_fileStmt, schema::FileTableSelect::path
-          )),
-          static_cast<size_t> (sqlite3_column_bytes (
-              o_fileStmt, schema::FileTableSelect::path
-          ))
-      );
-      if (std::find (begin (filesWithReads), end (filesWithReads), path) !=
-          end (filesWithReads)) {
-        continue;
-      }
-      EmptyFileReason reason = EmptyFileReason::noMatchingReads;
-      if (sqlite3_column_int (
-              o_fileStmt, schema::FileTableSelect::hasContig
-          ) == 0) {
-        reason = EmptyFileReason::contigAbsent;
-      }
-      else if (sqlite3_column_int (
-                   o_fileStmt, schema::FileTableSelect::hasReadsAtLocus
-               ) == 0) {
-        reason = EmptyFileReason::noReadsAtLocus;
-      }
-      newEmptyFiles.push_back ({std::move (path), reason});
+    sqlite3_stmt* o_createTblStmt = nullptr;
+    Defer stmt_cleanup ([&o_createTblStmt]() {
+      sqlite3_finalize (o_createTblStmt);
+    });
+    // NOTE: these probably don't need seperate return codes...
+    if (const auto rc = sqlite3_prepare_v2 (
+            conn, sqlCreateTempTable.data(),
+            static_cast<int> (sqlCreateTempTable.size()), &o_createTblStmt,
+            NULL
+        );
+        rc != SQLITE_OK) {
+      return SetQueryStatus::s3Fail;
     }
-    if (rcFileStep != SQLITE_DONE) {
-      APB_UNREACHABLE (
-          fmt::format (
-              "failed to step file table statement: {}",
-              sqlite3_errmsg (conn)
-          )
-      );
-    }
-    emptyFiles = std::move (newEmptyFiles);
-  }
-  else {
-    // just count rows
-    for (;; ++rowCount) {
-      const auto iterStatus = query::next_read (br_newStmt);
-      if (!iterStatus) {
-        return {
-            .code = SetQueryStatus::countFail, .rc = iterStatus.error()
-        };
-      }
-      if (*iterStatus == query::RowIterStatus::exhausted) {
-        break;
-      }
+    // FIXME: should path_id be indexed to speed up table creation?
+    if (const auto rc = sqlite3_step (o_createTblStmt);
+        rc != SQLITE_DONE) {
+      return SetQueryStatus::s3Fail;
     }
   }
+  // NOTE: user sql is now validated
+
+  // Statement may need resetting before drop
+  sqlite3_reset (selectStmt);
+
+  // Materialise temp table of ordered rowids for reads view
+  // to avoid paying the cost of sorting every frame.
+  APB_S3_EXPECT_OK (sqlite3_exec (
+      g_state::db::conn,
+      "DROP TABLE IF EXISTS ordered_query;"
+      "ALTER TABLE new_ordered_query RENAME TO ordered_query;",
+      NULL, NULL, NULL
+  ));
+
+  int64_t queryRowCount = 0;
+  {
+    sqlite3_stmt* o_queryRowCountStmt = nullptr;
+    APB_S3_EXPECT (
+        sqlite3_prepare_v2 (
+            conn, "SELECT COUNT(*) FROM ordered_query;", -1,
+            &o_queryRowCountStmt, NULL
+        ),
+        SQLITE_OK
+    );
+    Defer cleanup ([&o_queryRowCountStmt]() {
+      sqlite3_finalize (o_queryRowCountStmt);
+    });
+    APB_S3_EXPECT (sqlite3_step (o_queryRowCountStmt), SQLITE_ROW);
+    queryRowCount = sqlite3_column_int64 (o_queryRowCountStmt, 0);
+    APB_ASSERT (queryRowCount >= 0);
+  }
+
+  if (locusInfo.nAln > 1) {
+    /* check which alignments have reads */
+    std::vector<EmptyFile> emptyForQuery;
+    sqlite3_stmt* o_alnSelStmt = nullptr;
+    APB_S3_EXPECT_OK (sqlite3_prepare_v2 (
+        conn,
+        "SELECT a.path, a.has_contig, a.has_reads FROM "
+        "alignment_files AS a LEFT JOIN (SELECT DISTINCT path_id FROM "
+        "ordered_query) AS o ON o.path_id = a.id WHERE o.path_id IS "
+        "NULL ORDER BY a.id;",
+        -1, &o_alnSelStmt, NULL
+    ));
+    Defer alnSelStmt_cleanup ([&o_alnSelStmt]() {
+      sqlite3_finalize (o_alnSelStmt);
+    });
+    int rc;
+    while ((rc = sqlite3_step (o_alnSelStmt)) == SQLITE_ROW) {
+      const std::string path{
+          reinterpret_cast<const char*> (
+              sqlite3_column_text (o_alnSelStmt, 0)
+          ),
+          static_cast<size_t> (sqlite3_column_bytes (o_alnSelStmt, 0))
+      };
+      const bool hasContig =
+          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 1));
+      const bool hasReads =
+          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 2));
+
+      // NOTE: any file which does not have locus reads/contig
+      // will always retain the same reason, so maybe this is
+      // suboptimal. But it will do.
+      if (hasReads) {
+        emptyForQuery.emplace_back (
+            path, EmptyFileReason::noMatchingReads
+        );
+      }
+      else if (hasContig) {
+        emptyForQuery.emplace_back (path, EmptyFileReason::noReadsAtLocus);
+      }
+      else {
+        emptyForQuery.emplace_back (path, EmptyFileReason::contigAbsent);
+      }
+    }
+    APB_ASSERT (rc == SQLITE_DONE);
+
+    emptyFiles = std::move (emptyForQuery);
+  }
+
+  sqlite3_stmt* br_newStmt = nullptr;
+  // FIXME: It is likely worthwhile for performance to
+  // select only the columns necessary for each frame.
+  // E.g. tags as of 21/10/26 can't be displayed anyway,
+  // so why are we selecting it!
+  // This will need additional machinery for getting
+  // the right columns on retrieval though.
+  APB_S3_EXPECT (
+      sqlite3_prepare_v2 (
+          conn,
+          "SELECT r.* FROM ordered_query o JOIN reads r ON r.id = o.id "
+          "WHERE o.rowid > ?1 ORDER BY o.rowid LIMIT ?2;",
+          -1, &br_newStmt, NULL
+      ),
+      SQLITE_OK
+  );
 
   sqlite3_finalize (selectStmt);
-  stmt_err_cleanup.cancel();
-  // update state
   selectStmt = br_newStmt;
-  userClause = std::move (clause);
+  userClause = std::move (userFrags);
   stmtRowScrollOffset = 0;  // reset row view
-  nStmtRows = rowCount;
-  return {.code = SetQueryStatus::success};
+  nStmtRows = static_cast<uint64_t> (queryRowCount);
+  return SetQueryStatus::success;
 }
 
 }  // namespace g_state::db

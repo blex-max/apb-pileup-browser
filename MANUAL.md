@@ -94,7 +94,7 @@ Every command submitted at the command line is interpreted like `<command> [args
   `order-by [clause]`:
     Sort reads by ORDER BY expression. Clears order
     by with no args, resetting to default ordering.
-    When viewing multiplealignments, reads are
+    When viewing multiple alignments, reads are
     always sorted by file as the primary key.
     alias: order, ob, o
 

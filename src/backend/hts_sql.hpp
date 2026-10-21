@@ -35,57 +35,6 @@ struct LoadErr {
 // using sqlite3's online backup API.
 std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path);
 
-}  // namespace setup_db
-
-namespace query {
-
-std::string build_where_clause (const std::vector<std::string>& fragments);
-
-struct DynamicFragments {
-  std::vector<std::string> where;
-  std::string orderBy;
-};
-// Compiles `prefix` with the WHERE/ORDER BY built from `frags` appended.
-// returns compiled sql statement object, or sqlite3 integer
-// return code on failure
-// FIXME: using expected implies that you have to null out
-// the container returned... better to take an
-// output param.
-std::expected<sqlite3_stmt*, int> prepare_select_reads (
-    sqlite3* conn, std::string_view prefix, const DynamicFragments& frags
-);
-
-// Step `stmt` forward by one row.
-// returns status code, or sqlite3 integer return code in on failure.
-enum class RowIterStatus : uint8_t { rowAvail, exhausted };
-[[nodiscard]] std::expected<RowIterStatus, int> next_read (
-    sqlite3_stmt* br_stmt
-);
-
-// locus metadata as extracted from db.
-// 1-indexed!
-struct PileupMetadata {
-  std::string contig;
-  int64_t pos = -1;  // 1-based pileup position, per loci.pos
-  int64_t start = -1;
-  int64_t end = -1;
-  std::optional<std::string> refSlice;
-  int16_t nAln = -1;
-
-  // Should be redundant with metadata's schema CHECK constraints
-  // (schema.hpp) - kept as a backstop.
-  bool valid() const noexcept
-  {
-    return !contig.empty() && start > 0 && end >= start && pos >= start &&
-           pos <= end && nAln > 0;
-  }
-};
-// Get locus metadata from db. Asserts internally; only call once
-// locus metadata is known to exist. Not actually reused, but
-// since the rest of the query API uses various fields from
-// PileupMetadata, it makes sense to collate the locus
-// table operations here.
-PileupMetadata get_locus_data (sqlite3* conn);
 
 struct DiskDumpStatus {
   enum Code : uint8_t {
@@ -108,22 +57,7 @@ std::string describe_sqlite_failure (
     std::optional<std::string_view> dbMsg = std::nullopt
 );
 
-}  // namespace query
-
-template <>
-struct fmt::formatter<query::PileupMetadata>
-    : fmt::formatter<std::string> {
-  auto format (const query::PileupMetadata& m, format_context& ctx) const
-  {
-    return fmt::formatter<std::string>::format (
-        fmt::format (
-            "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}",
-            m.contig, m.pos, m.start, m.end
-        ),
-        ctx
-    );
-  }
-};
+}  // namespace setup_db
 
 namespace hts2sql {
 

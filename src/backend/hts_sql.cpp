@@ -238,8 +238,9 @@ std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path)
   }
 
   {
-    // Verify locus metadata exists and is well-formed - the one thing
-    // schema matching and quick_check don't catch.
+    // Verify locus metadata row exists - the one thing schema
+    // matching and quick_check don't catch. Well-formedness is
+    // checked by the caller (sql::PileupMetadata::valid).
     sqlite3_stmt* o_stmt = NULL;
     if (const auto rc = sqlite3_prepare_v2 (
             conn, schema::MetaTableSelect::sql.data(),
@@ -275,43 +276,6 @@ std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path)
           )
       );
     }
-
-    query::PileupMetadata meta;
-    meta.contig = {
-        reinterpret_cast<const char*> (
-            sqlite3_column_text (o_stmt, schema::MetaTableSelect::contig)
-        ),
-        static_cast<size_t> (
-            sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::contig)
-        )
-    };
-    meta.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
-    meta.start =
-        sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
-    meta.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
-    if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
-        SQLITE_NULL) {
-      meta.refSlice = std::string{
-          reinterpret_cast<const char*> (
-              sqlite3_column_text (o_stmt, schema::MetaTableSelect::ref)
-          ),
-          static_cast<size_t> (
-              sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
-          )
-      };
-    }
-    meta.nAln = static_cast<int16_t> (
-        sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
-    );
-    if (!meta.valid()) {
-      return std::unexpected (
-          LoadErr{
-              .code = LoadErr::contentCorrupt,
-              .rc = std::nullopt,
-              .msg = "locus metadata in database is invalid or corrupt."
-          }
-      );
-    }
   }
 
   loaded = true;
@@ -331,150 +295,6 @@ err_sql: {
 }
 }
 
-}  // namespace setup_db
-
-
-namespace query {
-
-std::string build_where_clause (const std::vector<std::string>& fragments)
-{
-  if (fragments.empty()) {
-    return {};
-  }
-  std::string out = fragments[0];
-  for (size_t i = 1; i < fragments.size(); ++i) {
-    out.insert (0, "(");
-    out += ") ";
-    out += fragments[i];
-  }
-  return out;
-}
-
-std::expected<sqlite3_stmt*, int> prepare_select_reads (
-    sqlite3* conn, std::string_view prefix, const DynamicFragments& frags
-)
-{
-  APB_ASSERT (prefix.back() != ';');
-
-  sqlite3_stmt* br_stmt = nullptr;
-  Defer stmt_cleanup ([&br_stmt]() { sqlite3_finalize (br_stmt); });
-
-  std::string rsql_builtStmt{prefix};
-
-  // build WHERE
-  if (!frags.where.empty()) {
-    rsql_builtStmt.append (" WHERE ");
-    rsql_builtStmt.append (build_where_clause (frags.where));
-    // add newline to avoid issues from user sql e.g. trailing
-    // -- comment
-    rsql_builtStmt.append ("\n");
-  }
-
-  rsql_builtStmt.append (" ORDER BY path");
-  if (!frags.orderBy.empty()) {
-    rsql_builtStmt.append (", ");
-    rsql_builtStmt.append (frags.orderBy);
-  }
-
-  // prevent bad user SQL
-  // FIXME: improve handling/reporting
-  if (std::find (begin (rsql_builtStmt), end (rsql_builtStmt), ';') !=
-      end (rsql_builtStmt)) {
-    return std::unexpected (SQLITE_MISUSE);
-  };
-
-  rsql_builtStmt.append ("\n;");  // end stmt
-
-  // If these fail, then the user statement is not valid,
-  // hence they are not unreachable
-  int rc;
-  if (rc = sqlite3_prepare_v2 (
-          conn, rsql_builtStmt.c_str(),
-          static_cast<int> (rsql_builtStmt.size()), &br_stmt, NULL
-      );
-      rc != SQLITE_OK) {
-    return std::unexpected (rc);
-  }
-
-  if (sqlite3_stmt_readonly (br_stmt) == 0) {
-    return std::unexpected (SQLITE_READONLY);
-  }
-
-  stmt_cleanup.cancel();
-  return br_stmt;
-}
-
-PileupMetadata get_locus_data (sqlite3* conn)
-{
-  sqlite3_stmt* o_stmt = NULL;
-  if (const auto rc = sqlite3_prepare_v2 (
-          conn, schema::MetaTableSelect::sql.data(),
-          static_cast<int> (schema::MetaTableSelect::sql.size()), &o_stmt,
-          NULL
-      );
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to prepare locus metadata query: {}",
-            sqlite3_errmsg (conn)
-        )
-    );
-  }
-  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
-
-  if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to read locus metadata row: {}", sqlite3_errmsg (conn)
-        )
-    );
-  }
-
-  PileupMetadata out;
-  out.contig = {
-      reinterpret_cast<const char*> (
-          sqlite3_column_text (o_stmt, schema::MetaTableSelect::contig)
-      ),
-      static_cast<size_t> (
-          sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::contig)
-      )
-  };
-
-  out.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
-  out.start =
-      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
-  out.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
-
-  if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
-      SQLITE_NULL) {
-    out.refSlice = std::string{
-        reinterpret_cast<const char*> (
-            sqlite3_column_text (o_stmt, schema::MetaTableSelect::ref)
-        ),
-        static_cast<size_t> (
-            sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
-        )
-    };
-  }
-
-  out.nAln = static_cast<int16_t> (
-      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
-  );
-
-  return out;
-}
-
-std::expected<RowIterStatus, int> next_read (sqlite3_stmt* br_stmt)
-{
-  const int rc = sqlite3_step (br_stmt);
-  if (rc == SQLITE_DONE) {
-    return RowIterStatus::exhausted;
-  }
-  if (rc != SQLITE_ROW) {
-    return std::unexpected (rc);
-  }
-  return RowIterStatus::rowAvail;
-}
 
 DiskDumpStatus dump_to_disk (sqlite3* conn, std::string_view path)
 {
@@ -560,7 +380,7 @@ std::string describe_sqlite_failure (
   }
 }
 
-}  // namespace query
+}  // namespace setup_db
 
 namespace hts2sql {
 
@@ -1308,7 +1128,7 @@ void seed_file (sqlite3* conn)
 
 }  // namespace test
 
-/* ---- TESTS build_where_clause / prepare_select_reads ---- */
+/* ---- TESTS seed_reads (shared fixture) ---- */
 
 namespace test {
 
@@ -1369,35 +1189,6 @@ void seed_reads (
 }
 
 }  // namespace test
-
-TEST_CASE ("build_where_clause left-wraps fragments in parens")
-{
-  CHECK (query::build_where_clause ({}) == "");
-  CHECK (query::build_where_clause ({"flag = 99"}) == "flag = 99");
-
-  CHECK (
-      query::build_where_clause ({"a", "OR b", "AND c"}) ==
-      "((a) OR b) AND c"
-  );
-}
-
-TEST_CASE ("prepare_select_reads filters on WHERE fragments")
-{
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn);
-
-  SUBCASE ("multiple fragments")
-  {
-    query::DynamicFragments frags{
-        .where = {"flag = 99", "AND mapq > 50"}, .orderBy = ""
-    };
-    auto stmtRet = query::prepare_select_reads (
-        conn, schema::UserReadViewSelect::sqlPrefix, frags
-    );
-    REQUIRE (stmtRet);
-  }
-}
 
 /* ---- TESTS insert_pileup ---- */
 
@@ -1813,8 +1604,8 @@ TEST_CASE ("dump_to_disk then load_from_disk round-trips a database")
   );
 
   REQUIRE (
-      query::dump_to_disk (conn, path.string()).code ==
-      query::DiskDumpStatus::success
+      setup_db::dump_to_disk (conn, path.string()).code ==
+      setup_db::DiskDumpStatus::success
   );
   auto loadRet = setup_db::load_from_disk (path.string());
   REQUIRE (loadRet);
@@ -1835,15 +1626,6 @@ TEST_CASE ("dump_to_disk then load_from_disk round-trips a database")
       test::digest (loaded, "SELECT * FROM locus_metadata;") ==
       test::digest (conn, "SELECT * FROM locus_metadata;")
   );
-
-  const auto expected = query::get_locus_data (conn);
-  const auto got = query::get_locus_data (loaded);
-  CHECK (got.contig == expected.contig);
-  CHECK (got.pos == expected.pos);
-  CHECK (got.start == expected.start);
-  CHECK (got.end == expected.end);
-  CHECK (got.refSlice == expected.refSlice);
-  CHECK (got.nAln == expected.nAln);
 }
 
 TEST_CASE ("load_from_disk reports a typed error for unusable files")
@@ -1884,8 +1666,8 @@ TEST_CASE ("load_from_disk reports a typed error for unusable files")
     sqlite3* conn = setup_db::init();
     Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
     REQUIRE (
-        query::dump_to_disk (conn, path.string()).code ==
-        query::DiskDumpStatus::success
+        setup_db::dump_to_disk (conn, path.string()).code ==
+        setup_db::DiskDumpStatus::success
     );
 
     const auto ret = setup_db::load_from_disk (path.string());

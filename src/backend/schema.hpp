@@ -12,7 +12,10 @@ inline constexpr auto kSchemaVersion = 1;
 
 namespace schema {
 
-// keep all data in working memory.
+// keep all data in RAM.
+// Note that because we do this, some
+// classic optimisation techniques,
+// like using WAL, are irrelevant.
 inline constexpr std::string_view sqlSetTempStoreMemory =
     R"sql(
     PRAGMA temp_store = MEMORY;
@@ -87,21 +90,6 @@ inline constexpr std::string_view sqlCreateFileTable = R"sql(
 inline constexpr std::string_view sqlInsertFile = R"sql(
   INSERT INTO alignment_files (path, has_contig, has_reads) VALUES (?, ?, ?);
 )sql";
-
-struct FileTableSelect {
-  // FIXME: it's beefier,
-  // but it might make more sense perhaps to have fn ptrs
-  // for each row retrieval.
-  enum Idx : uint8_t {
-    id,
-    path,
-    hasContig,
-    hasReadsAtLocus,
-  };
-
-  static constexpr std::string_view sql =
-      R"sql(SELECT * FROM alignment_files;)sql";
-};
 
 // One row per read overlapping pileup reference position.
 inline constexpr std::string_view sqlCreatePerRecordTable =
@@ -198,11 +186,9 @@ struct UserReadViewSelect {
     path,
   };
 
-  // prefixes for dynamic querying, no terminating semicolon
-  static constexpr std::string_view sqlPrefix =
-      R"sql(SELECT * FROM reads)sql";
-  static constexpr std::string_view sqlCountPrefix =
-      R"sql(SELECT COUNT(*) FROM reads)sql";
+  // FIXME: it's beefier,
+  // but it might make more sense perhaps to have fn ptrs
+  // for each row retrieval.
 };
 
 }  // namespace schema

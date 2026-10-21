@@ -26,6 +26,7 @@
 #include "app/event.hpp"
 #include "app/g_state.hpp"
 #include "app/manual.hpp"
+#include "app/sql.hpp"
 #include "app/widgets.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/hts_types.hpp"
@@ -207,7 +208,7 @@ int main (int argc, char** argv)
             return EXIT_FAILURE;
           case setup_db::LoadErr::copyFail:
             std::cerr << "Error: "
-                      << query::describe_sqlite_failure (
+                      << setup_db::describe_sqlite_failure (
                              loadErr.rc.value(), "load database",
                              loadErr.msg
                          )
@@ -233,6 +234,17 @@ int main (int argc, char** argv)
         }
       }
       g_db::conn = loadRet.value();
+      // load_from_disk only checks the metadata row exists
+      if (!sql::get_locus_data (g_db::conn).valid()) {
+        std::cerr << fmt::format (
+                         "Error: database at {} appears to be "
+                         "corrupt:\nlocus metadata in database is "
+                         "invalid or corrupt.",
+                         args.dbPath.value()
+                     )
+                  << std::endl;
+        return EXIT_FAILURE;
+      }
       break;
     }
     case ApbMode::UNSET:
@@ -240,15 +252,15 @@ int main (int argc, char** argv)
   }
 
   if (args.dumpPath) {
-    switch (const auto dumpStatus = query::dump_to_disk (
+    switch (const auto dumpStatus = setup_db::dump_to_disk (
                 g_db::conn, args.dumpPath.value().string()
             );
             dumpStatus.code) {
-      case query::DiskDumpStatus::success:
+      case setup_db::DiskDumpStatus::success:
         break;
-      case query::DiskDumpStatus::fail:
+      case setup_db::DiskDumpStatus::fail:
         std::cerr << "Error: "
-                  << query::describe_sqlite_failure (
+                  << setup_db::describe_sqlite_failure (
                          dumpStatus.sqlRc.value(), "dump database to disk",
                          dumpStatus.dumpDbMsg
                      )
@@ -261,17 +273,11 @@ int main (int argc, char** argv)
 
   // retrieve locus metadata from db (we did not just insert it if we are entering
   // via a dumped db).
-  g_db::locusInfo = query::get_locus_data (g_db::conn);
+  g_db::locusInfo = sql::get_locus_data (g_db::conn);
   APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
-  APB_CATCH_UNREACHABLE (
-      const auto setStatus = g_db::set_query ({});
-      setStatus.code != g_db::SetQueryStatus::success,
-      fmt::format (
-          "failed to run startup query: rc {} ({}): {}",
-          setStatus.rc.value(), sqlite3_errstr (setStatus.rc.value()),
-          sqlite3_errmsg (g_db::conn)
-      )
-  );
+  if (g_db::set_query ({}) != g_db::SetQueryStatus::success) {
+    APB_UNREACHABLE (sqlite3_errmsg (g_db::conn));
+  };
 
   g_state::ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "
@@ -910,48 +916,22 @@ static std::expected<void, std::string> populate_db_mode_locus (
     Defer stmt_cleanup ([&o_fileInsertStmt]() {
       sqlite3_finalize (o_fileInsertStmt);
     });
-    APB_CATCH_UNREACHABLE (
-        sqlite3_prepare_v2 (
-            g_db::conn, schema::sqlInsertFile.data(),
-            static_cast<int> (schema::sqlInsertFile.size()),
-            &o_fileInsertStmt, NULL
-        ) != SQLITE_OK,
-        fmt::format (
-            "failed to prepare file insert statement: {}",
-            sqlite3_errmsg (g_db::conn)
-        )
+    APB_S3_EXPECT_OK (sqlite3_prepare_v2 (
+        g_db::conn, schema::sqlInsertFile.data(),
+        static_cast<int> (schema::sqlInsertFile.size()), &o_fileInsertStmt,
+        NULL
+    ));
+    APB_S3_EXPECT_OK (sqlite3_bind_text (
+        o_fileInsertStmt, 1, fp.c_str(),
+        static_cast<int> (fp.string().size()), SQLITE_TRANSIENT
+    ));
+    APB_S3_EXPECT_OK (sqlite3_bind_int (
+        o_fileInsertStmt, 2, static_cast<int> (hasContig)
+    ));
+    APB_S3_EXPECT_OK (
+        sqlite3_bind_int (o_fileInsertStmt, 3, static_cast<int> (hasReads))
     );
-    APB_CATCH_UNREACHABLE (
-        const auto rc = sqlite3_bind_text (
-            o_fileInsertStmt, 1, fp.c_str(),
-            static_cast<int> (fp.string().size()), SQLITE_TRANSIENT
-        );
-        rc != SQLITE_OK,
-        fmt::format (
-            "failed to bind path to file table insert statement: {}",
-            sqlite3_errstr (rc)
-        )
-    );
-    APB_CATCH_UNREACHABLE (
-        const auto rc = sqlite3_bind_int (
-            o_fileInsertStmt, 2, static_cast<int> (hasContig)
-        );
-        rc != SQLITE_OK,
-        fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
-    );
-    APB_CATCH_UNREACHABLE (
-        const auto rc = sqlite3_bind_int (
-            o_fileInsertStmt, 3, static_cast<int> (hasReads)
-        );
-        rc != SQLITE_OK,
-        fmt::format ("failed to bind: {}", sqlite3_errstr (rc))
-    );
-    APB_CATCH_UNREACHABLE (
-        sqlite3_step (o_fileInsertStmt) != SQLITE_DONE,
-        fmt::format (
-            "File table insert failed: {}", sqlite3_errmsg (g_db::conn)
-        )
-    );
+    APB_S3_EXPECT (sqlite3_step (o_fileInsertStmt), SQLITE_DONE);
     stmt_cleanup.invoke();
     if (!hasContig || !hasReads) {
       continue;
@@ -972,7 +952,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
         break;
       case hts2sql::InsertPileupStatus::sqlFail:
         return std::unexpected (
-            query::describe_sqlite_failure (
+            setup_db::describe_sqlite_failure (
                 insertStatus.rc.value(), "transform/insert alignment data",
                 sqlite3_errmsg (g_db::conn)
             )
@@ -1024,7 +1004,7 @@ static std::expected<void, std::string> populate_db_mode_locus (
         );
         rcInsMeta != SQLITE_OK) {
       return std::unexpected (
-          query::describe_sqlite_failure (
+          setup_db::describe_sqlite_failure (
               rcInsMeta, "insert locus metadata",
               sqlite3_errmsg (g_db::conn)
           )

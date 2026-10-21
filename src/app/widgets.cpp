@@ -18,6 +18,7 @@
 
 #include "app/g_state.hpp"
 #include "app/helpblocks.hpp"
+#include "app/sql.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
 #include "frontend/drawing_chars.hpp"
@@ -52,22 +53,26 @@ bool cmd_widget_is_valid()
          size (g_cmd::frame.yspan) == g_cmd::kWidgetHeight;
 };
 
-#define APB_ASSERT_MAIN_UI_VALID          \
-  APB_ASSERT (tb_width() > 0);            \
-  APB_ASSERT (tb_height() > 0);           \
-  APB_ASSERT (browser_widget_is_valid()); \
-  APB_ASSERT (cmd_widget_is_valid());
+#define APB_ASSERT_MAIN_UI_VALID            \
+  do {                                      \
+    APB_ASSERT (tb_width() > 0);            \
+    APB_ASSERT (tb_height() > 0);           \
+    APB_ASSERT (browser_widget_is_valid()); \
+    APB_ASSERT (cmd_widget_is_valid());     \
+  } while (false)
 
-#define APB_ASSERT_OVERLAY_UI_VALID                                 \
-  APB_ASSERT (valid (g_overlay::frame), g_overlay::frame);          \
-  APB_ASSERT (                                                      \
-      size (g_overlay::frame.xspan) >= g_overlay::kMinWidgetWidth,  \
-      g_overlay::frame                                              \
-  );                                                                \
-  APB_ASSERT (                                                      \
-      size (g_overlay::frame.yspan) >= g_overlay::kMinWidgetHeight, \
-      g_overlay::frame                                              \
-  )
+#define APB_ASSERT_OVERLAY_UI_VALID                                   \
+  do {                                                                \
+    APB_ASSERT (valid (g_overlay::frame), g_overlay::frame);          \
+    APB_ASSERT (                                                      \
+        size (g_overlay::frame.xspan) >= g_overlay::kMinWidgetWidth,  \
+        g_overlay::frame                                              \
+    );                                                                \
+    APB_ASSERT (                                                      \
+        size (g_overlay::frame.yspan) >= g_overlay::kMinWidgetHeight, \
+        g_overlay::frame                                              \
+    );                                                                \
+  } while (false)
 
 }  // namespace
 
@@ -781,9 +786,8 @@ void draw_main_to_buffer()
 
   /* --- draw query data --- */
   {
-    sqlite3_reset (g_db::selectStmt);
-
     /* size dynamic widgets */
+    // FIXME: these don't change on most frames...
     uint16_t tableWidth = 0;
     std::vector<const ColMetadata*> activeCols;
     for (const auto& col : g_ui::tableCols) {
@@ -940,61 +944,54 @@ void draw_main_to_buffer()
     const bool multiAln = g_db::locusInfo.nAln > 1;
     // scroll units drawn on this page: reads, then empty-file labels
     uint16_t nUnitsDrawn = 0;
+    sqlite3_reset (g_db::selectStmt);
+    // bind offset and limit
+    APB_S3_EXPECT_OK (
+        sqlite3_bind_int64 (g_db::selectStmt, 1, g_db::stmtRowScrollOffset)
+    );
+    APB_S3_EXPECT_OK (sqlite3_bind_int64 (
+        g_db::selectStmt, 2, seqWriteLim.y - seqWriteHead.y
+    ));
     if (g_db::nStmtRows > 0) {
       // file of the last header drawn on this page
       std::string headerFile;
-      for (uint16_t iRead = 0; seqWriteHead.y < seqWriteLim.y; ++iRead) {
-        const auto iterStatus = query::next_read (g_db::selectStmt);
-        if (!iterStatus) {
-          APB_UNREACHABLE (
-              fmt::format (
-                  "failed to step query during render: {}",
-                  sqlite3_errmsg (g_db::conn)
-              )
+      int stepRc = SQLITE_DONE;
+      while ((seqWriteHead.y < seqWriteLim.y) &&
+             (stepRc = sqlite3_step (g_db::selectStmt)) == SQLITE_ROW) {
+        std::string_view rowFile;
+        if (multiAln) {
+          rowFile = std::string_view{
+              reinterpret_cast<const char*> (sqlite3_column_text (
+                  g_db::selectStmt, schema::UserReadViewSelect::path
+              )),
+              static_cast<size_t> (sqlite3_column_bytes (
+                  g_db::selectStmt, schema::UserReadViewSelect::path
+              ))
+          };
+        }
+        if (multiAln && rowFile != headerFile) {
+          headerFile = rowFile;
+          e2::write_string (
+              seqWriteHead, seqWriteLim.x, headerFile, {.fg = TB_REVERSE}
           );
+          seqWriteHead.y++;
+          if (seqWriteHead.y >= seqWriteLim.y) {
+            // header drawn, no room for read
+            break;
+          }
         }
-        if (*iterStatus == query::RowIterStatus::rowAvail) {
-          std::string_view rowFile;
-          if (multiAln) {
-            rowFile = std::string_view{
-                reinterpret_cast<const char*> (sqlite3_column_text (
-                    g_db::selectStmt, schema::UserReadViewSelect::path
-                )),
-                static_cast<size_t> (sqlite3_column_bytes (
-                    g_db::selectStmt, schema::UserReadViewSelect::path
-                ))
-            };
-          }
-          if (static_cast<int64_t> (iRead) < g_db::stmtRowScrollOffset) {
-            // reads hidden by scrolling
-            continue;
-          }
-          if (multiAln && rowFile != headerFile) {
-            headerFile = rowFile;
-            e2::write_string (
-                seqWriteHead, seqWriteLim.x, headerFile, {.fg = TB_REVERSE}
-            );
-            seqWriteHead.y++;
-            if (seqWriteHead.y >= seqWriteLim.y) {
-              // header drawn, no room for read
-              break;
-            }
-          }
-          const auto dHead = draw_aln::seq1 (
-              static_cast<int16_t> (seqWriteHead.y), g_db::selectStmt,
-              seq1Frame
-          );
-          if (showTable) {
-            draw_table::row1 (seqWriteHead.y, g_db::selectStmt, row1Frame);
-          }
-          seqWriteHead.y += dHead.dy;
-          ++nUnitsDrawn;
+        const auto dHead = draw_aln::seq1 (
+            static_cast<int16_t> (seqWriteHead.y), g_db::selectStmt,
+            seq1Frame
+        );
+        if (showTable) {
+          draw_table::row1 (seqWriteHead.y, g_db::selectStmt, row1Frame);
         }
-        else {
-          // exhausted
-          break;
-        }
+        seqWriteHead.y += dHead.dy;
+        ++nUnitsDrawn;
       }
+      // either rows exhausted, or we ran out of space
+      APB_ASSERT (stepRc == SQLITE_DONE || stepRc == SQLITE_ROW, stepRc);
     }
 
     // if space avail, draw empty file labels
@@ -1100,7 +1097,7 @@ void draw_main_to_buffer()
   }
   {
     // draw cmd
-    const auto& userQuery = g_db::userClause;
+    const auto& userQueryFrags = g_db::userClause;
 
     e2::write_string (
         first (g_cmd::inputLine), last (g_cmd::inputLine).x,
@@ -1116,23 +1113,23 @@ void draw_main_to_buffer()
         {.fg = TB_DIM}
     );
 
+    std::string userQueryDisplay;
+    if (!userQueryFrags.where.empty()) {
+      userQueryDisplay.append ("WHERE ");
+      userQueryDisplay.append (sql::process_where (userQueryFrags.where));
+    }
+    if (!userQueryFrags.orderBy.empty()) {
+      if (!userQueryDisplay.empty()) {
+        userQueryDisplay.append (" ");
+      }
+      userQueryDisplay.append ("ORDER BY ");
+      userQueryDisplay.append (userQueryFrags.orderBy);
+    }
+
     // stringify query
-    std::string userClauseString;
-    if (!userQuery.where.empty()) {
-      userClauseString.append ("WHERE ");
-      userClauseString.append (
-          query::build_where_clause (userQuery.where)
-      );
-    }
-
-    if (!userQuery.orderBy.empty()) {
-      userClauseString.append (" ORDER BY ");
-      userClauseString.append (userQuery.orderBy);
-    }
-
     e2::write_string (
         first (g_cmd::queryStatusLine), last (g_cmd::queryStatusLine).x,
-        userClauseString, {.fg = TB_DIM}
+        userQueryDisplay, {.fg = TB_DIM}
     );
   }
 

@@ -2,12 +2,12 @@
 
 #include <array>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "app/helpblocks.hpp"
+#include "app/sql.hpp"
 #include "backend/hts_sql.hpp"
 #include "frontend/extb/box/box.hpp"
 #include "frontend/extb/extb.hpp"
@@ -28,9 +28,9 @@ inline constinit bool run = true;
 namespace db {
 
 inline constinit sqlite3* conn = nullptr;
-inline constinit query::DynamicFragments userClause;
+inline constinit sql::QueryFragments userClause;
 inline constinit sqlite3_stmt* selectStmt = nullptr;
-inline constinit uint32_t nStmtRows = 0;  // rows in current stmt
+inline constinit uint64_t nStmtRows = 0;  // rows in current stmt
 inline constinit int32_t stmtRowScrollOffset = 0;
 
 // Files (multi-aln only) with no reads in the current query, and why.
@@ -47,22 +47,18 @@ struct EmptyFile {
 inline constinit std::vector<EmptyFile> emptyFiles;
 
 // total scrollable rows: reads, then empty-file labels
-inline uint32_t nScrollRows()
+inline uint64_t nScrollRows()
 {
-  return nStmtRows + static_cast<uint32_t> (emptyFiles.size());
+  return nStmtRows + static_cast<uint64_t> (emptyFiles.size());
 }
 
-inline constinit query::PileupMetadata
+inline constinit sql::PileupMetadata
     locusInfo;  // cached metadata-table row; queried once at init()
 
-struct SetQueryStatus {
-  enum Code : uint8_t { success, prepareFail, countFail };
-  Code code;
-  std::optional<int> rc = std::nullopt;  // sqlite rc on failure
-};
+enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // Replace the active query with `clause`.
 // On failure extra details are available from sqlite3_errmsg (conn).
-[[nodiscard]] SetQueryStatus set_query (query::DynamicFragments clause);
+[[nodiscard]] SetQueryStatus set_query (sql::QueryFragments userFrags);
 
 inline void shutdown()
 {
@@ -142,3 +138,21 @@ inline constinit int contentLnOffset = 0;
 }  // namespace ui
 
 }  // namespace g_state
+
+
+// FIXME: use this idiom
+#define APB_S3_EXPECT(fn, val)                                    \
+  do {                                                            \
+    APB_ASSERT (                                                  \
+        const auto rc = fn; rc == (val), rc, sqlite3_errstr (rc), \
+                            sqlite3_errmsg (g_state::db::conn)    \
+    );                                                            \
+  } while (false)
+
+#define APB_S3_EXPECT_OK(fn)                                          \
+  do {                                                                \
+    APB_ASSERT (                                                      \
+        const auto rc = fn; rc == SQLITE_OK, rc, sqlite3_errstr (rc), \
+                            sqlite3_errmsg (g_state::db::conn)        \
+    );                                                                \
+  } while (false)
