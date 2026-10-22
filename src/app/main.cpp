@@ -400,7 +400,7 @@ int main (int argc, char** argv)
       }
       if (const auto rc = tb_present(); rc != TB_OK) {
         if (rc != TB_ERR) {
-          APB_UNREACHABLE ("tb_present failed" rc, tb_strerror (rc));
+          APB_UNREACHABLE ("tb_present failed", rc, tb_strerror (rc));
         }
         const auto msg = fmt::format (
             "lost connection to the terminal ({}). Try running apb "

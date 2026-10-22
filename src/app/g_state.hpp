@@ -68,6 +68,8 @@ inline void shutdown()
 
 }  // namespace db
 
+// NOTE: it may be cleaner to split this into a separate TU,
+// especially if there is to be another renderer
 namespace ui {
 
 // defined in g_state.cpp

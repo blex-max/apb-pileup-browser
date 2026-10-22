@@ -445,6 +445,16 @@ static e2::Delta seq1 (
   e2::GlobalCell writeHead{{.x = fa.writeStartX, .y = yStart}};
 
   // ordered offsets for optional tracks
+  // BUG: second to last row in view does not
+  // draw quality - because it keys
+  // of the insertion track being ENABLED, not
+  // whether an insertion has actually been drawn.
+  // Nope that's not quite it. But clearly
+  // the code thinks it has less space than it does.
+  // Ahh, it's because we calculate the space needed
+  // BEFORE knowing if we're actually going to draw
+  // an insertion. The fix is to check for an insertion
+  // beforehand and calculate appropriately
   constexpr int trackYOffsetBase = 1;
   const int trackYOffsetIns = trackYOffsetBase;  // first
   const int trackYOffsetQual =
@@ -457,6 +467,9 @@ static e2::Delta seq1 (
       drawInsTrack && (writeHead.y + trackYOffsetIns) < fa.writeLimits.y;
   bool enableQualTrack =
       drawQualTrack && (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
+  bool enableInsQualTrack =
+      drawInsTrack && drawQualTrack &&
+      (writeHead.y + trackYOffsetInsQual) < fa.writeLimits.y;
 
   const auto readFields = get_seq1_read_fields (br_dbRow);
 
@@ -551,7 +564,7 @@ static e2::Delta seq1 (
           e2::set_attr (anchorCell, {.fg = TB_UNDERLINE});
         }
 
-        if (enableQualTrack && readFields.qual) {
+        if (enableInsQualTrack && readFields.qual) {
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
           if (opInsQualWriteHead.x < fa.writeLimits.x) {
@@ -675,7 +688,7 @@ static e2::Delta seq1 (
       APB_UNREACHABLE ("CIGAR operation consumption type invalid");
     }
     if (writeHead.x >= fa.writeLimits.x) {
-      // early exit if row exhausted
+      // early exit if row full
       break;
     }
   }
@@ -698,7 +711,7 @@ static e2::Delta seq1 (
     );
     writeHead.y++;
   }
-  if (enableQualTrack && readInsDrawn) {
+  if (enableInsQualTrack && readInsDrawn) {
     writeHead.y++;
   }
 
