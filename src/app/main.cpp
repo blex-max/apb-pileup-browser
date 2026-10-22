@@ -276,7 +276,9 @@ int main (int argc, char** argv)
   g_db::locusInfo = sql::get_locus_data (g_db::conn);
   APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
   if (g_db::set_query ({}) != g_db::SetQueryStatus::success) {
-    APB_UNREACHABLE (sqlite3_errmsg (g_db::conn));
+    APB_UNREACHABLE (
+        "Failed to set initial query", sqlite3_errmsg (g_db::conn)
+    );
   };
 
   g_state::ui::cmd::msgBuf =
@@ -304,13 +306,7 @@ int main (int argc, char** argv)
     switch (rc) {
       case TB_ERR_INIT_ALREADY:
       case TB_ERR_MEM:
-        APB_UNREACHABLE (
-            fmt::format (
-                "tb_init failed with code {} ({}) - this should be "
-                "impossible",
-                rc, tb_strerror (rc)
-            )
-        );
+        APB_UNREACHABLE ("tb_init failed", rc, tb_strerror (rc));
       case TB_ERR_INIT_OPEN:
         std::cerr << fmt::format (
                          "Error: could not open the terminal ({}). "
@@ -366,13 +362,7 @@ int main (int argc, char** argv)
     );
     if (const auto rc = tb_present(); rc != TB_OK) {
       if (rc != TB_ERR) {
-        APB_UNREACHABLE (
-            fmt::format (
-                "tb_present failed with code {} ({}) - this should be "
-                "impossible",
-                rc, tb_strerror (rc)
-            )
-        );
+        APB_UNREACHABLE ("tb_present failed", rc, tb_strerror (rc));
       }
       const auto msg = fmt::format (
           "lost connection to the terminal ({}). Try running apb "
@@ -410,13 +400,7 @@ int main (int argc, char** argv)
       }
       if (const auto rc = tb_present(); rc != TB_OK) {
         if (rc != TB_ERR) {
-          APB_UNREACHABLE (
-              fmt::format (
-                  "tb_present failed with code {} ({}) - this should be "
-                  "impossible",
-                  rc, tb_strerror (rc)
-              )
-          );
+          APB_UNREACHABLE ("tb_present failed" rc, tb_strerror (rc));
         }
         const auto msg = fmt::format (
             "lost connection to the terminal ({}). Try running apb "
@@ -493,6 +477,9 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         argsOut.zeroBased = true;
       }
       else if (arg == "--demo") {
+        if (argsOut.mode == ApbMode::demo) {
+          EXIT_W_USAGE ("--demo specified more than once");
+        }
         if (argsOut.mode != ApbMode::UNSET) {
           EXIT_W_USAGE (
               "arguments --db and --demo are mutually exclusive"
@@ -507,6 +494,9 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         argsOut.verboseLog = true;
       }
       else if (arg == "--db") {
+        if (argsOut.mode == ApbMode::db) {
+          EXIT_W_USAGE ("--db specified more than once");
+        }
         OPT_VAL_OR_EXIT ("--db", argsOut.dbPath);
         if (argsOut.mode != ApbMode::UNSET) {
           EXIT_W_USAGE (

@@ -10,7 +10,7 @@
 
 namespace sql {
 
-// User-supplied pieces of the current query, as typed.
+// User-supplied query components, as typed at the command line.
 struct QueryFragments {
   std::vector<std::string> where;
   std::string orderBy;
@@ -19,7 +19,8 @@ struct QueryFragments {
 // Joins WHERE fragments into a single expression, left-wrapping
 // each in parens: later fragments begin with their own connective
 // (e.g. "OR b", "AND c"), so {"a", "OR b", "AND c"} gives
-// "((a) OR b) AND c". Empty if no fragments. No "WHERE" keyword.
+// "((a) OR b) AND c".
+// Empty if no fragments. Does not prepend "WHERE" keyword.
 std::string process_where (const std::vector<std::string>& where);
 
 // locus metadata as extracted from db.

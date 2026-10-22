@@ -75,7 +75,9 @@ template <typename... Args>
     }                                             \
   } while (false)
 
-#define APB_UNREACHABLE(msg)               \
-  do {                                     \
-    apb_fatal (__FILE__, __LINE__, (msg)); \
+#define APB_UNREACHABLE(msg, ...)                                         \
+  do {                                                                    \
+    apb_fatal (                                                           \
+        __FILE__, __LINE__, (msg)__VA_OPT__ (, #__VA_ARGS__, __VA_ARGS__) \
+    );                                                                    \
   } while (false)

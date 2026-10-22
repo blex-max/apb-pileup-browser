@@ -112,13 +112,17 @@ The query syntax is flexible and powerful. Some useful examples:
 
 **INDELS AT THE PILEUP LOCUS**:
 
-This is made quite simple by the `indel` column. For example, to search for an 3-base insertion:
+This is made quite simple by the `indel` column. For example, to search for an 3-base insertion anchored at the pileup:
 ```
 where indel = 3
 ```
 deletions are represented by negative numbers, so for a 3-base deletion:
 ```
 where indel = -3
+```
+Note that these commands search for indels anchored at the pileup base, i.e. beginning immediately after the pileup locus. If you want to search for deleted bases at the pileup locus itself, use:
+```
+where is_del
 ```
 
 **READ LENGTH**:

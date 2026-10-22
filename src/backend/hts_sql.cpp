@@ -6,7 +6,6 @@
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -34,7 +33,10 @@ static std::string schema_fingerprint (sqlite3* conn)
           -1, &o_stmt, NULL
       );
       rc != SQLITE_OK) {
-    APB_UNREACHABLE ("could not prepare schema fingerprint statement");
+    APB_UNREACHABLE (
+        "could not prepare schema fingerprint statement",
+        sqlite3_errstr (rc)
+    );
   }
   Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
@@ -46,7 +48,10 @@ static std::string schema_fingerprint (sqlite3* conn)
     fingerprint += '\n';
   }
   if (rc != SQLITE_DONE) {
-    APB_UNREACHABLE ("failure during stepping of schema fingerprint rows");
+    APB_UNREACHABLE (
+        "failure during stepping of schema fingerprint rows",
+        sqlite3_errstr (rc)
+    );
   }
   return fingerprint;
 }
@@ -61,9 +66,7 @@ sqlite3* init()
 
   if (const auto rc = sqlite3_open (":memory:", &conn); rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to open in-memory database: {}", sqlite3_errstr (rc)
-        )
+        "failed to open in-memory database", sqlite3_errstr (rc)
     );
   }
 
@@ -76,54 +79,38 @@ sqlite3* init()
   if (const auto rc = sqlite_exec (schema::sqlSetTempStoreMemory);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to set temp_store pragma: {}", sqlite3_errmsg (conn)
-        )
+        "failed to set temp_store pragma", sqlite3_errmsg (conn)
     );
   }
 
   if (const auto rc = sqlite_exec (schema::sqlSetFK); rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to set foreign_key pragma: {}", sqlite3_errmsg (conn)
-        )
+        "failed to set foreign_key pragma", sqlite3_errmsg (conn)
     );
   }
 
   if (const auto rc = sqlite_exec (schema::sqlCreateLocusTable);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to create metadata table: {}", sqlite3_errmsg (conn)
-        )
+        "failed to create metadata table", sqlite3_errmsg (conn)
     );
   }
 
   if (const auto rc = sqlite_exec (schema::sqlCreateFileTable);
       rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to create file table: {}", sqlite3_errmsg (conn)
-        )
-    );
+    APB_UNREACHABLE ("failed to create file table", sqlite3_errmsg (conn));
   }
 
   if (const auto rc = sqlite_exec (schema::sqlCreatePerRecordTable);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to create per record table: {}", sqlite3_errmsg (conn)
-        )
+        "failed to create per record table", sqlite3_errmsg (conn)
     );
   }
 
   if (const auto rc = sqlite_exec (schema::sqlCreateUserView);
       rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to create reads view: {}", sqlite3_errmsg (conn)
-        )
-    );
+    APB_UNREACHABLE ("failed to create reads view", sqlite3_errmsg (conn));
   }
 
   return conn;
@@ -249,10 +236,7 @@ std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path)
         );
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
-          fmt::format (
-              "failed to prepare locus metadata query: {}",
-              sqlite3_errmsg (conn)
-          )
+          "failed to prepare locus metadata query", sqlite3_errmsg (conn)
       );
     }
     Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
@@ -270,10 +254,7 @@ std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path)
     }
     if (rc != SQLITE_ROW) {
       APB_UNREACHABLE (
-          fmt::format (
-              "failed to read locus metadata row: {}",
-              sqlite3_errmsg (conn)
-          )
+          "failed to read locus metadata row", sqlite3_errmsg (conn)
       );
     }
   }
@@ -631,11 +612,7 @@ InsertPileupStatus insert_pileup (
   // manually begin/commit transaction.
   if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        fmt::format (
-            "failed to begin transaction: {}", sqlite3_errmsg (conn)
-        )
-    );
+    APB_UNREACHABLE ("failed to begin transaction", sqlite3_errmsg (conn));
   }
 
   for (size_t i = 0; i < nPlp; ++i) {
@@ -673,10 +650,8 @@ InsertPileupStatus insert_pileup (
     if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
       if ((rc & 0xFF) == SQLITE_CONSTRAINT) {
         APB_UNREACHABLE (
-            fmt::format (
-                "read insert violated a schema constraint: {}",
-                sqlite3_errmsg (conn)
-            )
+            "read insert violated a schema constraint",
+            sqlite3_errmsg (conn)
         );
       }
       return InsertPileupStatus{
@@ -690,9 +665,7 @@ InsertPileupStatus insert_pileup (
   if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to commit transaction: {}", sqlite3_errmsg (conn)
-        )
+        "failed to commit transaction", sqlite3_errmsg (conn)
     );
   }
   return {};
@@ -724,10 +697,8 @@ InsertPileupStatus insert_pileup (
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to prepare metadata insert statement: {}",
-            sqlite3_errmsg (conn)
-        )
+        "failed to prepare metadata insert statement",
+        sqlite3_errmsg (conn)
     );
   }
   Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
@@ -736,9 +707,7 @@ InsertPileupStatus insert_pileup (
   int col = 1;
   auto bindOK = [&] (int rc) {
     if (rc != SQLITE_OK) {
-      APB_UNREACHABLE (
-          fmt::format ("bind failed: {}", sqlite3_errstr (rc))
-      );
+      APB_UNREACHABLE ("bind failed", sqlite3_errstr (rc));
     }
   };
 
@@ -764,10 +733,8 @@ InsertPileupStatus insert_pileup (
   if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
     if ((rc & 0xFF) == SQLITE_CONSTRAINT) {
       APB_UNREACHABLE (
-          fmt::format (
-              "metadata insert violated a schema constraint: {}",
-              sqlite3_errmsg (conn)
-          )
+          "metadata insert violated a schema constraint",
+          sqlite3_errmsg (conn)
       );
     }
     return rc;
@@ -784,11 +751,8 @@ sqlite3_stmt* prepare_insert_reads_stmt (sqlite3* conn)
       );
       rc != SQLITE_OK) {
     APB_UNREACHABLE (
-        fmt::format (
-            "failed to prepare insert statement for per-record data "
-            "table: {}",
-            sqlite3_errmsg (conn)
-        )
+        "failed to prepare insert statement for per-record data table",
+        sqlite3_errmsg (conn)
     );
   }
   return br_stmt;
@@ -809,9 +773,7 @@ void bind_read_data (
   int col = 1;
   auto bindOK = [&] (int rc) {
     if (rc != SQLITE_OK) {
-      APB_UNREACHABLE (
-          fmt::format ("bind failed: {}", sqlite3_errstr (rc))
-      );
+      APB_UNREACHABLE ("bind failed: {}", sqlite3_errstr (rc));
     }
   };
 
