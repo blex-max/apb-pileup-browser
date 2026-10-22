@@ -104,10 +104,11 @@ General suggestions regarding improvements to commands and navigation are also a
 - More stats in the status bar; allele counts/VAF, reference span complexity (useful when
   assessing artefactual variants), etc.
 - Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
-  e.g. `where @at(+3, cigar, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
+  e.g. `where cigar_at(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
   This is not plausible in direct SQL. Exact syntax TBD!
 - Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
   like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
+- Performance improvements
 
 ### Speculative Features
 
@@ -126,7 +127,7 @@ These are items that I think might be useful and could implement, but am unlikel
   - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
     not familiar with those tools.
 - Allow saving queries and returning to them within the same session, without having to type them out again.
-- Headless `count` mode, to get results for a query known at the CLI without dropping into the TUI.
+- Headless querying, to get results for a query known at the CLI without dropping into the TUI.
 - Display of reads aligned to adjacent bases at the specified locus.
 
 ## Development

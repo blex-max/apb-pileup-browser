@@ -31,6 +31,9 @@ Given an alignment file and a genomic locus apb retrieves all reads aligned to t
 **IMPORTANT**:
 apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line. See Section 5 ("A Word on Indexing Systems") for more detail.
 
+**IMPORTANT**:
+At present apb loads the pileup into an in-memory database. At extremely high depths, this can use a great deal of RAM. To prevent accidental loading of extremely large pileups which could e.g. cause issues for other users of a compute node, if apb detects high memory usage, it will abort. This behaviour can be disabled at the CLI such that users can intentionally load very large pileups with prior knowledge. In the future it is planned to add functionality for offloading some storage to disk when viewing larger pileups to lower memory usage.
+
 ## 2) CLI Usage
 
 See the helptext from `apb --help` for the canonical guide to the CLI. Some additional context is given here.
@@ -68,7 +71,7 @@ static constexpr std::string_view manualChunk3 = R"md(
 
 ### 3.3) Querying the Pileup
 
-The apb query commands provide a simple wrapper around (sqlite3-based) SQL. Whereas a more generic SQL REPL might be structured around dispatching known, predetermined queries, apb aims to support stepwise pattern discovery. The active query persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `order`). By example, a session might look like the following: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's uninformative and undo, filter by mapping quality instead, and so on. See Section 3.4 (Column Reference) for the full list of queryable columns.
+The apb query commands provide a simple wrapper around (sqlite3-based) SQL. Whereas a more generic SQL REPL might be structured around dispatching known, predetermined queries, apb aims to support stepwise pattern discovery. The active query persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `sort`). By example, a session might look like the following: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's uninformative and undo, filter by mapping quality instead, and so on. See Section 3.4 (Column Reference) for the full list of queryable columns.
 
 ### 3.3.1) Query Walkthrough
 
@@ -84,9 +87,9 @@ Note that flag is a bitmask - see https://www.w3schools.com/programming/prog_ope
 
 Now let's sort to see the lowest quality calls first:
 ```
-order basequal ASC
+sort basequal ASC
 ```
-ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `order basequal DESC, start ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key.
+ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `sort basequal DESC, start ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key. You can also sort by non-numeric fields, so `sort base` works fine.
 
 The parser incrementally wraps these commands into a complete SQL statement, which is displayed above the command line:
 ```
@@ -96,7 +99,7 @@ You can remove clauses added in a piecewise manner with the `back` command. In t
 ```
 where (base != 'G') ORDER BY basequal ASC
 ```
-ORDER BY is not affected by back. To reset/clear ordering, simply call `order` with no arguments.
+ORDER BY is not affected by back. To reset/clear ordering, simply call `sort` with no arguments.
 
 To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used with our latest query above, the status bar will show:
 ```
@@ -128,9 +131,13 @@ would filter the view to reads less than 100 bases long.
 
 **CIGAR QUERYING**:
 
-Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing any insertion:
+Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 5-base insertion at any position:
 ```
-where instr(cigar, 'I')
+where instr(cigar, '5I')
+```
+or for reads containing soft clipping of any length:
+```
+where instr(cigar, 'S')
 ```
 
 **AUX TAGS**:
@@ -170,7 +177,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 ### 3.4) Column Reference
 
-For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
+For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`sort` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
 
 )md";
 

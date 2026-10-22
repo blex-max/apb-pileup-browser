@@ -383,10 +383,8 @@ struct BackCmd {
 };
 
 struct OrderCmd {
-  constexpr static std::string_view call{"order-by"};
-  constexpr static std::array<std::string_view, 3> callAlias{
-      "order", "ob", "o"
-  };
+  constexpr static std::string_view call{"sort"};
+  constexpr static std::array<std::string_view, 3> callAlias{"o", "order"};
   inline static const std::string usage =
       fmt::format ("{} [clause]", call);
   constexpr static std::string_view desc{
