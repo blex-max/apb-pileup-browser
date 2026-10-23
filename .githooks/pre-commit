@@ -15,6 +15,21 @@ if [ "$current_branch" = "main" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|
   git add MANUAL.md
 fi
 
+# Commits to dev make the same attempt, but a failed build or manual is only
+# reported: MANUAL.md is left as it was and the commit goes ahead.
+if [ "$current_branch" = "dev" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
+  if (
+    [ -f build/CMakeCache.txt ] || cmake -S . -B build
+    cmake --build build -j
+    build/apb --manual > "$(git rev-parse --git-dir)/MANUAL.md.tmp"
+  ); then
+    mv "$(git rev-parse --git-dir)/MANUAL.md.tmp" MANUAL.md
+    git add MANUAL.md
+  else
+    echo "pre-commit: build failed on dev, MANUAL.md not updated" >&2
+  fi
+fi
+
 if ! command -v clang-format >/dev/null 2>&1; then
   echo "pre-commit: clang-format not found, skipping format check" >&2
   exit 0

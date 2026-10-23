@@ -3,14 +3,28 @@ set -euo pipefail
 
 # Fast-forward merges run no pre-merge-commit hook, so regenerate MANUAL.md
 # here. No commit is being made, so the result is left in the working tree.
+# On dev a failed build or manual is only reported, MANUAL.md left untouched.
 current_branch=$(git symbolic-ref --short -q HEAD || true)
-[ "$current_branch" = "main" ] || exit 0
+case "$current_branch" in
+  main | dev) ;;
+  *) exit 0 ;;
+esac
 
-if [ ! -f build/CMakeCache.txt ]; then
-  cmake -S . -B build
+regen() {
+  [ -f build/CMakeCache.txt ] || cmake -S . -B build
+  cmake --build build -j
+  build/apb --manual > "$(git rev-parse --git-dir)/MANUAL.md.tmp"
+  mv "$(git rev-parse --git-dir)/MANUAL.md.tmp" MANUAL.md
+}
+
+if [ "$current_branch" = "dev" ]; then
+  regen || {
+    echo "post-merge: build failed on dev, MANUAL.md not updated" >&2
+    exit 0
+  }
+else
+  regen
 fi
-cmake --build build -j
-build/apb --manual > MANUAL.md
 if ! git diff --quiet -- MANUAL.md || ! git ls-files --error-unmatch MANUAL.md >/dev/null 2>&1; then
   echo "post-merge: MANUAL.md regenerated, commit it" >&2
 fi
