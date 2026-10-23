@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.22)
 
 project(apb
   LANGUAGES CXX
-  VERSION 0.2.0
+  VERSION 0.3.0
 )
 
 if(NOT CMAKE_BUILD_TYPE)

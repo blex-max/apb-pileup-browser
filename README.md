@@ -44,17 +44,17 @@ A text screencap of the TUI. Line wrapping may break this screencap!
 `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
 
 **Advantages:**
-- Powerful SQL-based query syntax for fast investigation.
-- Highly performant and responsive;
+- Powerful SQL-based query syntax for intuitive investigation.
+- Highly performant and responsive
   - On a 100k read pileup:
     - Keypress response: ~0.1ms.
     - Query submission: ~60ms.
   - On a 2 million read pileup:
     - Keypress response: ~0.1ms.
     - Query submission: 0.86s.
-- Immediately available in the terminal; no spinning up a web instance or navigating a web UI.
 - Easily installed, including on compute cluster nodes.
 - UI optimised specifically for inspecting pileup loci over general-purpose genome browsing.
+- Immediately available in the terminal; no spinning up a web instance or navigating a web UI.
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!
@@ -105,7 +105,8 @@ General suggestions regarding improvements to commands and navigation are also a
 
 ### Planned Features
 
-- ~Multiple alignment pileups.~ Added in `0.2.0`.
+- ~Multiple alignment pileups.~ Added in `v0.2.0`.
+- ~Performance improvements at ultra-high depth.~ Added in `v0.3.0`
 - Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
 - More stats in the status bar; allele counts/VAF, reference span complexity (useful when
   assessing artefactual variants), etc.
@@ -114,7 +115,6 @@ General suggestions regarding improvements to commands and navigation are also a
   This is not plausible in direct SQL. Exact syntax TBD!
 - Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
   like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
-- Performance improvements
 
 ### Speculative Features
 
@@ -133,7 +133,10 @@ These are items that I think might be useful and could implement, but am unlikel
   - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
     not familiar with those tools.
 - Allow saving queries and returning to them within the same session, without having to type them out again.
-- Headless querying, to get results for a query known at the CLI without dropping into the TUI.
+- Headless querying, to get results for a query known ahead of time without dropping into the TUI.
+  - Output format would require consideration.
+  - This would allow use of apb programatically.
+  - It may also be possible to expose apb as a library to scripting languages.
 - Display of reads aligned to adjacent bases at the specified locus.
 
 ## Development
