@@ -13,6 +13,17 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# per-TU .json traces for each .o
+option(APB_TIME_TRACE "Emit clang -ftime-trace files" OFF)
+if(APB_TIME_TRACE)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-ftime-trace)
+  else()
+    message(WARNING "APB_TIME_TRACE requires clang; ignoring")
+  endif()
+endif()
+
 # user paths to htslib if needed
 set(HTSLIB_INCLUDE_DIR "" CACHE PATH "Path to directory that contains htslib/hts.h")
 set(HTSLIB_LIBRARY "" CACHE FILEPATH "Absolute path to libhts.{so,dylib,a}")
