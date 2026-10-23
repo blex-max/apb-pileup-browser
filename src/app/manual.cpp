@@ -31,9 +31,6 @@ Given an alignment file and a genomic locus apb retrieves all reads aligned to t
 **IMPORTANT**:
 apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line. See Section 5 ("A Word on Indexing Systems") for more detail.
 
-**IMPORTANT**:
-At present apb loads the pileup into an in-memory database. At extremely high depths, this can use a great deal of RAM. To prevent accidental loading of extremely large pileups which could e.g. cause issues for other users of a compute node, if apb detects high memory usage, it will abort. This behaviour can be disabled at the CLI such that users can intentionally load very large pileups with prior knowledge. In the future it is planned to add functionality for offloading some storage to disk when viewing larger pileups to lower memory usage.
-
 ## 2) CLI Usage
 
 See the helptext from `apb --help` for the canonical guide to the CLI. Some additional context is given here.

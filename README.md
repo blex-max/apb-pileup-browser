@@ -43,12 +43,18 @@ A text screencap of the TUI. Line wrapping may break this screencap!
 **The real TUI has richer, better styling which copy-pasting does not preserve.** Explanatory notes are in CAPITALS. 
 `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
 
-Advantages:
+**Advantages:**
 - Powerful SQL-based query syntax for fast investigation.
-- Immediately available in the terminal; no spinning up a genome browser instance or navigating a web UI.
+- Highly performant and responsive;
+  - On a 100k read pileup:
+    - Keypress response: ~0.1ms.
+    - Query submission: ~60ms.
+  - On a 2 million read pileup:
+    - Keypress response: ~0.1ms.
+    - Query submission: 0.86s.
+- Immediately available in the terminal; no spinning up a web instance or navigating a web UI.
 - Easily installed, including on compute cluster nodes.
-- Fast; no network IO, responsive UI.
-- UI optimised for one job - inspecting pileup loci - rather than general-purpose genome browsing.
+- UI optimised specifically for inspecting pileup loci over general-purpose genome browsing.
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!

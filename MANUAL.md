@@ -91,12 +91,12 @@ Every command submitted at the command line is interpreted like `<command> [args
     condition is present.
     alias: bk
 
-  `order-by [clause]`:
+  `sort [clause]`:
     Sort reads by ORDER BY expression. Clears order
     by with no args, resetting to default ordering.
-    When viewing multiple alignments, reads are
+    When viewing multiplealignments, reads are
     always sorted by file as the primary key.
-    alias: order, ob, o
+    alias: o, order,
 
   `clear`:
     Clear current query, resetting both WHERE and
@@ -136,7 +136,7 @@ Every command submitted at the command line is interpreted like `<command> [args
 
 ### 3.3) Querying the Pileup
 
-The apb query commands provide a simple wrapper around (sqlite3-based) SQL. Whereas a more generic SQL REPL might be structured around dispatching known, predetermined queries, apb aims to support stepwise pattern discovery. The active query persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `order`). By example, a session might look like the following: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's uninformative and undo, filter by mapping quality instead, and so on. See Section 3.4 (Column Reference) for the full list of queryable columns.
+The apb query commands provide a simple wrapper around (sqlite3-based) SQL. Whereas a more generic SQL REPL might be structured around dispatching known, predetermined queries, apb aims to support stepwise pattern discovery. The active query persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `sort`). By example, a session might look like the following: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's uninformative and undo, filter by mapping quality instead, and so on. See Section 3.4 (Column Reference) for the full list of queryable columns.
 
 ### 3.3.1) Query Walkthrough
 
@@ -152,9 +152,9 @@ Note that flag is a bitmask - see https://www.w3schools.com/programming/prog_ope
 
 Now let's sort to see the lowest quality calls first:
 ```
-order basequal ASC
+sort basequal ASC
 ```
-ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `order basequal DESC, start ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key.
+ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `sort basequal DESC, start ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key. You can also sort by non-numeric fields, so `sort base` works fine.
 
 The parser incrementally wraps these commands into a complete SQL statement, which is displayed above the command line:
 ```
@@ -164,7 +164,7 @@ You can remove clauses added in a piecewise manner with the `back` command. In t
 ```
 where (base != 'G') ORDER BY basequal ASC
 ```
-ORDER BY is not affected by back. To reset/clear ordering, simply call `order` with no arguments.
+ORDER BY is not affected by back. To reset/clear ordering, simply call `sort` with no arguments.
 
 To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used with our latest query above, the status bar will show:
 ```
@@ -177,13 +177,17 @@ The query syntax is flexible and powerful. Some useful examples:
 
 **INDELS AT THE PILEUP LOCUS**:
 
-This is made quite simple by the `indel` column. For example, to search for an 3-base insertion:
+This is made quite simple by the `indel` column. For example, to search for an 3-base insertion anchored at the pileup:
 ```
 where indel = 3
 ```
 deletions are represented by negative numbers, so for a 3-base deletion:
 ```
 where indel = -3
+```
+Note that these commands search for indels anchored at the pileup base, i.e. beginning immediately after the pileup locus. If you want to search for deleted bases at the pileup locus itself, use:
+```
+where is_del
 ```
 
 **READ LENGTH**:
@@ -196,9 +200,13 @@ would filter the view to reads less than 100 bases long.
 
 **CIGAR QUERYING**:
 
-Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing any insertion:
+Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 5-base insertion at any position:
 ```
-where instr(cigar, 'I')
+where instr(cigar, '5I')
+```
+or for reads containing soft clipping of any length:
+```
+where instr(cigar, 'S')
 ```
 
 **AUX TAGS**:
@@ -238,7 +246,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 ### 3.4) Column Reference
 
-For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`order` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
+For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`sort` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
 
  TABLE REFERENCE                                
                                                 
@@ -332,4 +340,3 @@ apb uses 1-based closed coordinates throughtout, i.e coordinates start at 1, and
 
 See the README or the project GitHub (https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap, and other background.
 
-The version of apb from which this manual was generated will load up to 100000 reads at a locus.
