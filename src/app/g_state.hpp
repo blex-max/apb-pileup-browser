@@ -66,6 +66,22 @@ inline void shutdown()
   sqlite3_close_v2 (conn);
 }
 
+#define APB_S3_EXPECT(fn, val)                                    \
+  do {                                                            \
+    APB_ASSERT (                                                  \
+        const auto rc = fn; rc == (val), rc, sqlite3_errstr (rc), \
+                            sqlite3_errmsg (g_state::db::conn)    \
+    );                                                            \
+  } while (false)
+
+#define APB_S3_EXPECT_OK(fn)                                          \
+  do {                                                                \
+    APB_ASSERT (                                                      \
+        const auto rc = fn; rc == SQLITE_OK, rc, sqlite3_errstr (rc), \
+                            sqlite3_errmsg (g_state::db::conn)        \
+    );                                                                \
+  } while (false)
+
 }  // namespace db
 
 // NOTE: it may be cleaner to split this into a separate TU,
@@ -140,21 +156,3 @@ inline constinit int contentLnOffset = 0;
 }  // namespace ui
 
 }  // namespace g_state
-
-
-// FIXME: use this idiom
-#define APB_S3_EXPECT(fn, val)                                    \
-  do {                                                            \
-    APB_ASSERT (                                                  \
-        const auto rc = fn; rc == (val), rc, sqlite3_errstr (rc), \
-                            sqlite3_errmsg (g_state::db::conn)    \
-    );                                                            \
-  } while (false)
-
-#define APB_S3_EXPECT_OK(fn)                                          \
-  do {                                                                \
-    APB_ASSERT (                                                      \
-        const auto rc = fn; rc == SQLITE_OK, rc, sqlite3_errstr (rc), \
-                            sqlite3_errmsg (g_state::db::conn)        \
-    );                                                                \
-  } while (false)

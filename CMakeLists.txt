@@ -113,12 +113,13 @@ target_link_libraries(apb
 # Any source containing tests must be listed here.
 add_executable(apb-tests
   tests/test.cpp
+  src/app/g_state.cpp
   src/app/sql.cpp
   src/backend/hts_sql.cpp
   src/frontend/tb2_impl.cpp
 )
 target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
-target_include_directories(apb-tests PRIVATE src)
+target_include_directories(apb-tests PRIVATE src tests)
 target_link_libraries(apb-tests
   PRIVATE
   doctest

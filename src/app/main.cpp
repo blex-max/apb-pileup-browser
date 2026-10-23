@@ -271,15 +271,15 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
-  // retrieve locus metadata from db (we did not just insert it if we are entering
-  // via a dumped db).
+  // retrieve locus metadata from db (if we entering
+  // via a dumped db it has not just been inserted).
   g_db::locusInfo = sql::get_locus_data (g_db::conn);
   APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
   if (g_db::set_query ({}) != g_db::SetQueryStatus::success) {
     APB_UNREACHABLE (
         "Failed to set initial query", sqlite3_errmsg (g_db::conn)
     );
-  };
+  }
 
   g_state::ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "

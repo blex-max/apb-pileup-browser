@@ -423,6 +423,14 @@ struct CountCmd {
 
   static CmdResult operator() (std::string_view args)
   {
+    // as set_query: tolerate one trailing ';', reject any other
+    if (!args.empty() && args.back() == ';') {
+      args.remove_suffix (1);
+    }
+    if (args.find (';') != std::string_view::npos) {
+      return {false, cmd_format_fail ("semicolon in query!")};
+    }
+
     auto where = g_db::userClause.where;
     if (!args.empty()) {
       if (where.empty()) {
@@ -434,7 +442,6 @@ struct CountCmd {
         where.emplace_back (clause);
       }
     }
-    // FIXME: no validation performed on count cmd. May not matter
 
     std::string sqlCountQuery{"SELECT COUNT(*) FROM reads"};
     const auto sqlUserWhere = sql::process_where (where);

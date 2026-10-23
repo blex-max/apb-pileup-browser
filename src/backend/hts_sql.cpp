@@ -773,7 +773,7 @@ void bind_read_data (
   int col = 1;
   auto bindOK = [&] (int rc) {
     if (rc != SQLITE_OK) {
-      APB_UNREACHABLE ("bind failed: {}", sqlite3_errstr (rc));
+      APB_UNREACHABLE ("bind failed", sqlite3_errstr (rc));
     }
   };
 
@@ -887,6 +887,7 @@ std::string stringify_cigar (const uint32_t* br_cig, size_t nCig)
 #include <limits>
 
 #include "doctest.h"
+#include "fixtures.hpp"
 
 // NOTE:
 // The point of these tests is to catch bugs which will not
@@ -1096,8 +1097,7 @@ namespace test {
 
 // seed a fresh db with locus metadata and three reads
 void seed_reads (
-    sqlite3* conn, int16_t nAln = 1,
-    std::optional<std::string> refSlice = std::nullopt
+    sqlite3* conn, int16_t nAln, std::optional<std::string> refSlice
 )
 {
   seed_file (conn);
