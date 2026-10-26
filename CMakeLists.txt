@@ -140,7 +140,6 @@ target_link_libraries(apb-tests
   PkgConfig::DEPS
 )
 
-# tests run as part of build (and must pass).
 add_custom_command(
   TARGET apb-tests
   POST_BUILD

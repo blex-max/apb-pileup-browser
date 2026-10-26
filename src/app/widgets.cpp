@@ -1070,7 +1070,6 @@ void draw_main_to_buffer()
       userQueryDisplay.append (userQueryFrags.orderBy);
     }
 
-    // stringify query
     e2::write_string (
         first (g_cmd::queryStatusLine), last (g_cmd::queryStatusLine).x,
         userQueryDisplay, {.fg = TB_DIM}
