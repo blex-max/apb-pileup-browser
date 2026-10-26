@@ -37,6 +37,7 @@ CREATE TABLE locus_metadata (
     R"sql(),
 
     -- locus
+    -- string name of contig
     contig TEXT NOT NULL CHECK (contig <> ''),
     -- 1-based pileup position
     pos    INTEGER NOT NULL CHECK (pos > 0),

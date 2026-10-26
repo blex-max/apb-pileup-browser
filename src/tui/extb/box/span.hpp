@@ -98,17 +98,12 @@ inline bool contains (const Span& s, int p) noexcept
 {
   return valid (s) && (p >= s.first && p < s.last);
 }
-inline bool contains (
-    const Span& outer, const Span& inner
-) noexcept
+inline bool contains (const Span& outer, const Span& inner) noexcept
 {
   return valid (outer) && valid (inner) &&
-         (outer.first <= inner.first &&
-          outer.last >= inner.last);
+         (outer.first <= inner.first && outer.last >= inner.last);
 }
-inline Span construct_relative (
-    const Span& s, int from, int to
-) noexcept
+inline Span construct_relative (const Span& s, int from, int to) noexcept
 {
   const auto newStart = s.first + from;
   const auto newEnd = s.first + to;
@@ -124,10 +119,7 @@ inline Span body (const Span& s) noexcept
 }
 
 // HLine / VLine methods
-inline int size (const HLine& l) noexcept
-{
-  return size (l.xspan);
-}
+inline int size (const HLine& l) noexcept { return size (l.xspan); }
 inline GlobalCell first (const HLine& l) noexcept
 {
   return {l.xspan.first, l.y};
@@ -140,9 +132,7 @@ inline bool valid (const HLine& l) noexcept
 {
   return valid (l.xspan) && l.y >= 0;
 }
-inline HLine construct_relative (
-    const HLine& l, int from, int to
-) noexcept
+inline HLine construct_relative (const HLine& l, int from, int to) noexcept
 {
   return {construct_relative (l.xspan, from, to), l.y};
 }
@@ -151,10 +141,7 @@ inline HLine body (const HLine& l) noexcept
   return construct_relative (l, 1, size (l) - 1);
 }
 
-inline int size (const VLine& l) noexcept
-{
-  return size (l.yspan);
-}
+inline int size (const VLine& l) noexcept { return size (l.yspan); }
 inline GlobalCell first (const VLine& l) noexcept
 {
   return {l.x, l.yspan.first};
@@ -167,9 +154,7 @@ inline bool valid (const VLine& l) noexcept
 {
   return l.x >= 0 && valid (l.yspan);
 }
-inline VLine construct_relative (
-    const VLine& l, int from, int to
-) noexcept
+inline VLine construct_relative (const VLine& l, int from, int to) noexcept
 {
   return {l.x, construct_relative (l.yspan, from, to)};
 }

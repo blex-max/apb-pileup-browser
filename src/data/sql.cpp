@@ -1,4 +1,4 @@
-#include "app/sql.hpp"
+#include "sql.hpp"
 
 #include <fmt/format.h>
 #include <sqlite3.h>
@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "backend/schema.hpp"
+#include "schema.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 

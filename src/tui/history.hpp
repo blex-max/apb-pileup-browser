@@ -8,8 +8,7 @@
 struct CmdHistory {
   std::vector<std::string> entries;
   size_t idx = 0;  // == entries.size() means "at the live line"
-  std::string
-      draft;  // in-progress text stashed when browsing starts
+  std::string draft;  // in-progress text stashed when browsing starts
 };
 
 void history_push (CmdHistory& h, std::string entry);

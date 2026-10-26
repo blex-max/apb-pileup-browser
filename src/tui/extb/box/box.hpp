@@ -14,8 +14,8 @@ namespace extb {
 
 struct Box {
     // default-construct invalid
-    Span xspan;
-    Span yspan;
+  Span xspan;
+  Span yspan;
 };
 int width (const Box& b) noexcept;
 int height (const Box& b) noexcept;
@@ -35,12 +35,8 @@ HLine edgeCD (const Box& b) noexcept;
 VLine edgeDA (const Box& b) noexcept;
 bool valid (const Box& b) noexcept;
 GlobalCell to_global (const Box& b, const LocalCell& c);
-bool contains_global (
-    const Box& b, const GlobalCell& cglobal
-) noexcept;
-bool contains_local (
-    const Box& b, const LocalCell& clocal
-) noexcept;
+bool contains_global (const Box& b, const GlobalCell& cglobal) noexcept;
+bool contains_local (const Box& b, const LocalCell& clocal) noexcept;
 std::pair<const Span&, const Span&> spans (const Box& b);
 
 // --- END TYPES & DECLARATIONS --- //
@@ -57,8 +53,7 @@ GlobalCellRange auto inline cell_source (Box box)
   const int count = size (box.yspan) * width;
   return std::views::iota (0, count) |
          std::views::transform ([box, width] (int index) {
-           return vertexA (box) +
-                  dXY (index % width, index / width);
+           return vertexA (box) + dXY (index % width, index / width);
          });
 }
 
@@ -66,26 +61,17 @@ GlobalCellRange auto inline cell_source (Box box)
 
 // --- IMPLEMENTATION --- //
 
-inline int width (const Box& b) noexcept
-{
-  return size (b.xspan);
-}
-inline int height (const Box& b) noexcept
-{
-  return size (b.yspan);
-}
+inline int width (const Box& b) noexcept { return size (b.xspan); }
+inline int height (const Box& b) noexcept { return size (b.yspan); }
 
 inline bool contains_global (
     const Box& b, const GlobalCell& cglobal
 ) noexcept
 {
-  return cglobal.x >= b.xspan.first &&
-         cglobal.x < b.xspan.last &&
+  return cglobal.x >= b.xspan.first && cglobal.x < b.xspan.last &&
          cglobal.y >= b.yspan.first && cglobal.y < b.yspan.last;
 }
-inline bool contains_local (
-    const Box& b, const LocalCell& clocal
-) noexcept
+inline bool contains_local (const Box& b, const LocalCell& clocal) noexcept
 {
   auto wx = width (b);
   auto hy = height (b);

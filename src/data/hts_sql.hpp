@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-#include "backend/hts_types.hpp"
+#include "data/hts_types.hpp"
 
 
 namespace setup_db {
@@ -34,7 +34,6 @@ struct LoadErr {
 // Copy a database file on disk into an new in-memory apb database,
 // using sqlite3's online backup API.
 std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path);
-
 
 struct DiskDumpStatus {
   enum Code : uint8_t {
@@ -65,8 +64,6 @@ namespace hts2sql {
 // into the database for a single read.
 struct PileupFields {
   // 0-INDEXED: MATCHES RAW HTSLIB REPRESENTATION.
-  // Shifted to the DB's 1-indexed representation at bind time,
-  // in bind_pileup_fields (hts_sql.cpp).
 
   // NOTE: layout as table schema
   std::string qName = "?";
@@ -99,6 +96,15 @@ struct PileupFields {
            (!seq || !rawQual || seq->size() == rawQual->size()) &&
            nCig == rawCig.size() && !rawCig.empty();
   }
+
+  std::string to_string() const
+  {
+    return fmt::format (
+        "PileupFields{{start: {}, end: {}, qPos: {}, "
+        "nCig: {}, rawCig.size: {}}}",
+        start, end, qPos, nCig, rawCig.size()
+    );
+  }
 };
 
 struct InsertPileupStatus {
@@ -125,36 +131,25 @@ struct InsertPileupStatus {
     const std::optional<std::string>& refSlice, int16_t n_aln
 );
 
-// Prepare an "INSERT INTO reads (...) VALUES (...)" statement, for use
-// with bind_pileup_fields.
-// exposed for demo.cpp (FIXME)
-sqlite3_stmt* prepare_insert_reads_stmt (sqlite3* conn);
-
-// Bind one pileup row's fields into `stmt`, in column order matching
-// stmt_str_InsertReads.
-// exposed for demo.cpp
-void bind_read_data (
-    sqlite3_stmt* br_stmt, const PileupFields& pf, sqlite3_int64 aln_id
-);
-
-// Render a CIGAR array as text (e.g. "151M").
-// exposed for demo.cpp
-std::string stringify_cigar (const uint32_t* br_cig, size_t nCig);
+// FIXME: insertion of alignment files and so on needs
+// to move into this TU
 
 }  // namespace hts2sql
 
-template <>
-struct fmt::formatter<hts2sql::PileupFields>
-    : fmt::formatter<std::string> {
-  auto format (const hts2sql::PileupFields& pf, format_context& ctx) const
-  {
-    return fmt::formatter<std::string>::format (
-        fmt::format (
-            "PileupFields{{start: {}, end: {}, qPos: {}, "
-            "nCig: {}, rawCig.size: {}}}",
-            pf.start, pf.end, pf.qPos, pf.nCig, pf.rawCig.size()
-        ),
-        ctx
-    );
-  }
-};
+// FIXME: these asserts will attempt to shutdown TUI
+// unconditionally and sometimes unnecessarily.
+#define APB_S3_EXPECT(conn, fn, val)                                \
+  do {                                                              \
+    APB_ASSERT (                                                    \
+        const auto rc = fn;                                         \
+        rc == (val), rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
+    );                                                              \
+  } while (false)
+
+#define APB_S3_EXPECT_OK(conn, fn)                                      \
+  do {                                                                  \
+    APB_ASSERT (                                                        \
+        const auto rc = fn;                                             \
+        rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
+    );                                                                  \
+  } while (false)

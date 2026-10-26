@@ -6,13 +6,13 @@
 #include <string_view>
 #include <vector>
 
-#include "app/helpblocks.hpp"
-#include "app/sql.hpp"
-#include "backend/hts_sql.hpp"
-#include "frontend/extb/box/box.hpp"
-#include "frontend/extb/extb.hpp"
-#include "frontend/history.hpp"
-#include "frontend/input.hpp"
+#include "data/hts_sql.hpp"
+#include "data/sql.hpp"
+#include "extb/box/box.hpp"
+#include "extb/extb.hpp"
+#include "helpblocks.hpp"
+#include "history.hpp"
+#include "input.hpp"
 
 struct ColMetadata {
   bool visible;
@@ -65,22 +65,6 @@ inline void shutdown()
   sqlite3_finalize (selectStmt);
   sqlite3_close_v2 (conn);
 }
-
-#define APB_S3_EXPECT(fn, val)                                    \
-  do {                                                            \
-    APB_ASSERT (                                                  \
-        const auto rc = fn; rc == (val), rc, sqlite3_errstr (rc), \
-                            sqlite3_errmsg (g_state::db::conn)    \
-    );                                                            \
-  } while (false)
-
-#define APB_S3_EXPECT_OK(fn)                                          \
-  do {                                                                \
-    APB_ASSERT (                                                      \
-        const auto rc = fn; rc == SQLITE_OK, rc, sqlite3_errstr (rc), \
-                            sqlite3_errmsg (g_state::db::conn)        \
-    );                                                                \
-  } while (false)
 
 }  // namespace db
 

@@ -49,15 +49,11 @@ void move_right (EditBuf& b)
 void move_word_right (EditBuf& b)
 {
   while (b.curs < b.text.size() &&
-         std::isalnum (
-             static_cast<unsigned char> (b.text[b.curs])
-         ) == 0) {
+         std::isalnum (static_cast<unsigned char> (b.text[b.curs])) == 0) {
     ++b.curs;
   }
   while (b.curs < b.text.size() &&
-         std::isalnum (
-             static_cast<unsigned char> (b.text[b.curs])
-         ) != 0) {
+         std::isalnum (static_cast<unsigned char> (b.text[b.curs])) != 0) {
     ++b.curs;
   }
 }
@@ -65,15 +61,13 @@ void move_word_right (EditBuf& b)
 void move_word_left (EditBuf& b)
 {
   while (b.curs > 0 &&
-         std::isalnum (
-             static_cast<unsigned char> (b.text[b.curs - 1])
-         ) == 0) {
+         std::isalnum (static_cast<unsigned char> (b.text[b.curs - 1])) ==
+             0) {
     --b.curs;
   }
   while (b.curs > 0 &&
-         std::isalnum (
-             static_cast<unsigned char> (b.text[b.curs - 1])
-         ) != 0) {
+         std::isalnum (static_cast<unsigned char> (b.text[b.curs - 1])) !=
+             0) {
     --b.curs;
   }
 }
