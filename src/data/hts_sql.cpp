@@ -6,11 +6,13 @@
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,309 +22,131 @@
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 
+#define TRY_OK_INT(expr)                         \
+  do {                                           \
+    if (const auto rc = expr; rc != SQLITE_OK) { \
+      return rc;                                 \
+    }                                            \
+  } while (false)
 
-// returns a fingerprint of the schema of the input database
-static std::string schema_fingerprint (sqlite3* conn)
+#define TRY_OK_EXP(expr)                         \
+  do {                                           \
+    if (const auto rc = expr; rc != SQLITE_OK) { \
+      return std::unexpected (rc);               \
+    }                                            \
+  } while (false)
+
+static int exec_sql (sqlite3* conn, const std::string_view sql)
+{
+  return sqlite3_exec (conn, std::string{sql}.c_str(), NULL, NULL, NULL);
+};
+
+int apb_init_db (sqlite3* conn)
+{
+  TRY_OK_INT (sqlite3_open (":memory:", &conn));
+
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetAppId));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetVersion));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetTempStoreMemory));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetFK));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateLocusTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateFileTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreatePerRecordTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateUserView));
+
+  return SQLITE_OK;
+}
+
+static int read_int_pragma (sqlite3* conn, const char* sql, int& result)
 {
   sqlite3_stmt* o_stmt = NULL;
-  APB_S3_EXPECT_OK (
-      conn, sqlite3_prepare_v2 (
-                conn,
-                "SELECT type || ':' || name || ':' || sql FROM "
-                "sqlite_master "
-                "WHERE sql IS NOT NULL ORDER BY type, name;",
-                -1, &o_stmt, NULL
-            )
-  );
+  TRY_OK_INT (sqlite3_prepare_v2 (conn, sql, -1, &o_stmt, NULL));
+  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+  int rc = sqlite3_step (o_stmt);
+  if (rc != SQLITE_ROW) {
+    return rc;
+  }
+
+  result = sqlite3_column_int (o_stmt, 0);
+  return SQLITE_OK;
+}
+
+static int schema_fingerprint (sqlite3* conn, std::string& result)
+{
+  sqlite3_stmt* o_stmt = NULL;
+  if (const auto rc = sqlite3_prepare_v2 (
+          conn,
+          "SELECT m.name, p.name, p.type "
+          "FROM sqlite_master m, pragma_table_info(m.name) p "
+          "WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' "
+          "ORDER BY m.name, p.cid;",
+          -1, &o_stmt, NULL
+      );
+      rc != SQLITE_OK) {
+        // FIXME: abort
+  }
   Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
   std::string fingerprint;
   int rc;
   while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
-    fingerprint +=
-        reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0));
-    fingerprint += '\n';
+    for (int i = 0; i < 3; ++i) {
+      const char* text =
+          reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, i));
+      fingerprint += (text == nullptr) ? "" : text;
+      fingerprint += (i < 2) ? ':' : '\n';
+    }
   }
   if (rc != SQLITE_DONE) {
-    APB_UNREACHABLE (
-        "failure during stepping of schema fingerprint rows",
-        sqlite3_errstr (rc)
-    );
+    return rc;
   }
-  return fingerprint;
+  result = fingerprint;
+  return SQLITE_OK;
 }
 
-
-namespace setup_db {
-
-sqlite3* init()
+std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
 {
-  // Nothing herein should fail unless ill-formed
-  sqlite3* conn = nullptr;
-
-  if (const auto rc = sqlite3_open (":memory:", &conn); rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        "failed to open in-memory database", sqlite3_errstr (rc)
-    );
-  }
-
-  auto sqlite_exec = [&conn] (const std::string_view stmt) -> int {
-    return sqlite3_exec (
-        conn, std::string{stmt}.c_str(), NULL, NULL, NULL
-    );
-  };
-
-  APB_S3_EXPECT_OK (conn, sqlite_exec (schema::sqlSetTempStoreMemory));
-  APB_S3_EXPECT_OK (conn, sqlite_exec (schema::sqlSetFK));
-  APB_S3_EXPECT_OK (conn, sqlite_exec (schema::sqlCreateLocusTable));
-  APB_S3_EXPECT_OK (conn, sqlite_exec (schema::sqlCreateFileTable));
-  APB_S3_EXPECT_OK (conn, sqlite_exec (schema::sqlCreatePerRecordTable));
-  APB_S3_EXPECT_OK (conn, sqlite_exec (schema::sqlCreateUserView));
-
-  return conn;
-}
-
-std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path)
-{
-  /*
-    Copy a database file on disk into a new in-memory apb database,
-    via sqlite3's online backup API.
-  */
-  sqlite3* conn = init();
-  Defer connCleanup ([&conn]() { sqlite3_close_v2 (conn); });
-
-  int sqlRc = SQLITE_OK;
-  sqlite3* o_fileDb = NULL;
-  sqlite3_backup* o_backup = NULL;
-  Defer cleanup ([&]() {
-    sqlite3_backup_finish (o_backup);
-    sqlite3_close_v2 (o_fileDb);
-  });
-
-  if (sqlRc = sqlite3_open_v2 (
-          std::string{path}.c_str(), &o_fileDb, SQLITE_OPEN_READONLY, NULL
-      );
-      sqlRc != SQLITE_OK) {
-    // NOTE: the error here belongs to o_fileDb (the handle
-    // that failed to open), not conn.
-    const std::string errMsg = sqlite3_errmsg (o_fileDb);
-    return std::unexpected (
-        LoadErr{.code = LoadErr::openFail, .rc = sqlRc, .msg = errMsg}
-    );
-  }
-
-  if (o_backup = sqlite3_backup_init (conn, "main", o_fileDb, "main");
-      o_backup == NULL) {
-    sqlRc = sqlite3_errcode (conn);
-    goto err_sql;
-  }
-
-  if (sqlRc = sqlite3_backup_step (o_backup, -1); sqlRc != SQLITE_DONE) {
-    goto err_sql;
-  }
-
-  sqlite3_backup_finish (o_backup);
-  o_backup = NULL;
-
-  {
-    // verify database is not corrupt
-    sqlite3_stmt* o_stmt = NULL;
-    if (const auto rc = sqlite3_prepare_v2 (
-            conn, "PRAGMA quick_check;", -1, &o_stmt, NULL
-        );
-        rc != SQLITE_OK) {
-      return std::unexpected (
-          LoadErr{
-              .code = LoadErr::contentCorrupt,
-              .rc = std::nullopt,
-              .msg = fmt::format (
-                  "Could not verify database content: {}",
-                  sqlite3_errmsg (conn)
-              )
-          }
-      );
-    }
-    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
-
-    std::string problems;
-    int rc;
-    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
-      const auto* msg =
-          reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0));
-      if (std::string_view{msg} != "ok") {
-        problems += msg;
-        problems += '\n';
-      }
-    }
-    if (rc != SQLITE_DONE) {
-      problems += fmt::format (
-          "Database corruption check aborted: {}\n", sqlite3_errmsg (conn)
-      );
-      return std::unexpected (
-          LoadErr{
-              .code = LoadErr::contentCorrupt,
-              .rc = std::nullopt,
-              .msg = problems
-          }
-      );
-    }
-  }
-  {
-    // Verify the loaded schema matches apb's expected schema.
-    sqlite3* refdb = init();
-    Defer refdbCleanup ([&]() { sqlite3_close_v2 (refdb); });
-
-    auto refSchema = schema_fingerprint (refdb);
-    auto loadedSchema = schema_fingerprint (conn);
-    if (refSchema != loadedSchema) {
-      return std::unexpected (
-          LoadErr{
-              .code = LoadErr::schemaMismatch,
-              .rc = std::nullopt,
-              .msg = std::nullopt
-          }
-      );
-    }
-  }
-
-  {
-    // Verify locus metadata row exists
-    sqlite3_stmt* o_stmt = NULL;
-    if (const auto rc = sqlite3_prepare_v2 (
-            conn, schema::MetaTableSelect::sql.data(),
-            static_cast<int> (schema::MetaTableSelect::sql.size()),
-            &o_stmt, NULL
-        );
-        rc != SQLITE_OK) {
-      APB_UNREACHABLE (
-          "failed to prepare locus metadata query", sqlite3_errmsg (conn)
-      );
-    }
-    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
-
-    const auto rc = sqlite3_step (o_stmt);
-    if (rc == SQLITE_DONE) {
-      return std::unexpected (
-          LoadErr{
-              .code = LoadErr::contentCorrupt,
-              .rc = std::nullopt,
-              .msg = "database has no locus metadata - is this a valid "
-                     "apb dump?"
-          }
-      );
-    }
-    if (rc != SQLITE_ROW) {
-      APB_UNREACHABLE (
-          "failed to read locus metadata row", sqlite3_errmsg (conn)
-      );
-    }
-  }
-
-  connCleanup.cancel();
-  return conn;
-
-err_sql: {
-  sqlite3_backup_finish (o_backup);
-  o_backup = NULL;
-  // NOTE: per sqlite3 docs, errors from backup_init/backup_step
-  // are stored on the destination handle, so conn (the in-memory
-  // connection being loaded into) is the right handle to query
-  // here in every failure case above.
-  const std::string errMsg = sqlite3_errmsg (conn);
-  return std::unexpected (
-      LoadErr{.code = LoadErr::copyFail, .rc = sqlRc, .msg = errMsg}
-  );
-}
-}
-
-
-DiskDumpStatus dump_to_disk (sqlite3* conn, std::string_view path)
-{
-  int rc = SQLITE_OK;
-  sqlite3* o_dumpConn = NULL;
-  sqlite3_backup* o_backupConn = NULL;
-  Defer dumpCleanup ([&]() {
-    sqlite3_backup_finish (o_backupConn);
-    sqlite3_close_v2 (o_dumpConn);
-  });
-
-  if (rc = sqlite3_open (std::string{path}.c_str(), &o_dumpConn);
+  int pragmaResult;
+  if (const auto rc =
+          read_int_pragma (conn, "PRAGMA application_id;", pragmaResult);
       rc != SQLITE_OK) {
-    goto err_sql;
+    return std::unexpected (rc);
+  }
+  if (pragmaResult != APB_APP_ID) {
+    return apb_verify_result_t::appMismatch;
+  }
+  if (const auto rc =
+          read_int_pragma (conn, "PRAGMA user_version;", pragmaResult);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  if (pragmaResult != APB_SCHEMA_VER) {
+    return apb_verify_result_t::verMismatch;
+  }
+  // Verify the loaded schema matches apb's expected schema.
+  sqlite3* refdb = nullptr;
+  if (const auto rc = apb_init_db (refdb); rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  Defer refdbCleanup ([&]() { sqlite3_close_v2 (refdb); });
+
+  std::string refPrint;
+  if (const auto rc = schema_fingerprint (refdb, refPrint);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  std::string testPrint;
+  if (const auto rc = schema_fingerprint (conn, testPrint);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  if (refPrint != testPrint) {
+    return apb_verify_result_t::schemaMismatch;
   }
 
-  if (o_backupConn =
-          sqlite3_backup_init (o_dumpConn, "main", conn, "main");
-      o_backupConn == NULL) {
-    rc = sqlite3_errcode (o_dumpConn);
-    goto err_sql;
-  }
-
-  if (rc = sqlite3_backup_step (
-          o_backupConn, -1 /* copy all pages */
-      );
-      rc != SQLITE_DONE) {
-    goto err_sql;
-  }
-
-  return {.code = DiskDumpStatus::success};
-
-err_sql: {
-  return {
-      .code = DiskDumpStatus::fail,
-      .sqlRc = rc,
-      .dumpDbMsg = sqlite3_errmsg (o_dumpConn)
-  };
+  return apb_verify_result_t::success;
 }
-}
-
-std::string describe_sqlite_failure (
-    int rc, std::string_view context, std::optional<std::string_view> dbMsg
-)
-{
-  switch (rc & 0xFF) {  // strip extended result code
-    case SQLITE_CANTOPEN:
-      return fmt::format (
-          "Failed to {}: could not open the file ({}).", context,
-          sqlite3_errstr (rc)
-      );
-    case SQLITE_PERM:
-    case SQLITE_READONLY:
-      return fmt::format (
-          "Failed to {}: permission denied ({}).", context,
-          sqlite3_errstr (rc)
-      );
-    case SQLITE_NOTADB:
-    case SQLITE_CORRUPT:
-      return fmt::format (
-          "Failed to {}: the file is not a valid sqlite3 "
-          "database, or is corrupt ({}).",
-          context, sqlite3_errstr (rc)
-      );
-    case SQLITE_FULL:
-    case SQLITE_IOERR:
-      return fmt::format (
-          "Failed to {}: a disk I/O error occurred ({}).", context,
-          sqlite3_errstr (rc)
-      );
-    case SQLITE_NOMEM:
-      return fmt::format (
-          "Failed to {}: out of memory. Were you trying to load a very "
-          "large pileup?",
-          context
-      );
-    default:
-      return fmt::format (
-          "Failed to {}, reporting code {} and status {} - "
-          "please report this failure to the maintainer.",
-          context, rc, dbMsg.value_or (sqlite3_errstr (rc))
-      );
-  }
-}
-
-}  // namespace setup_db
-
-namespace hts2sql {
 
 /* -- internal helpers -- */
 
@@ -453,6 +277,53 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
   return out;
 }
 
+// flat layout of htslib data to be entered
+// into the database for a single read.
+struct apb_pileup_t {
+  // 0-INDEXED: MATCHES RAW HTSLIB REPRESENTATION.
+
+  // NOTE: layout as table schema
+  std::string qName = "?";
+  uint16_t flag = UINT16_MAX;
+  hts_pos_t start = -1;
+  hts_pos_t end = -1;
+  uint8_t mapQ = UINT8_MAX;
+
+  std::optional<char> base = std::nullopt;
+  std::optional<uint8_t> baseQual = std::nullopt;
+  int32_t qPos = -1;
+  int indel = INT_MAX;
+  bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
+
+  std::string cig;
+  std::optional<std::string> seq = std::nullopt;
+  std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
+
+  std::optional<std::string> mtidName = std::nullopt;
+  std::optional<hts_pos_t> mStart = std::nullopt;
+
+  std::string auxJson;
+
+  std::vector<uint32_t> rawCig;
+  size_t nCig = SIZE_MAX;
+
+  bool valid() const noexcept
+  {
+    return start >= 0 && end > start && qPos >= 0 &&
+           (!seq || !rawQual || seq->size() == rawQual->size()) &&
+           nCig == rawCig.size() && !rawCig.empty();
+  }
+
+  std::string to_string() const
+  {
+    return fmt::format (
+        "PileupFields{{start: {}, end: {}, qPos: {}, "
+        "nCig: {}, rawCig.size: {}}}",
+        start, end, qPos, nCig, rawCig.size()
+    );
+  }
+};
+
 // Convert a bam_pileup1_t
 // into the pileup database
 // interface type.
@@ -460,7 +331,7 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
 // NOTE: takes mTidName directly to
 // avoid dealing with SAM header.
 static bool fill_fields (
-    PileupFields& pf, const bam_pileup1_t* br_p1, const char* mTidName
+    apb_pileup_t& pf, const bam_pileup1_t* br_p1, const char* mTidName
 )
 {
   const auto* br_b1 = br_p1->b;
@@ -521,7 +392,7 @@ static bool fill_fields (
 
   {
     /* stringify cigar */
-    // ASSUMPTION: cigar available and correct.
+    APB_ASSERT (br_cig != nullptr);
     pf.cig = [&br_cig, &nCig]() {
       std::string out;
       for (size_t opi = 0; opi < nCig; opi++) {
@@ -563,33 +434,29 @@ static bool fill_fields (
   return true;
 }
 
-// -- public API -- //
-
-InsertPileupStatus insert_pileup (
-    sqlite3* conn, const bam_pileup1_t* br_plpArr, const size_t nPlp,
-    const std::string& contigName, sqlite3_int64 aln_id,
-    const Tid2StrFn& mtid2name
+insert_pileup_status_t apb_insert_pileup (
+    sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
+    const std::function<const char*(int)>& mtid2name
 )
 {
-  APB_ASSERT (br_plpArr != nullptr);
-  APB_ASSERT (!contigName.empty());
-
   sqlite3_stmt* o_stmt;
-  APB_S3_EXPECT_OK (
-      conn,
-      sqlite3_prepare_v2 (
+  if (const auto rc = sqlite3_prepare_v2 (
           conn, schema::sqlInsertReads.data(),
           static_cast<int> (schema::sqlInsertReads.size()), &o_stmt, NULL
-      )
-  );
+      );
+      rc != SQLITE_OK) {
+    return {insert_pileup_status_t::sqlFail, rc};
+  }
   Defer stmt_cleanup ([&o_stmt]() { return sqlite3_finalize (o_stmt); });
 
   // manually begin/commit transaction.
-  APB_S3_EXPECT_OK (conn, sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL));
+  if (const auto rc = exec_sql (conn, "BEGIN;"); rc != SQLITE_OK) {
+    return {insert_pileup_status_t::sqlFail, rc};
+  }
 
-  for (size_t i = 0; i < nPlp; ++i) {
-    PileupFields readI;
-    const auto* p1 = &br_plpArr[i];
+  for (size_t i = 0; i < plp.size(); ++i) {
+    apb_pileup_t readI;
+    const auto* p1 = &plp[i];
 
     const char* mtidName = NULL;
     {
@@ -610,153 +477,165 @@ InsertPileupStatus insert_pileup (
       }
     }
 
+    // FIXME: return qname of offending read on failure
+    // NOTE: fill_fields asserts internally
     if (!fill_fields (readI, p1, mtidName)) {
-      return InsertPileupStatus{
-          .code = InsertPileupStatus::auxParseFail,
+      return insert_pileup_status_t{
+          .code = insert_pileup_status_t::auxParseFail,
           .rc = std::nullopt /* no specific code */
       };
     }
+
+#define TRY_BIND(bind_fn)                           \
+  do {                                              \
+    if (const auto rc = bind_fn; rc != SQLITE_OK) { \
+      return {insert_pileup_status_t::sqlFail, rc}; \
+    }                                               \
+  } while (false)
 
     /* bind statement */
     // CONVERTS FROM 0-INDEXED PileupFields TO 1-INDEXED DB REPRESENTATION
     // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
     int col = 1;
-    auto bindOK = [&] (int rc) {
-      if (rc != SQLITE_OK) {
-        APB_UNREACHABLE ("bind failed", sqlite3_errstr (rc));
-      }
-    };
 
-    bindOK (sqlite3_bind_text (
+    TRY_BIND (sqlite3_bind_text (
         o_stmt, col++, readI.qName.data(),
         static_cast<int> (readI.qName.size()), SQLITE_TRANSIENT
     ));
-    bindOK (sqlite3_bind_int (o_stmt, col++, readI.flag));
-    bindOK (sqlite3_bind_int64 (o_stmt, col++, readI.start + 1));
-    bindOK (sqlite3_bind_int64 (o_stmt, col++, readI.end));
-    bindOK (sqlite3_bind_int (o_stmt, col++, readI.mapQ));
+    TRY_BIND (sqlite3_bind_int (o_stmt, col++, readI.flag));
+    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, readI.start + 1));
+    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, readI.end));
+    TRY_BIND (sqlite3_bind_int (o_stmt, col++, readI.mapQ));
 
     if (readI.base) {
-      bindOK (sqlite3_bind_text (
+      TRY_BIND (sqlite3_bind_text (
           o_stmt, col++, &(*readI.base), 1, SQLITE_TRANSIENT
       ));
     }
     else {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
 
     if (readI.baseQual) {
-      bindOK (sqlite3_bind_int (o_stmt, col++, *readI.baseQual));
+      TRY_BIND (sqlite3_bind_int (o_stmt, col++, *readI.baseQual));
     }
     else {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
 
-    bindOK (sqlite3_bind_int64 (o_stmt, col++, readI.qPos + 1));
-    bindOK (sqlite3_bind_int (o_stmt, col++, readI.indel));
-    bindOK (
+    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, readI.qPos + 1));
+    TRY_BIND (sqlite3_bind_int (o_stmt, col++, readI.indel));
+    TRY_BIND (
         sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.isDel))
     );
-    bindOK (
+    TRY_BIND (
         sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.isHead))
     );
-    bindOK (
+    TRY_BIND (
         sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.isTail))
     );
-    bindOK (sqlite3_bind_int (
+    TRY_BIND (sqlite3_bind_int (
         o_stmt, col++, static_cast<int> (readI.isRefSkip)
     ));
-    bindOK (sqlite3_bind_text (
+    TRY_BIND (sqlite3_bind_text (
         o_stmt, col++, readI.cig.data(),
         static_cast<int> (readI.cig.size()), SQLITE_TRANSIENT
     ));
 
     if (readI.seq) {
-      bindOK (sqlite3_bind_text (
+      TRY_BIND (sqlite3_bind_text (
           o_stmt, col++, readI.seq->data(),
           static_cast<int> (readI.seq->size()), SQLITE_TRANSIENT
       ));
     }
     else {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
 
     if (readI.rawQual) {
-      bindOK (sqlite3_bind_blob (
+      TRY_BIND (sqlite3_bind_blob (
           o_stmt, col++, readI.rawQual->data(),
           static_cast<int> (readI.rawQual->size()), SQLITE_TRANSIENT
       ));
     }
     else {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
 
     if (readI.mtidName) {
-      bindOK (sqlite3_bind_text (
+      TRY_BIND (sqlite3_bind_text (
           o_stmt, col++, readI.mtidName->data(),
           static_cast<int> (readI.mtidName->size()), SQLITE_TRANSIENT
       ));
     }
     else {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
 
     if (readI.mStart) {
-      bindOK (
+      TRY_BIND (
           sqlite3_bind_int64 (o_stmt, col++, readI.mStart.value() + 1)
       );
     }
     else {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
 
     if (readI.auxJson.empty()) {
-      bindOK (sqlite3_bind_null (o_stmt, col++));
+      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
     }
     else {
-      bindOK (sqlite3_bind_text (
+      TRY_BIND (sqlite3_bind_text (
           o_stmt, col++, readI.auxJson.data(),
           static_cast<int> (readI.auxJson.size()), SQLITE_TRANSIENT
       ));
     }
 
-    bindOK (sqlite3_bind_blob (
+    TRY_BIND (sqlite3_bind_blob (
         o_stmt, col++, readI.rawCig.data(),
         static_cast<int> (readI.nCig << 2), SQLITE_TRANSIENT
     ));
-    bindOK (
+    TRY_BIND (
         sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.nCig))
     );
-    bindOK (sqlite3_bind_int64 (o_stmt, col++, aln_id));
+    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, alnId));
+
+#undef TRY_BIND
 
     if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
-      if ((rc & 0xFF) == SQLITE_CONSTRAINT) {
-        APB_UNREACHABLE (
-            "read insert violated a schema constraint",
-            sqlite3_errmsg (conn)
-        );
-      }
-      return InsertPileupStatus{
-          .code = InsertPileupStatus::sqlFail, .rc = rc
-      };
+      return {insert_pileup_status_t::sqlFail, rc};
     }
     sqlite3_reset (o_stmt);  // rc mirrors the step already checked above
     sqlite3_clear_bindings (o_stmt);  // cannot fail per sqlite3 docs
   }
 
-  if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        "failed to commit transaction", sqlite3_errmsg (conn)
-    );
+  if (const auto rc = exec_sql (conn, "COMMIT;"); rc != SQLITE_OK) {
+    return {insert_pileup_status_t::sqlFail, rc};
   }
   return {};
 };
 
-[[nodiscard]] int insert_metadata (
-    sqlite3* conn, const std::string& contigName, int64_t pileupPos,
-    const GenomicSpan& pileupSpan,
-    const std::optional<std::string>& refSlice, int16_t n_aln
+std::expected<GenomicSpan, int> apb_get_pileup_span (sqlite3* conn)
+{
+  GenomicSpan span;
+  {
+    // FIXME: is this block correct?
+    sqlite3_stmt* o_stmt;
+    TRY_OK_EXP (sqlite3_prepare_v2 (
+        conn, "SELECT MAX(start), MAX(end) FROM reads;", -1, &o_stmt, NULL
+    ));
+    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
+      return std::unexpected (rc);
+    }
+    span.start = sqlite3_column_int64 (o_stmt, 0);
+    span.end = sqlite3_column_int64 (o_stmt, 1);
+  }
+  return span;
+}
+
+[[nodiscard]] int apb_insert_locus (
+    sqlite3* conn, const std::string& contigName, int64_t pos,
+    GenomicSpan span, std::optional<std::string_view> ref
 )
 {
   /*
@@ -765,67 +644,102 @@ InsertPileupStatus insert_pileup (
 
     CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
   */
+  APB_ASSERT (conn != nullptr);
   APB_ASSERT (!contigName.empty());
-  APB_ASSERT (pileupSpan.valid(), pileupSpan);
-  APB_ASSERT (pileupPos >= 0, pileupPos);
-  APB_ASSERT (pileupPos >= pileupSpan.start, pileupPos, pileupSpan);
-  APB_ASSERT (pileupPos <= pileupSpan.end, pileupPos, pileupSpan);
+  APB_ASSERT (pos >= 0, pos);
+  if (ref) {
+    APB_ASSERT (!ref->empty());
+  }
+
+  uint16_t nAln;
+  {
+    sqlite3_stmt* o_stmt;
+    TRY_OK_INT (sqlite3_prepare_v2 (
+        conn, "SELECT COUNT(*) FROM alignment_files;", -1, &o_stmt, NULL
+    ));
+    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
+      return rc;
+    }
+    nAln = static_cast<uint16_t> (sqlite3_column_int (o_stmt, 0));
+  }
 
   sqlite3_stmt* o_stmt;
-  if (const auto rc = sqlite3_prepare_v2 (
-          conn, schema::sqlInsertMetadata.data(),
-          static_cast<int> (schema::sqlInsertMetadata.size()), &o_stmt,
-          NULL
-      );
-      rc != SQLITE_OK) {
-    APB_UNREACHABLE (
-        "failed to prepare metadata insert statement",
-        sqlite3_errmsg (conn)
-    );
-  }
+  TRY_OK_INT (sqlite3_prepare_v2 (
+      conn, schema::sqlInsertMetadata.data(),
+      static_cast<int> (schema::sqlInsertMetadata.size()), &o_stmt, NULL
+  ));
   Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
 
   // NOTE: TIED TO SCHEMA ORDER. BE CAREFUL!
   int col = 1;
-  auto bindOK = [&] (int rc) {
-    if (rc != SQLITE_OK) {
-      APB_UNREACHABLE ("bind failed", sqlite3_errstr (rc));
-    }
-  };
 
-  bindOK (sqlite3_bind_int64 (o_stmt, col++, kSchemaVersion));
-  bindOK (sqlite3_bind_text (
+  TRY_OK_INT (sqlite3_bind_text (
       o_stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
   ));
-  bindOK (sqlite3_bind_int64 (o_stmt, col++, pileupPos + 1));
-  bindOK (sqlite3_bind_int64 (o_stmt, col++, pileupSpan.start + 1));
-  bindOK (sqlite3_bind_int64 (o_stmt, col++, pileupSpan.end));
-  if (!refSlice) {
-    bindOK (sqlite3_bind_null (o_stmt, col++));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, pos + 1));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, span.start + 1));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, span.end));
+  if (!ref) {
+    TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
   }
   else {
-    APB_ASSERT (!(*refSlice).empty());
-    bindOK (sqlite3_bind_text (
-        o_stmt, col++, (*refSlice).c_str(),
-        static_cast<int> ((*refSlice).size()), SQLITE_TRANSIENT
+    TRY_OK_INT (sqlite3_bind_text (
+        o_stmt, col++, ref->data(), static_cast<int> (ref->size()),
+        SQLITE_TRANSIENT
     ));
   }
-  bindOK (sqlite3_bind_int64 (o_stmt, col, n_aln));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col, nAln));
 
   if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
-    if ((rc & 0xFF) == SQLITE_CONSTRAINT) {
-      APB_UNREACHABLE (
-          "metadata insert violated a schema constraint",
-          sqlite3_errmsg (conn)
-      );
-    }
     return rc;
   }
-  return 0;
+  return SQLITE_OK;
 }
 
-}  // namespace hts2sql
+uint64_t apb_pileup_size_bytes (std::span<const bam_pileup1_t> plp)
+{
+  uint64_t estBytes = 0;
+  for (size_t i = 0; i < plp.size(); i++) {
+    estBytes += sizeof (bam_pileup1_t) + sizeof (bam1_t) +
+                static_cast<unsigned long> (plp[i].b->l_data);
+  }
+  return estBytes;
+}
 
+std::expected<int, int> apb_insert_aln (
+    sqlite3* conn, std::string_view alnPath, bool hasContig, int64_t nPlp
+)
+{
+  APB_ASSERT (conn != nullptr);
+  APB_ASSERT (nPlp >= 0, nPlp);
+  APB_ASSERT (!alnPath.empty());
+
+  sqlite3_stmt* o_fileInsertStmt;
+  Defer file_stmt_cleanup ([&o_fileInsertStmt]() {
+    sqlite3_finalize (o_fileInsertStmt);
+  });
+  TRY_OK_EXP (sqlite3_prepare_v2 (
+      conn, schema::sqlInsertFile.data(),
+      static_cast<int> (schema::sqlInsertFile.size()), &o_fileInsertStmt,
+      NULL
+  ));
+  TRY_OK_EXP (sqlite3_bind_text (
+      o_fileInsertStmt, 1, alnPath.data(),
+      static_cast<int> (alnPath.size()), SQLITE_TRANSIENT
+  ));
+  TRY_OK_EXP (
+      sqlite3_bind_int (o_fileInsertStmt, 2, static_cast<bool> (hasContig))
+  );
+  TRY_OK_EXP (sqlite3_bind_int64 (o_fileInsertStmt, 3, nPlp));
+  if (const auto rc = sqlite3_step (o_fileInsertStmt); rc != SQLITE_DONE) {
+    return rc;
+  }
+  file_stmt_cleanup.invoke();
+  return sqlite3_last_insert_rowid (conn);
+}
+
+
+/* --- TESTS --- */
 #ifndef DOCTEST_CONFIG_DISABLE
 
 #include <filesystem>
@@ -833,11 +747,6 @@ InsertPileupStatus insert_pileup (
 
 #include "doctest.h"
 #include "fixtures.hpp"
-
-// NOTE:
-// The point of these tests is to catch bugs which will not
-// be trivially caught by the defensive programming (APB_ASSERT/UNREACHABLE etc.)
-// during test runs. So rare cases only rather than general behaviour verification.
 
 /* ---- TESTS append_json_escaped ---- */
 
@@ -1322,12 +1231,12 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
   Defer plpCleanup ([&]() { bam_plp_destroy (plp); });
 
   constexpr int64_t pileupPos0 = 99;
-  const bam_pileup1_t* br_plpArr = nullptr;
+  const bam_pileup1_t* br_plp = nullptr;
   int plpTid = -1;
   int nPlp = -1;
   int64_t plpPos = -1;
   bool found = false;
-  while ((br_plpArr = bam_plp64_auto (plp, &plpTid, &plpPos, &nPlp)) !=
+  while ((br_plp = bam_plp64_auto (plp, &plpTid, &plpPos, &nPlp)) !=
          nullptr) {
     if (plpPos < pileupPos0) {
       continue;
@@ -1335,7 +1244,7 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
     REQUIRE (plpPos == pileupPos0);
     REQUIRE (static_cast<size_t> (nPlp) == cases.size());
     const auto status = hts2sql::insert_pileup (
-        conn, br_plpArr, static_cast<size_t> (nPlp), "chr1",
+        conn, br_plp, static_cast<size_t> (nPlp), "chr1",
         test::k_testFileId,
         [hdr] (int tid) { return sam_hdr_tid2name (hdr, tid); }
     );

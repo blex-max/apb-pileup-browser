@@ -7,8 +7,6 @@
 #include <string>
 #include <string_view>
 
-#include "termbox2.h"
-
 // Fatal precondition/invariant and unreachable-code checks. On
 // failure, restores the terminal via tb_shutdown() before
 // aborting. `varNames` (as captured by #__VA_ARGS__, e.g. "a, b")
@@ -17,13 +15,11 @@
 //
 // call macros, not this fn
 template <typename... Args>
-[[noreturn]] void apb_fatal (
+[[noreturn]] void abort_fatal (
     const char* file, int line, const std::string_view what,
     const std::string_view varNames = "", const Args&... values
 )
 {
-  tb_shutdown();
-
   std::string varInfo;
   size_t pos = 0;
   auto appendNext = [&] (const auto& value) {
@@ -66,7 +62,7 @@ template <typename... Args>
       /* success, do nothing */                   \
     }                                             \
     else [[unlikely]] {                           \
-      apb_fatal (                                 \
+      abort_fatal (                               \
           __FILE__, __LINE__,                     \
           "assertion failed: " #expr __VA_OPT__ ( \
               , #__VA_ARGS__, __VA_ARGS__         \
@@ -77,7 +73,23 @@ template <typename... Args>
 
 #define APB_UNREACHABLE(msg, ...)                                         \
   do {                                                                    \
-    apb_fatal (                                                           \
+    abort_fatal (                                                         \
         __FILE__, __LINE__, (msg)__VA_OPT__ (, #__VA_ARGS__, __VA_ARGS__) \
     );                                                                    \
+  } while (false)
+
+#define APB_S3_EXPECT(conn, fn, val)                                \
+  do {                                                              \
+    APB_ASSERT (                                                    \
+        const auto rc = fn;                                         \
+        rc == (val), rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
+    );                                                              \
+  } while (false)
+
+#define APB_S3_EXPECT_OK(conn, fn)                                      \
+  do {                                                                  \
+    APB_ASSERT (                                                        \
+        const auto rc = fn;                                             \
+        rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
+    );                                                                  \
   } while (false)

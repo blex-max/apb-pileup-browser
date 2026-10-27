@@ -8,17 +8,22 @@
 
 #include "data/hts_types.hpp"
 
-struct SyntheticPileup {
+struct synthetic_pileup_t {
   std::vector<bam_pileup1_t> p;
   GenomicSpan pspan;
   hts_pos_t ppos;
   std::string ref;
 
-  // destroy bam1 storage.
   // owners must call.
-  void destroy();
+  void destroy()
+  {
+    for (auto& p1 : p) {
+      bam_destroy1 (p1.b);
+      p1.b = nullptr;
+    }
+  }
 };
 // generates a synthetic single-alignment pileup.
-SyntheticPileup generate_demo_data (
-    uint16_t regWidth, uint16_t nQuery, hts_pos_t gOffset
+synthetic_pileup_t generate_demo_data (
+    uint16_t regWidth, uint16_t nQuery, hts_pos_t pos
 );

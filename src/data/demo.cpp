@@ -44,31 +44,25 @@ static char mutate_base (char refBase, std::mt19937& rng)
   return b;
 }
 
-void SyntheticPileup::destroy()
-{
-  for (auto& p1 : p) {
-    bam_destroy1 (p1.b);
-    p1.b = nullptr;
-  }
-}
-
-SyntheticPileup generate_demo_data (
-    uint16_t regWidth, uint16_t nQuery, hts_pos_t gOffset
+synthetic_pileup_t generate_demo_data (
+    uint16_t regWidth, uint16_t nQuery, hts_pos_t pos
 )
 {
-  const auto pileupPos = static_cast<hts_pos_t> ((regWidth / 2) - 1);
+  APB_ASSERT ((regWidth / 2) < pos, regWidth, pos);
   // every read has a core aligned run of this length, covering the
-  // pileup column. Alignment features are added to it, not carved out of it.
-  const auto alnLen = static_cast<size_t> (pileupPos);
+  // pileup column.
+  const auto readLen = static_cast<size_t> ((regWidth / 2) - 1);
   auto refSeq = fixed_ref_seq (regWidth);
-  // known ref base at the variant site
-  refSeq[static_cast<size_t> (pileupPos)] = 'A';
+  // refSeq[0] sits at this absolute position; pos is refSeq[readLen]
+  const auto winStart = pos - static_cast<hts_pos_t> (readLen);
+  // known ref base at pos
+  refSeq[readLen] = 'A';
 
   constexpr size_t maxDelLen = 4;
 
-  // start >= 2 leaves a base after the pileup column for an indel to follow;
-  // headroom of maxDelLen keeps start+alnLen+delLen within regWidth.
-  std::uniform_int_distribution<size_t> gstartGen (2, alnLen - maxDelLen);
+  // start >= 2 leaves a base after the pileup column for an indel to follow.
+  // headroom of maxDelLen keeps start+readLen+delLen within regWidth.
+  std::uniform_int_distribution<size_t> gstartGen (2, readLen - maxDelLen);
   constexpr double mismatchRate = 0.01;
   std::bernoulli_distribution mismatchDist (mismatchRate);
   std::uniform_int_distribution<size_t> delLenGen (1, maxDelLen);
@@ -89,16 +83,16 @@ SyntheticPileup generate_demo_data (
   enum class AlignmentFeature : uint8_t { None, LeadClip, TailClip };
   std::discrete_distribution<int> featurePicker ({0.80, 0.10, 0.10});
 
-  // local (0-based, pre-offset) coordinates throughout; gOffset is
-  // applied once, at the end and in bam_set1.
+  // read/ref coordinates are absolute (0-based); index refSeq via winStart
   GenomicSpan span{INT64_MAX, 0};
   std::mt19937 rng;
-  SyntheticPileup out;
+  synthetic_pileup_t out;
   out.p.reserve (nQuery);
   for (size_t i = 0; i < nQuery; ++i) {
-    const auto readStart = static_cast<hts_pos_t> (gstartGen (rng));
+    const auto readStart =
+        winStart + static_cast<hts_pos_t> (gstartGen (rng));
     // offset of the pileup column within the core aligned run
-    const auto colOff = static_cast<size_t> (pileupPos - readStart);
+    const auto colOff = static_cast<size_t> (pos - readStart);
 
     std::vector<uint32_t> cigOps;
     const auto pushOp = [&cigOps] (size_t len, int op) {
@@ -118,11 +112,11 @@ SyntheticPileup generate_demo_data (
       const size_t n = isDel ? delLenGen (rng) : insLenGen (rng);
       pushOp (colOff + 1, BAM_CMATCH);
       pushOp (n, isDel ? BAM_CDEL : BAM_CINS);
-      pushOp (alnLen - colOff - 1, BAM_CMATCH);
+      pushOp (readLen - colOff - 1, BAM_CMATCH);
       indel = isDel ? -static_cast<int> (n) : static_cast<int> (n);
     }
     else {
-      pushOp (alnLen, BAM_CMATCH);
+      pushOp (readLen, BAM_CMATCH);
     }
     if (feature == AlignmentFeature::TailClip) {
       pushOp (clipLenGen (rng), BAM_CSOFT_CLIP);
@@ -138,8 +132,9 @@ SyntheticPileup generate_demo_data (
       switch (bam_cigar_op (cig)) {
         case BAM_CMATCH:
           for (size_t k = 0; k < len; ++k, ++refPos) {
-            const char refBase = refSeq[static_cast<size_t> (refPos)];
-            if (refPos == pileupPos) {
+            const char refBase =
+                refSeq[static_cast<size_t> (refPos - winStart)];
+            if (refPos == pos) {
               finalQPos = static_cast<int32_t> (seq.size());
               seq += allele == Allele::Alt ? pileupAlt : refBase;
             }
@@ -177,7 +172,7 @@ SyntheticPileup generate_demo_data (
       qname.data(),
       0,  /* flag unset */
       -1, /* tid not used */
-      readStart + gOffset,
+      readStart,
       static_cast<uint8_t> (mapQGen (rng)),
       cigOps.size(),
       cigOps.data(),
@@ -211,10 +206,10 @@ SyntheticPileup generate_demo_data (
   );
 
   out.ref = refSeq.substr (
-      static_cast<size_t> (span.start),
+      static_cast<size_t> (span.start - winStart),
       static_cast<size_t> (span.end - span.start)
   );
-  out.ppos = pileupPos + gOffset;
-  out.pspan = {span.start + gOffset, span.end + gOffset};
+  out.ppos = pos;
+  out.pspan = span;
   return out;
 }

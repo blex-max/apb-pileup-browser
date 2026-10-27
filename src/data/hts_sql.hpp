@@ -1,155 +1,94 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <htslib/faidx.h>
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
-#include <climits>
+#include <cassert>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "data/hts_types.hpp"
 
 
-namespace setup_db {
-
 // Initialise db with pileup schema (see schema.hpp).
-sqlite3* init();
+int apb_init_db (sqlite3* conn);
 
-struct LoadErr {
-  enum Code : uint8_t {
-    openFail,
-    copyFail,
-    contentCorrupt,
-    schemaMismatch
-  };
-  Code code;
-  std::optional<int> rc = std::nullopt;
-  std::optional<std::string> msg = std::nullopt;
+// verify a sqlite3* object for use from apb.
+// For e.g. loading from a dump on disk.
+// It is recommended to use PRAGMA quick_check
+// before verifying for use with apb.
+// NOTE: could take output err fill param
+// and return bool...
+enum class apb_verify_result_t : uint8_t {
+  success,
+  appMismatch,
+  verMismatch,
+  schemaMismatch
 };
-// Copy a database file on disk into an new in-memory apb database,
-// using sqlite3's online backup API.
-std::expected<sqlite3*, LoadErr> load_from_disk (std::string_view path);
-
-struct DiskDumpStatus {
-  enum Code : uint8_t {
-    success,
-    fail,
-  };
-  Code code;
-  std::optional<int> sqlRc = std::nullopt;
-  std::optional<std::string> dumpDbMsg = std::nullopt;
-};
-// Copy the in-memory database out to a file on disk, using
-// sqlite3's online backup API.
-[[nodiscard]] DiskDumpStatus dump_to_disk (
-    sqlite3* conn, std::string_view path
-);
+std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn);
 
 // Formats an sqlite3 return code into a user-facing error.
-std::string describe_sqlite_failure (
-    int rc, std::string_view context,
-    std::optional<std::string_view> dbMsg = std::nullopt
+// FIXME: is this valid or relevant?
+// FIXME: in this TU? I don't think so
+std::string apb_describe_sqlite_failure (
+    std::string_view what, int rc,
+    std::optional<std::string_view> conn_msg = std::nullopt
 );
 
-}  // namespace setup_db
+// FIXME:
+// The data side interface should expose functionality
+// for adding a single alignment at a time to the db, and for
+// adding a reference based on the span in the db at present, and callers
+// should compose upwards. Note that this will mean updating the db,
+// iteratively, which means locus table updates should go via UPDATE
+// rather than INSERT.
+// FIXME: since we're going composable, should add a "check db filled and valid"
+// function so users can easily verify that they've done it right and the
+// db is full and interally consistent.
+// This can be composed with verify_db.
 
-namespace hts2sql {
+// insert metadata for a single alignment file into db
+// returns id for that alignment file for use when subsequently inserting pileup.
+// On failure returns sqlite3 integer status code
+[[nodiscard]] std::expected<int, int> apb_insert_aln (
+    sqlite3* conn, std::string_view alnPath, bool hasContig, int64_t nPlp
+);
 
-// flat layout of htslib data to be entered
-// into the database for a single read.
-struct PileupFields {
-  // 0-INDEXED: MATCHES RAW HTSLIB REPRESENTATION.
+// estimate the size of an htslib pileup. Useful for gauging
+// expected memory usage of application.
+uint64_t apb_pileup_size_bytes (std::span<const bam_pileup1_t> plp);
 
-  // NOTE: layout as table schema
-  std::string qName = "?";
-  uint16_t flag = UINT16_MAX;
-  hts_pos_t start = -1;
-  hts_pos_t end = -1;
-  uint8_t mapQ = UINT8_MAX;
-
-  std::optional<char> base = std::nullopt;
-  std::optional<uint8_t> baseQual = std::nullopt;
-  int32_t qPos = -1;
-  int indel = INT_MAX;
-  bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
-
-  std::string cig;
-  std::optional<std::string> seq = std::nullopt;
-  std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
-
-  std::optional<std::string> mtidName = std::nullopt;
-  std::optional<hts_pos_t> mStart = std::nullopt;
-
-  std::string auxJson;
-
-  std::vector<uint32_t> rawCig;
-  size_t nCig = SIZE_MAX;
-
-  bool valid() const noexcept
-  {
-    return start >= 0 && end > start && qPos >= 0 &&
-           (!seq || !rawQual || seq->size() == rawQual->size()) &&
-           nCig == rawCig.size() && !rawCig.empty();
-  }
-
-  std::string to_string() const
-  {
-    return fmt::format (
-        "PileupFields{{start: {}, end: {}, qPos: {}, "
-        "nCig: {}, rawCig.size: {}}}",
-        start, end, qPos, nCig, rawCig.size()
-    );
-  }
-};
-
-struct InsertPileupStatus {
+struct insert_pileup_status_t {
   enum Code : uint8_t { success, sqlFail, auxParseFail };
-
   Code code;
   std::optional<int> rc = std::nullopt;
 };
-// insert reads at pileup position into database.
+// insert pileup into db for a single alignment file.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-[[nodiscard]] InsertPileupStatus insert_pileup (
-    sqlite3* conn, const bam_pileup1_t* br_plpArr, const size_t nPlp,
-    const std::string& contigName, sqlite3_int64 aln_id,
-    const Tid2StrFn& mtid2name
+[[nodiscard]] insert_pileup_status_t apb_insert_pileup (
+    sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
+    const std::function<const char*(int)>& mtid2name
 );
 
-// insert pileup locus info into single-row metadata table.
-// Returns void or int sqlite3 error code
+// Retrieve maxmimum pileup span from reads table in db.
+// Does not check if the result is valid.
+// Use the result to fetch a reference slice.
+// On failure returns sqlite3 int status code.
+std::expected<GenomicSpan, int> apb_get_pileup_span (sqlite3* conn);
+
+// Insert pileup locus info into single-row metadata table.
+// This should be called last, when all alignment files and pilupes
+// have been inserted.
+// Returns sqlite3 int status code.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-// FIXME: what error space can this actually return?
-[[nodiscard]] int insert_metadata (
-    sqlite3* conn, const std::string& contigName, int64_t pileupPos,
-    const GenomicSpan& pileupSpan,
-    const std::optional<std::string>& refSlice, int16_t n_aln
+[[nodiscard]] int apb_insert_locus (
+    sqlite3* conn, const std::string& contigName, int64_t pos,
+    GenomicSpan span, std::optional<std::string_view> ref
 );
-
-// FIXME: insertion of alignment files and so on needs
-// to move into this TU
-
-}  // namespace hts2sql
-
-// FIXME: these asserts will attempt to shutdown TUI
-// unconditionally and sometimes unnecessarily.
-#define APB_S3_EXPECT(conn, fn, val)                                \
-  do {                                                              \
-    APB_ASSERT (                                                    \
-        const auto rc = fn;                                         \
-        rc == (val), rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
-    );                                                              \
-  } while (false)
-
-#define APB_S3_EXPECT_OK(conn, fn)                                      \
-  do {                                                                  \
-    APB_ASSERT (                                                        \
-        const auto rc = fn;                                             \
-        rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
-    );                                                                  \
-  } while (false)

@@ -24,6 +24,7 @@
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/version.hpp"
+#include "tui/tui_assert.hpp"
 
 namespace g_db = g_state::db;
 namespace g_ui = g_state::ui;
@@ -91,8 +92,8 @@ static std::expected<void, CmdResult> cmd_validate_ntok (
     uint8_t maxNTok, const std::string_view usage
 )
 {
-  APB_ASSERT (maxNTok >= minNTok, maxNTok, minNTok);
-  APB_ASSERT (!usage.empty());
+  TUI_ASSERT (maxNTok >= minNTok, maxNTok, minNTok);
+  TUI_ASSERT (!usage.empty());
 
   if (maxNTok == 0 && !argTok.empty()) {
     return std::unexpected<CmdResult> (
@@ -632,7 +633,7 @@ struct ShowTrackCmd {
       }
       else {
         // we have already verified the tokens,
-        APB_UNREACHABLE ("unrecognised track name in toggle list");
+        TUI_UNREACHABLE ("unrecognised track name in toggle list");
       }
     }
 
@@ -687,7 +688,7 @@ struct DumpCmd {
                    )
         };
       default:
-        APB_UNREACHABLE ("unrecognised DiskDumpStatus code");
+        TUI_UNREACHABLE ("unrecognised DiskDumpStatus code");
     }
   }
 
@@ -803,7 +804,7 @@ struct HelpCmd {
         content = helpblocks::tableColumns;
       }
       else {
-        APB_UNREACHABLE ("unrecognised help topic");
+        TUI_UNREACHABLE ("unrecognised help topic");
       }
     }
     else {

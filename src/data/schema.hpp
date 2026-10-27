@@ -1,16 +1,26 @@
+// clang-format off
 #pragma once
 
 #include <cstdint>
 #include <string_view>
 
-inline constexpr auto kSchemaVersion = 1;
-#define APB_SCHEMA_VER "1"
+#include "shared/stringify.hpp"
+
+#define APB_APP_ID 777
+#define APB_SCHEMA_VER 2
 
 
 // NOTE: sqlite3 bind indexing is 1-based, select indexing
 // is 0-based, so enums are for use with with select statements only
 
 namespace schema {
+
+// FIXME: not yet used
+inline constexpr std::string_view sqlSetAppId = 
+    "PRAGMA application_id = " STR(APB_APP_ID) ";";
+
+inline constexpr std::string_view sqlSetVersion =
+  "PRAGMA user_version = " STR(APB_SCHEMA_VER) ";";
 
 // keep all data in RAM.
 // Note that because we do this, some
@@ -26,15 +36,11 @@ inline constexpr std::string_view sqlSetFK =
     PRAGMA foreign_keys = ON;
 )sql";
 
-
 inline constexpr std::string_view sqlCreateLocusTable =
     R"sql(
 CREATE TABLE locus_metadata (
      -- one row only; one locus per db
     id     INTEGER PRIMARY KEY CHECK (id = 1),
-
-    apb_db_version INTEGER NOT NULL CHECK (apb_db_version = )sql" APB_SCHEMA_VER
-    R"sql(),
 
     -- locus
     -- string name of contig
@@ -84,7 +90,7 @@ inline constexpr std::string_view sqlCreateFileTable = R"sql(
     id  INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
     has_contig INTEGER NOT NULL CHECK (has_contig IN (0, 1)),
-    has_reads INTEGER NOT NULL CHECK (has_reads IN (0, 1))
+    n_reads INTEGER NOT NULL CHECK (has_reads >= 0)
   ) STRICT;
 )sql";
 
@@ -150,6 +156,7 @@ INSERT INTO per_record_data (
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
 )sql";
 
+// FIXME: rename "reads" to "pileup"
 inline constexpr std::string_view sqlCreateUserView = R"sql(
   CREATE VIEW reads AS
     SELECT r.*, f.path

@@ -1,5 +1,3 @@
-#include "sql.hpp"
-
 #include <fmt/format.h>
 #include <sqlite3.h>
 
@@ -9,8 +7,9 @@
 #include <vector>
 
 #include "schema.hpp"
-#include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
+#include "sql.hpp"
+#include "tui/tui_assert.hpp"
 
 namespace sql {
 
@@ -38,7 +37,7 @@ PileupMetadata get_locus_data (sqlite3* conn)
           NULL
       );
       rc != SQLITE_OK) {
-    APB_UNREACHABLE (
+    TUI_UNREACHABLE (
         fmt::format (
             "failed to prepare locus metadata query: {}",
             sqlite3_errmsg (conn)
@@ -48,7 +47,7 @@ PileupMetadata get_locus_data (sqlite3* conn)
   Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
   if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
-    APB_UNREACHABLE (
+    TUI_UNREACHABLE (
         fmt::format (
             "failed to read locus metadata row: {}", sqlite3_errmsg (conn)
         )

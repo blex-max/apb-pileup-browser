@@ -25,6 +25,7 @@
 #include "frontend/extb/box/span.hpp"
 #include "frontend/extb/extb.hpp"
 #include "shared/apb_assert.hpp"
+#include "tui/tui_assert.hpp"
 
 namespace e2 = extb;
 
@@ -53,27 +54,27 @@ bool cmd_widget_is_valid()
 
 #define APB_ASSERT_MAIN_UI_VALID            \
   do {                                      \
-    APB_ASSERT (tb_width() > 0);            \
-    APB_ASSERT (tb_height() > 0);           \
-    APB_ASSERT (browser_widget_is_valid()); \
-    APB_ASSERT (cmd_widget_is_valid());     \
+    TUI_ASSERT (tb_width() > 0);            \
+    TUI_ASSERT (tb_height() > 0);           \
+    TUI_ASSERT (browser_widget_is_valid()); \
+    TUI_ASSERT (cmd_widget_is_valid());     \
   } while (false)
 
 #define APB_ASSERT_BOX_NONEMPTY(box)             \
   do {                                           \
-    APB_ASSERT (valid (box), box);               \
-    APB_ASSERT (height (box) > 0, height (box)); \
-    APB_ASSERT (width (box) > 0, width (box));   \
+    TUI_ASSERT (valid (box), box);               \
+    TUI_ASSERT (height (box) > 0, height (box)); \
+    TUI_ASSERT (width (box) > 0, width (box));   \
   } while (false)
 
 #define APB_ASSERT_OVERLAY_UI_VALID                                   \
   do {                                                                \
-    APB_ASSERT (valid (g_overlay::frame), g_overlay::frame);          \
-    APB_ASSERT (                                                      \
+    TUI_ASSERT (valid (g_overlay::frame), g_overlay::frame);          \
+    TUI_ASSERT (                                                      \
         size (g_overlay::frame.xspan) >= g_overlay::kMinWidgetWidth,  \
         g_overlay::frame                                              \
     );                                                                \
-    APB_ASSERT (                                                      \
+    TUI_ASSERT (                                                      \
         size (g_overlay::frame.yspan) >= g_overlay::kMinWidgetHeight, \
         g_overlay::frame                                              \
     );                                                                \
@@ -88,7 +89,7 @@ bool cmd_widget_is_valid()
 bool size_and_set_overlay_widget (helpblocks::TextBlockRef content)
 {
   /* set overlay widget, dynamically sizing to content */
-  APB_ASSERT (!content.empty());
+  TUI_ASSERT (!content.empty());
 
   const auto screenW = tb_width();
   const auto screenH = tb_height();
@@ -206,7 +207,7 @@ static void header (
     const e2::HLine& headerLine, const std::span<const ColMetadata*> cols
 )
 {
-  APB_ASSERT (valid (headerLine), headerLine);
+  TUI_ASSERT (valid (headerLine), headerLine);
 
   const int xLim = last (headerLine.xspan);
   e2::GlobalCell writeHead{
@@ -400,7 +401,7 @@ ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
             const auto cigBytes = sqlite3_column_bytes (
                 br_stmtRow, schema::UserReadViewSelect::cig_uint32
             );
-            APB_ASSERT (
+            TUI_ASSERT (
                 rawNCig >= 0 &&
                     static_cast<uint64_t> (rawNCig) * sizeof (uint32_t) <=
                         static_cast<uint64_t> (cigBytes),
@@ -447,8 +448,8 @@ static e2::Delta seq1 (
   if (fa.writeStartX >= fa.writeLimits.x || yStart >= fa.writeLimits.y) {
     return {0, 0};  // no-op
   }
-  APB_ASSERT ((ref) ? !ref.value().empty() : true);
-  APB_ASSERT (fa.writeStartXGPos >= pileupSpanGStart, fa.writeStartXGPos);
+  TUI_ASSERT ((ref) ? !ref.value().empty() : true);
+  TUI_ASSERT (fa.writeStartXGPos >= pileupSpanGStart, fa.writeStartXGPos);
 
   e2::GlobalCell writeHead{{.x = fa.writeStartX, .y = yStart}};
 
@@ -657,7 +658,7 @@ static e2::Delta seq1 (
       // hard clip: nothing to draw here (label handled above)
     }
     else {
-      APB_UNREACHABLE ("CIGAR operation consumption type invalid");
+      TUI_UNREACHABLE ("CIGAR operation consumption type invalid");
     }
     if (writeHead.x >= fa.writeLimits.x) {
       // early exit if row full
@@ -707,7 +708,7 @@ void draw_main_to_buffer()
   // since some places just overwrite
   // previous draw calls
   APB_ASSERT_MAIN_UI_VALID;
-  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
+  TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
 
 
   {
@@ -799,11 +800,11 @@ void draw_main_to_buffer()
           splitAbsX, construct_relative (frameY, 0, size (frameY) - 1)
       };
 
-      APB_ASSERT (
+      TUI_ASSERT (
           valid (g_browsr::tablePaneHeaderLine),
           g_browsr::tablePaneHeaderLine
       );
-      APB_ASSERT (
+      TUI_ASSERT (
           size (g_browsr::tablePaneHeaderLine) > 0,
           size (g_browsr::tablePaneHeaderLine)
       );
@@ -837,7 +838,7 @@ void draw_main_to_buffer()
     );
     const auto alnPaneLeftmostGPos =
         g_db::locusInfo.pos - alnPaneHalfWidth + g_browsr::userPanOffset;
-    APB_ASSERT (alnPaneLeftmostGPos >= 0, alnPaneLeftmostGPos);
+    TUI_ASSERT (alnPaneLeftmostGPos >= 0, alnPaneLeftmostGPos);
     /* end coordinates */
 
     if (g_db::locusInfo.refSlice) {
@@ -878,13 +879,13 @@ void draw_main_to_buffer()
         .writeStartXGPos = alnPaneLeftmostGPos,
         .writeLimits = seqWriteLim,
     };
-    APB_ASSERT (seq1Frame.valid(), seq1Frame);
+    TUI_ASSERT (seq1Frame.valid(), seq1Frame);
     const draw_table::Row1FrameArgs row1Frame{
         .writeXStart = first (g_browsr::tablePaneDataBox.xspan),
         .writeXLimit = last (g_browsr::tablePaneDataBox.xspan),
         .cols = activeCols,
     };
-    APB_ASSERT (row1Frame.valid(), row1Frame);
+    TUI_ASSERT (row1Frame.valid(), row1Frame);
     const bool multiAln = g_db::locusInfo.nAln > 1;
     // scroll units drawn on this page: reads, then empty-file labels
     uint16_t nUnitsDrawn = 0;
@@ -935,7 +936,7 @@ void draw_main_to_buffer()
         ++nUnitsDrawn;
       }
       // either rows exhausted, or we ran out of space
-      APB_ASSERT (stepRc == SQLITE_DONE || stepRc == SQLITE_ROW, stepRc);
+      TUI_ASSERT (stepRc == SQLITE_DONE || stepRc == SQLITE_ROW, stepRc);
     }
 
     // if space avail, draw empty file labels
@@ -1083,7 +1084,7 @@ void draw_main_to_buffer()
 void draw_overlay_to_buffer()
 {
   APB_ASSERT_OVERLAY_UI_VALID;
-  APB_ASSERT (!g_overlay::content.empty());
+  TUI_ASSERT (!g_overlay::content.empty());
 
   const auto& box = g_overlay::contentBox;
   const auto& frame = g_overlay::frame;

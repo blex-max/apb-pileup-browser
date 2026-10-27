@@ -2,9 +2,7 @@
 
 #include <fmt/format.h>
 #include <htslib/hts.h>
-#include <htslib/sam.h>
 
-#include <functional>
 #include <string>
 
 struct GenomicSpan {
@@ -13,18 +11,9 @@ struct GenomicSpan {
   hts_pos_t end;
 
   bool valid() const noexcept { return start >= 0 && end > start; }
-};
 
-template <>
-struct fmt::formatter<GenomicSpan> : fmt::formatter<std::string> {
-  auto format (const GenomicSpan& s, format_context& ctx) const
+  std::string to_string() const
   {
-    return fmt::formatter<std::string>::format (
-        fmt::format ("GenomicSpan{{start: {}, end: {}}}", s.start, s.end),
-        ctx
-    );
+    return fmt::format ("GenomicSpan{{start: {}, end: {}}}", start, end);
   }
 };
-
-// resolve tid to name
-using Tid2StrFn = std::function<const char*(int)>;

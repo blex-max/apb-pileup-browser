@@ -14,8 +14,8 @@
 #include "app/sql.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"
-#include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
+#include "tui/tui_assert.hpp"
 
 namespace g_state::ui {
 
@@ -211,7 +211,7 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
     });
     APB_S3_EXPECT (sqlite3_step (o_queryRowCountStmt), SQLITE_ROW);
     queryRowCount = sqlite3_column_int64 (o_queryRowCountStmt, 0);
-    APB_ASSERT (queryRowCount >= 0);
+    TUI_ASSERT (queryRowCount >= 0);
   }
 
   if (locusInfo.nAln > 1) {
@@ -257,7 +257,7 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
         emptyForQuery.emplace_back (path, EmptyFileReason::contigAbsent);
       }
     }
-    APB_ASSERT (rc == SQLITE_DONE);
+    TUI_ASSERT (rc == SQLITE_DONE);
 
     emptyFiles = std::move (emptyForQuery);
   }
