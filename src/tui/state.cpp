@@ -1,5 +1,3 @@
-#include "app/g_state.hpp"
-
 #include <fmt/format.h>
 #include <sqlite3.h>
 
@@ -11,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "app/g_state.hpp"
 #include "app/sql.hpp"
 #include "backend/hts_sql.hpp"
 #include "backend/schema.hpp"

@@ -6,6 +6,7 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include "app/describe.hpp"
 #include "data/demo.hpp"
 #include "data/hts_sql.hpp"
 #include "data/hts_types.hpp"
@@ -35,9 +36,6 @@ int pileup_func (void* br_data, bam1_t* br_b)
 }
 }
 
-// returns expected void/str since any failure
-// is a top-level crash which can be fully described
-// and exited upon.
 std::expected<void, std::string> ingest_sam_auto (
     sqlite3* conn, const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
@@ -393,6 +391,7 @@ std::expected<void, std::string> ingest_sam_auto (
     );
   }
 
+  // FIXME: incomplete - must finally call (not yet existing) db verifaction method
   return {};
 }
 

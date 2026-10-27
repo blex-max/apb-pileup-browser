@@ -11,8 +11,6 @@
 #include "sql.hpp"
 #include "tui/tui_assert.hpp"
 
-namespace sql {
-
 std::string process_where (const std::vector<std::string>& where)
 {
   if (where.empty()) {
@@ -87,8 +85,6 @@ PileupMetadata get_locus_data (sqlite3* conn)
 
   return out;
 }
-
-}  // namespace sql
 
 #ifndef DOCTEST_CONFIG_DISABLE
 

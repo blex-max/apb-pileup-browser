@@ -60,11 +60,10 @@ enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // On failure extra details are available from sqlite3_errmsg (conn).
 [[nodiscard]] SetQueryStatus set_query (sql::QueryFragments userFrags);
 
-inline void shutdown()
-{
-  sqlite3_finalize (selectStmt);
-  sqlite3_close_v2 (conn);
-}
+// shutdown tui
+// does not shutdown db,
+// as tui does not own.
+inline void tui_shutdown() { sqlite3_finalize (selectStmt); }
 
 }  // namespace db
 

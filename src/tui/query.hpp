@@ -8,8 +8,6 @@
 #include <string>
 #include <vector>
 
-namespace sql {
-
 // User-supplied query components, as typed at the command line.
 struct QueryFragments {
   std::vector<std::string> where;
@@ -40,23 +38,15 @@ struct PileupMetadata {
     return !contig.empty() && start > 0 && end >= start && pos >= start &&
            pos <= end && nAln > 0;
   }
+
+  std::string to_string() const
+  {
+    return fmt::format (
+        "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}",
+        contig, pos, start, end
+    );
+  }
 };
 // Get locus metadata from db. Asserts internally; only call once
 // locus metadata is known to exist.
 PileupMetadata get_locus_data (sqlite3* conn);
-
-}  // namespace sql
-
-template <>
-struct fmt::formatter<sql::PileupMetadata> : fmt::formatter<std::string> {
-  auto format (const sql::PileupMetadata& m, format_context& ctx) const
-  {
-    return fmt::formatter<std::string>::format (
-        fmt::format (
-            "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}",
-            m.contig, m.pos, m.start, m.end
-        ),
-        ctx
-    );
-  }
-};

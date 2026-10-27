@@ -1,3 +1,7 @@
+// This TU provides an interface between htslib data
+// and the database defined by apb.
+// Callers should compose these functions as needed,
+// see app/ingest.cpp::ingest_sam_auto for a complete exapmle.
 #pragma once
 
 #include <fmt/format.h>
@@ -24,8 +28,6 @@ int apb_init_db (sqlite3* conn);
 // For e.g. loading from a dump on disk.
 // It is recommended to use PRAGMA quick_check
 // before verifying for use with apb.
-// NOTE: could take output err fill param
-// and return bool...
 enum class apb_verify_result_t : uint8_t {
   success,
   appMismatch,
@@ -34,21 +36,6 @@ enum class apb_verify_result_t : uint8_t {
 };
 std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn);
 
-// Formats an sqlite3 return code into a user-facing error.
-// FIXME: is this valid or relevant?
-// FIXME: in this TU? I don't think so
-std::string apb_describe_sqlite_failure (
-    std::string_view what, int rc,
-    std::optional<std::string_view> conn_msg = std::nullopt
-);
-
-// FIXME:
-// The data side interface should expose functionality
-// for adding a single alignment at a time to the db, and for
-// adding a reference based on the span in the db at present, and callers
-// should compose upwards. Note that this will mean updating the db,
-// iteratively, which means locus table updates should go via UPDATE
-// rather than INSERT.
 // FIXME: since we're going composable, should add a "check db filled and valid"
 // function so users can easily verify that they've done it right and the
 // db is full and interally consistent.
@@ -60,10 +47,6 @@ std::string apb_describe_sqlite_failure (
 [[nodiscard]] std::expected<int, int> apb_insert_aln (
     sqlite3* conn, std::string_view alnPath, bool hasContig, int64_t nPlp
 );
-
-// estimate the size of an htslib pileup. Useful for gauging
-// expected memory usage of application.
-uint64_t apb_pileup_size_bytes (std::span<const bam_pileup1_t> plp);
 
 struct insert_pileup_status_t {
   enum Code : uint8_t { success, sqlFail, auxParseFail };
@@ -77,17 +60,14 @@ struct insert_pileup_status_t {
     const std::function<const char*(int)>& mtid2name
 );
 
-// Retrieve maxmimum pileup span from reads table in db.
-// Does not check if the result is valid.
-// Use the result to fetch a reference slice.
-// On failure returns sqlite3 int status code.
-std::expected<GenomicSpan, int> apb_get_pileup_span (sqlite3* conn);
-
 // Insert pileup locus info into single-row metadata table.
 // This should be called last, when all alignment files and pilupes
 // have been inserted.
 // Returns sqlite3 int status code.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+// FIXME: since db may be being updated iteratively
+// locus table updates should be able to go via UPDATE rather than INSERT.
+// Another fn?
 [[nodiscard]] int apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
     GenomicSpan span, std::optional<std::string_view> ref

@@ -615,24 +615,6 @@ insert_pileup_status_t apb_insert_pileup (
   return {};
 };
 
-std::expected<GenomicSpan, int> apb_get_pileup_span (sqlite3* conn)
-{
-  GenomicSpan span;
-  {
-    // FIXME: is this block correct?
-    sqlite3_stmt* o_stmt;
-    TRY_OK_EXP (sqlite3_prepare_v2 (
-        conn, "SELECT MAX(start), MAX(end) FROM reads;", -1, &o_stmt, NULL
-    ));
-    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
-      return std::unexpected (rc);
-    }
-    span.start = sqlite3_column_int64 (o_stmt, 0);
-    span.end = sqlite3_column_int64 (o_stmt, 1);
-  }
-  return span;
-}
-
 [[nodiscard]] int apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
     GenomicSpan span, std::optional<std::string_view> ref
@@ -694,16 +676,6 @@ std::expected<GenomicSpan, int> apb_get_pileup_span (sqlite3* conn)
     return rc;
   }
   return SQLITE_OK;
-}
-
-uint64_t apb_pileup_size_bytes (std::span<const bam_pileup1_t> plp)
-{
-  uint64_t estBytes = 0;
-  for (size_t i = 0; i < plp.size(); i++) {
-    estBytes += sizeof (bam_pileup1_t) + sizeof (bam1_t) +
-                static_cast<unsigned long> (plp[i].b->l_data);
-  }
-  return estBytes;
 }
 
 std::expected<int, int> apb_insert_aln (

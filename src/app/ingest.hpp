@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+// ingest pileup from disk
+// returns expected void/str since any failure
+// is a top-level crash which can be fully described
+// and exited upon.
 [[nodiscard]] std::expected<void, std::string> ingest_sam_auto (
     sqlite3* conn, const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
