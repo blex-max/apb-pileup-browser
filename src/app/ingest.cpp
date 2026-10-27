@@ -6,9 +6,9 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include "app/demo.hpp"
 #include "app/describe.hpp"
-#include "data/demo.hpp"
-#include "data/hts_sql.hpp"
+#include "data/hts2apb.hpp"
 #include "data/hts_types.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"

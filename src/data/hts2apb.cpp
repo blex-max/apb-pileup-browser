@@ -1,5 +1,3 @@
-#include "hts_sql.hpp"
-
 #include <fmt/format.h>
 #include <htslib/hts.h>
 #include <htslib/kstring.h>
@@ -17,6 +15,7 @@
 #include <string_view>
 #include <vector>
 
+#include "hts_sql.hpp"
 #include "hts_types.hpp"
 #include "schema.hpp"
 #include "shared/apb_assert.hpp"
