@@ -41,18 +41,16 @@ static int exec_sql (sqlite3* conn, const std::string_view sql)
   return sqlite3_exec (conn, std::string{sql}.c_str(), NULL, NULL, NULL);
 };
 
-int apb_init_db (sqlite3** connp)
+int apb_create_schema (sqlite3* conn)
 {
-  TRY_OK_INT (sqlite3_open (":memory:", connp));
-
-  TRY_OK_INT (exec_sql (*connp, schema::sqlSetAppId));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlSetVersion));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlSetTempStoreMemory));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlSetFK));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlCreateLocusTable));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlCreateFileTable));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlCreatePerRecordTable));
-  TRY_OK_INT (exec_sql (*connp, schema::sqlCreateUserView));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetAppId));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetVersion));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetTempStoreMemory));
+  TRY_OK_INT (exec_sql (conn, schema::sqlSetFK));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateLocusTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateFileTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreatePerRecordTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateUserView));
 
   return SQLITE_OK;
 }
@@ -71,6 +69,9 @@ static int read_int_pragma (sqlite3* conn, const char* sql, int& result)
   return SQLITE_OK;
 }
 
+// fingerprint of the table columns (name, type) of the database.
+// Coarse; changes which don't alter the columns (views, constraints...)
+// should pass fine.
 static int schema_fingerprint (sqlite3* conn, std::string& result)
 {
   sqlite3_stmt* o_stmt = NULL;
@@ -83,7 +84,7 @@ static int schema_fingerprint (sqlite3* conn, std::string& result)
           -1, &o_stmt, NULL
       );
       rc != SQLITE_OK) {
-        // FIXME: abort
+    return rc;
   }
   Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
@@ -100,7 +101,7 @@ static int schema_fingerprint (sqlite3* conn, std::string& result)
   if (rc != SQLITE_DONE) {
     return rc;
   }
-  result = fingerprint;
+  result = std::move (fingerprint);
   return SQLITE_OK;
 }
 
@@ -125,10 +126,13 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
   }
   // Verify the loaded schema matches apb's expected schema.
   sqlite3* refdb = nullptr;
-  if (const auto rc = apb_init_db (&refdb); rc != SQLITE_OK) {
+  Defer refdbCleanup ([&]() { sqlite3_close_v2 (refdb); });
+  if (const auto rc = sqlite3_open (":memory:", &refdb); rc != SQLITE_OK) {
     return std::unexpected (rc);
   }
-  Defer refdbCleanup ([&]() { sqlite3_close_v2 (refdb); });
+  if (const auto rc = apb_create_schema (refdb); rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
 
   std::string refPrint;
   if (const auto rc = schema_fingerprint (refdb, refPrint);
@@ -316,7 +320,7 @@ struct apb_pileup_t {
   std::string to_string() const
   {
     return fmt::format (
-        "PileupFields{{start: {}, end: {}, qPos: {}, "
+        "apb_pileup_t{{start: {}, end: {}, qPos: {}, "
         "nCig: {}, rawCig.size: {}}}",
         start, end, qPos, nCig, rawCig.size()
     );
@@ -391,7 +395,6 @@ static bool fill_fields (
 
   {
     /* stringify cigar */
-    APB_ASSERT (br_cig != nullptr);
     pf.cig = [&br_cig, &nCig]() {
       std::string out;
       for (size_t opi = 0; opi < nCig; opi++) {
@@ -456,6 +459,7 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
         insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
     );
   }
+  Defer rollback ([&]() { exec_sql (conn, "ROLLBACK;"); });
 
   for (size_t i = 0; i < plp.size(); ++i) {
     apb_pileup_t readI;
@@ -500,7 +504,7 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
   } while (false)
 
     /* bind statement */
-    // CONVERTS FROM 0-INDEXED PileupFields TO 1-INDEXED DB REPRESENTATION
+    // CONVERTS FROM 0-INDEXED apb_pileup_t TO 1-INDEXED DB REPRESENTATION
     // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
     int col = 1;
 
@@ -622,6 +626,7 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
         insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
     );
   }
+  rollback.cancel();
   return {};
 };
 
@@ -638,7 +643,10 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
   */
   APB_ASSERT (conn != nullptr);
   APB_ASSERT (!contigName.empty());
+  APB_ASSERT (span.valid(), span.to_string());
   APB_ASSERT (pos >= 0, pos);
+  APB_ASSERT (pos >= span.start, pos, span.to_string());
+  APB_ASSERT (pos <= span.end, pos, span.to_string());
   if (ref) {
     APB_ASSERT (!ref->empty());
   }
@@ -715,7 +723,7 @@ std::expected<int, int> apb_insert_aln (
   );
   TRY_OK_EXP (sqlite3_bind_int64 (o_fileInsertStmt, 3, nPlp));
   if (const auto rc = sqlite3_step (o_fileInsertStmt); rc != SQLITE_DONE) {
-    return rc;
+    return std::unexpected (rc);
   }
   file_stmt_cleanup.invoke();
   return sqlite3_last_insert_rowid (conn);
@@ -1126,10 +1134,12 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
   }
 
   /* pile up and insert */
-  sqlite3* conn = nullptr;
-  REQUIRE (apb_init_db (&conn) == SQLITE_OK);
+  sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_file (conn);
+  const auto alnId = apb_insert_aln (
+      conn, "test.bam", true, static_cast<int64_t> (cases.size())
+  );
+  REQUIRE (alnId);
 
   test::RecordFeed feed{.recs = &recs};
   bam_plp_t plp = bam_plp_init (test::next_fed_record, &feed);
@@ -1150,11 +1160,21 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
     REQUIRE (plpPos == pileupPos0);
     REQUIRE (static_cast<size_t> (nPlp) == cases.size());
     const auto status = apb_insert_pileup (
-        conn, std::span (br_plp, static_cast<size_t> (nPlp)),
-        test::k_testFileId,
+        conn, std::span (br_plp, static_cast<size_t> (nPlp)), *alnId,
         [hdr] (int tid) { return sam_hdr_tid2name (hdr, tid); }
     );
     REQUIRE (status.has_value());
+
+    // a failed insert (no such file: foreign key) must not leave its
+    // transaction open
+    const auto failed = apb_insert_pileup (
+        conn, std::span (br_plp, static_cast<size_t> (nPlp)),
+        *alnId + 1000,
+        [hdr] (int tid) { return sam_hdr_tid2name (hdr, tid); }
+    );
+    REQUIRE_FALSE (failed);
+    CHECK (sqlite3_get_autocommit (conn) != 0);
+
     found = true;
     break;
   }
@@ -1263,6 +1283,23 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
     CHECK (got == want);
   }
   CHECK (nRows == cases.size());
+}
+
+TEST_CASE ("apb_insert_aln returns ids, and an error for a duplicate path")
+{
+  sqlite3* conn = test::new_db();
+  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
+
+  const auto first = apb_insert_aln (conn, "a.bam", true, 5);
+  REQUIRE (first);
+  const auto second = apb_insert_aln (conn, "b.bam", false, 0);
+  REQUIRE (second);
+  CHECK (*second != *first);
+
+  // UNIQUE (path) violation must surface as an error, not an id
+  const auto dup = apb_insert_aln (conn, "a.bam", true, 5);
+  REQUIRE_FALSE (dup);
+  CHECK ((dup.error() & 0xFF) == SQLITE_CONSTRAINT);
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

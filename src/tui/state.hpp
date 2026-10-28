@@ -12,7 +12,6 @@
 #include "history.hpp"
 #include "input.hpp"
 #include "query.hpp"
-#include "shared/apb_assert.hpp"
 
 struct ColMetadata {
   bool visible;
@@ -71,7 +70,7 @@ enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // especially if there is to be another renderer
 namespace ui {
 
-// defined in g_state.cpp
+// defined in state.cpp
 extern std::array<ColMetadata, 10> tableCols;
 
 inline constinit bool showOverlay = false;
@@ -137,40 +136,5 @@ inline constinit int contentLnOffset = 0;
 }  // namespace overlay
 
 }  // namespace ui
-
-// as APB_ASSERT,
-// but shutdown tb2
-#define TUI_ASSERT(expr, ...)                     \
-  do {                                            \
-    if (expr) [[likely]] {                        \
-      /* success, do nothing */                   \
-    }                                             \
-    else [[unlikely]] {                           \
-      tui_state::tui_shutdown();                  \
-      apb_abort_fatal (                           \
-          __FILE__, __LINE__,                     \
-          "assertion failed: " #expr __VA_OPT__ ( \
-              , #__VA_ARGS__, __VA_ARGS__         \
-          )                                       \
-      );                                          \
-    }                                             \
-  } while (false)
-
-#define TUI_UNREACHABLE(msg, ...)                                         \
-  do {                                                                    \
-    tui_state::tui_shutdown();                                            \
-    apb_abort_fatal (                                                     \
-        __FILE__, __LINE__, (msg)__VA_OPT__ (, #__VA_ARGS__, __VA_ARGS__) \
-    );                                                                    \
-  } while (false)
-
-#define TUI_S3_EXPECT(fn, val)                                    \
-  do {                                                            \
-    TUI_ASSERT (                                                  \
-        const auto rc = fn; rc == (val), rc, sqlite3_errstr (rc), \
-                            sqlite3_errmsg (tui_state::db::conn)  \
-    );                                                            \
-  } while (false)
-
 
 }  // namespace tui_state

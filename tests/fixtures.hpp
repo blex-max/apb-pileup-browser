@@ -4,27 +4,36 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Shared test fixtures, defined in tests/fixtures.cpp.
 namespace test {
 
-// alignment_files row that per-record inserts reference via path_id.
+// alignment_files id of the file which seed_reads' reads belong to.
 constexpr sqlite3_int64 k_testFileId = 1;
+
+// A new empty in-memory apb db. Caller closes.
+sqlite3* new_db();
 
 // REQUIREs sql runs OK on conn
 void exec_ok (sqlite3* conn, const char* sql);
 
-// insert alignment_files row k_testFileId
-void seed_file (sqlite3* conn);
+// an alignment file to register alongside the seeded one
+struct ExtraFile {
+  std::string path;
+  bool hasContig;
+  int64_t nReads;
+};
 
-// db seeded with one file (id 1), locus metadata (chr1:150, span
-// 100-200) and reads readA/readB/readC.
+// Fills an empty apb db as ingest does: file k_testFileId ("test.bam"),
+// then any extraFiles (ids 2, 3, ...), reads readA/readB/readC for the
+// first file, and locus metadata (chr1:150, span 100-200). With withRef
+// the locus carries a reference slice matching its span.
 void seed_reads (
-    sqlite3* conn, int16_t nAln = 1,
-    std::optional<std::string_view> refSlice = std::nullopt
+    sqlite3* conn, const std::vector<ExtraFile>& extraFiles = {},
+    bool withRef = false
 );
 
 std::filesystem::path temp_db_path (std::string_view name);

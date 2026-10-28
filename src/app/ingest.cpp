@@ -24,8 +24,7 @@ constexpr auto kBytesLimit =
 
 struct PileupCapture {
   htsFile* br_fh = nullptr;
-  // FIXME: if this is owned, where is destroy?
-  hts_itr_t* o_it = nullptr;
+  hts_itr_t* o_it = nullptr;  // owned; freed by PileupIterator::destroy
 };
 extern "C" {
 int pileup_func (void* br_data, bam1_t* br_b)
@@ -438,12 +437,11 @@ void ingest_demo_auto (sqlite3* conn)
         APB_UNREACHABLE ("unrecognised InsertPileupErr code");
     }
   }
-  APB_S3_EXPECT (
-      conn,
-      apb_insert_locus (
+  APB_ASSERT (
+      const auto rc = apb_insert_locus (
           conn, std::string{demoContig}, demoPos, demoData.pspan,
           demoData.ref
-      ),
-      SQLITE_OK
+      );
+      rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
 }

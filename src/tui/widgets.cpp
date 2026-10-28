@@ -23,8 +23,8 @@
 #include "helpblocks.hpp"
 #include "model/schema.hpp"
 #include "query.hpp"
-#include "shared/apb_assert.hpp"
 #include "state.hpp"
+#include "tui_assert.hpp"
 
 namespace e2 = extb;
 

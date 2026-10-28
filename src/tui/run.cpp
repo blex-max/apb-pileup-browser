@@ -4,9 +4,9 @@
 
 #include "event.hpp"
 #include "query.hpp"
-#include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 #include "state.hpp"
+#include "tui_assert.hpp"
 #include "widgets.hpp"
 
 namespace e2 = extb;
@@ -17,9 +17,9 @@ int run_tui (sqlite3* conn, bool verboseLog)
 {
   g_db::conn = conn;
   g_db::locusInfo = get_locus_data (g_db::conn);
-  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
+  TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
   if (g_db::set_query ({}) != g_db::SetQueryStatus::success) {
-    APB_UNREACHABLE (
+    TUI_UNREACHABLE (
         "Failed to set initial query", sqlite3_errmsg (g_db::conn)
     );
   }
@@ -46,7 +46,7 @@ int run_tui (sqlite3* conn, bool verboseLog)
     switch (rc) {
       case TB_ERR_INIT_ALREADY:
       case TB_ERR_MEM:
-        APB_UNREACHABLE ("tb_init failed", rc, tb_strerror (rc));
+        TUI_UNREACHABLE ("tb_init failed", rc, tb_strerror (rc));
       case TB_ERR_INIT_OPEN:
         std::cerr << fmt::format (
                          "Error: could not open the terminal ({}). "
@@ -101,7 +101,7 @@ int run_tui (sqlite3* conn, bool verboseLog)
     );
     if (const auto rc = tb_present(); rc != TB_OK) {
       if (rc != TB_ERR) {
-        APB_UNREACHABLE ("tb_present failed", rc, tb_strerror (rc));
+        TUI_UNREACHABLE ("tb_present failed", rc, tb_strerror (rc));
       }
       const auto msg = fmt::format (
           "lost connection to the terminal ({}). Try running apb "
@@ -139,7 +139,7 @@ int run_tui (sqlite3* conn, bool verboseLog)
       }
       if (const auto rc = tb_present(); rc != TB_OK) {
         if (rc != TB_ERR) {
-          APB_UNREACHABLE ("tb_present failed", rc, tb_strerror (rc));
+          TUI_UNREACHABLE ("tb_present failed", rc, tb_strerror (rc));
         }
         const auto msg = fmt::format (
             "lost connection to the terminal ({}). Try running apb "

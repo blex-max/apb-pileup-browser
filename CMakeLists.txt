@@ -82,9 +82,10 @@ set(APB_COMPILE_DEFINITIONS
 add_executable(apb
   src/app/main.cpp
   src/app/ingest.cpp
+  src/frontend/db_io.cpp
   src/frontend/demo.cpp
+  src/frontend/describe.cpp
   src/model/hts2apb.cpp
-  src/shared/log.cpp
   src/tui/cmd.cpp
   src/tui/event.cpp
   src/tui/history.cpp
@@ -130,9 +131,9 @@ if(APB_BUILD_TESTS)
   add_executable(apb-tests
     tests/test.cpp
     tests/fixtures.cpp
-    tests/db_io.cpp
+    src/frontend/db_io.cpp
+    src/frontend/describe.cpp
     src/model/hts2apb.cpp
-    src/shared/log.cpp
     src/tui/query.cpp
     src/tui/state.cpp
     src/tui/tb2_impl.cpp

@@ -2,42 +2,46 @@
 
 #include <sqlite3.h>
 
+#include <cstdint>
+#include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 
-#include "shared/cleanup.hpp"
-
+struct dump_err_t {
+  int rc;
+  std::string msg;  // from the dump db handle, where the error lives
+};
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
-// Returns sqlite3 integer status code.
-[[nodiscard]] inline int dump_to_disk (
+[[nodiscard]] std::expected<void, dump_err_t> dump_to_disk (
     sqlite3* conn, std::string_view path
-)
-{
-  sqlite3* o_dumpConn = nullptr;
-  sqlite3_backup* o_backupConn = nullptr;
-  Defer dumpCleanup ([&]() {
-    sqlite3_backup_finish (o_backupConn);
-    sqlite3_close_v2 (o_dumpConn);
-  });
+);
 
-  if (const auto rc =
-          sqlite3_open (std::string{path}.c_str(), &o_dumpConn);
-      rc != SQLITE_OK) {
-    return rc;
-  }
+struct load_err_t {
+  enum Kind : uint8_t {
+    openFail,
+    copyFail,
+    contentCorrupt,
+    appMismatch,
+    verMismatch,
+    schemaMismatch,
+    sqlFail
+  };
+  Kind kind;
+  std::optional<int> rc = std::nullopt;
+  std::optional<std::string> msg = std::nullopt;
+};
+// Copy a database file on disk into a new in-memory apb database,
+// using sqlite3's online backup API, and verify it for use with apb.
+// Checks the file is not corrupt, is an apb database of the current
+// schema, and has a locus metadata row. Well-formedness of that row
+// is left to caller.
+[[nodiscard]] std::expected<sqlite3*, load_err_t> load_from_disk (
+    std::string_view path
+);
 
-  if (o_backupConn =
-          sqlite3_backup_init (o_dumpConn, "main", conn, "main");
-      o_backupConn == NULL) {
-    const auto rc = sqlite3_errcode (o_dumpConn);
-    return rc;
-  }
-
-  if (const auto rc = sqlite3_backup_step (o_backupConn, -1);
-      rc != SQLITE_DONE) {
-    return rc;
-  }
-
-  return SQLITE_OK;
-}
+// Formats a load_from_disk failure into a user-facing error.
+std::string apb_describe_load_failure (
+    std::string_view path, const load_err_t& err
+);

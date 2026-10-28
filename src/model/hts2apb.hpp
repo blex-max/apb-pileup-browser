@@ -21,8 +21,8 @@
 #include "hts_types.hpp"
 
 
-// Initialise db with pileup schema (see schema.hpp).
-[[nodiscard]] int apb_init_db (sqlite3** connp);
+// Create the apb schema on a db connection
+[[nodiscard]] int apb_create_schema (sqlite3* conn);
 
 // verify a sqlite3* object for use from apb.
 // For e.g. loading from a dump on disk.

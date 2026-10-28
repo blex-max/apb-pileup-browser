@@ -10,7 +10,7 @@
 
 #include "model/schema.hpp"
 #include "shared/cleanup.hpp"
-#include "state.hpp"
+#include "tui_assert.hpp"
 
 std::string process_where (const std::vector<std::string>& where)
 {
@@ -26,6 +26,14 @@ std::string process_where (const std::vector<std::string>& where)
   return out;
 }
 
+
+std::string PileupMetadata::to_string() const
+{
+  return fmt::format (
+      "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}", contig,
+      pos, start, end
+  );
+}
 
 PileupMetadata get_locus_data (sqlite3* conn)
 {

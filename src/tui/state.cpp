@@ -14,6 +14,7 @@
 #include "model/schema.hpp"
 #include "query.hpp"
 #include "shared/cleanup.hpp"
+#include "tui_assert.hpp"
 
 namespace tui_state::ui {
 
@@ -332,10 +333,10 @@ namespace g_db = tui_state::db;
 
 // owns the tui_state::db globals for the duration of a test
 struct DbFixture {
-  explicit DbFixture (int16_t nAln)
+  explicit DbFixture (const std::vector<test::ExtraFile>& extraFiles = {})
   {
-    REQUIRE (apb_init_db (&g_db::conn) == SQLITE_OK);
-    test::seed_reads (g_db::conn, nAln);
+    g_db::conn = test::new_db();
+    test::seed_reads (g_db::conn, extraFiles);
     g_db::locusInfo = get_locus_data (g_db::conn);
   }
   ~DbFixture()
@@ -372,18 +373,6 @@ void copy_reads_to_file (int id)
   );
 }
 
-void add_file (int id, const char* path, int hasContig, int hasReads)
-{
-  exec (
-      fmt::format (
-          "INSERT INTO alignment_files (id, path, has_contig, n_reads) "
-          "VALUES ({}, '{}', {}, {});",
-          id, path, hasContig, hasReads
-      )
-          .c_str()
-  );
-}
-
 // qnames of the page the render loop would fetch
 std::vector<std::string> fetch_page (int64_t offset, int64_t limit)
 {
@@ -414,7 +403,7 @@ std::string row_path (sqlite3_stmt* stmt)
 
 TEST_CASE ("set_query failure leaves the active query untouched")
 {
-  DbFixture fx (1);
+  DbFixture fx;
   REQUIRE (
       g_db::set_query ({.where = {"flag = 99"}, .orderBy = ""}) ==
       g_db::SetQueryStatus::success
@@ -445,7 +434,7 @@ TEST_CASE ("set_query failure leaves the active query untouched")
 
 TEST_CASE ("set_query replaces the previous query")
 {
-  DbFixture fx (1);
+  DbFixture fx;
   REQUIRE (g_db::set_query ({}) == g_db::SetQueryStatus::success);
   REQUIRE (g_db::nStmtRows == 3);
   // leave the old stmt mid-iteration, as render does when the page fills
@@ -464,10 +453,11 @@ TEST_CASE ("set_query replaces the previous query")
 
 TEST_CASE ("set_query classifies files with no reads in the query")
 {
-  DbFixture fx (4);
-  add_file (2, "no_reads.bam", 1, 0);
-  add_file (3, "no_contig.bam", 0, 0);
-  add_file (4, "has_reads.bam", 1, 1);
+  DbFixture fx (
+      {{"no_reads.bam", true, 0},
+       {"no_contig.bam", false, 0},
+       {"has_reads.bam", true, 3}}
+  );
   copy_reads_to_file (4);
 
   // nothing matches: all four files are empty, file 1 and 4 only by query
@@ -494,8 +484,7 @@ TEST_CASE ("set_query classifies files with no reads in the query")
 
 TEST_CASE ("set_query keeps path as the primary sort key")
 {
-  DbFixture fx (2);
-  add_file (2, "b.bam", 1, 1);
+  DbFixture fx ({{"b.bam", true, 3}});
   copy_reads_to_file (2);
 
   REQUIRE (
@@ -523,7 +512,7 @@ TEST_CASE ("set_query keeps path as the primary sort key")
 
 TEST_CASE ("selectStmt pages from the offset-th row, in view column order")
 {
-  DbFixture fx (1);
+  DbFixture fx;
   REQUIRE (
       g_db::set_query ({.orderBy = "start"}) ==
       g_db::SetQueryStatus::success

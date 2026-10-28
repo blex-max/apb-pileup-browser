@@ -1,6 +1,5 @@
 #pragma once
 
-#include <fmt/format.h>
 #include <sqlite3.h>
 
 #include <cstdint>
@@ -39,13 +38,7 @@ struct PileupMetadata {
            pos <= end && nAln > 0;
   }
 
-  std::string to_string() const
-  {
-    return fmt::format (
-        "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}",
-        contig, pos, start, end
-    );
-  }
+  std::string to_string() const;
 };
 // Get locus metadata from db. Asserts internally; only call once
 // locus metadata is known to exist.

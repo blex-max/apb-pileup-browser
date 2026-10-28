@@ -15,7 +15,6 @@
 
 namespace schema {
 
-// FIXME: not yet used
 inline constexpr std::string_view sqlSetAppId = 
     "PRAGMA application_id = " STR(APB_APP_ID) ";";
 

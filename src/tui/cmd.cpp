@@ -22,6 +22,7 @@
 #include "query.hpp"
 #include "shared/cleanup.hpp"
 #include "state.hpp"
+#include "tui_assert.hpp"
 #include "widgets.hpp"
 
 namespace g_db = tui_state::db;
@@ -673,11 +674,11 @@ struct DumpCmd {
     }
 
     const std::string path{tokens[0]};
-    if (const auto rc = dump_to_disk (g_db::conn, path); rc != SQLITE_OK) {
+    if (const auto ret = dump_to_disk (g_db::conn, path); !ret) {
       return {
           false, apb_describe_sqlite_failure (
-                     "Failed to dump database to disk", rc,
-                     sqlite3_errmsg (g_db::conn)
+                     "Failed to dump database to disk", ret.error().rc,
+                     ret.error().msg
                  )
       };
     }

@@ -30,6 +30,7 @@
 #include "shared/stringify.hpp"
 #include "shared/version.hpp"
 #include "tui/manual.hpp"
+#include "tui/query.hpp"
 #include "tui/run.hpp"
 
 // NOTE: helptext is not constructed from
@@ -110,6 +111,34 @@ static std::expected<ApbCliArgs, std::string> parse_args (
     int argc, char** argv
 );
 
+// Opens a new in-memory apb database into `conn`. Caller must
+// close (including on failure). Reports failure to stderr.
+static bool init_db (sqlite3*& conn)
+{
+  int rc = sqlite3_open (":memory:", &conn);
+  if (rc == SQLITE_OK) {
+    rc = apb_create_schema (conn);
+  }
+  switch (rc) {
+    case SQLITE_OK:
+      return true;
+    // more cases may be added if they're outside of apb's control
+    case SQLITE_NOMEM:
+      // FIXME: nomem might be worth failing gracefully on throughout,
+      // since running out of memory on a cluster interactive session
+      // or head node is not implausible.
+      std::cerr << "Error: failed to initialise database BEFORE "
+                   "attempting to load pileup with out of memory error. "
+                   "Are you in a memory constrained environment?"
+                << std::endl;
+      return false;
+    default:
+      APB_UNREACHABLE (
+          "failed to initialise apb database", rc, sqlite3_errstr (rc),
+          sqlite3_errmsg (conn)
+      );
+  }
+}
 
 int main (int argc, char** argv)
 {
@@ -132,32 +161,15 @@ int main (int argc, char** argv)
               << std::endl;
   }
 
-  sqlite3* conn;
+  sqlite3* conn = nullptr;
   Defer db_shutdown ([&conn]() { sqlite3_close_v2 (conn); });
 
   switch (args.mode) {
     case ApbMode::locus:
       APB_ASSERT (!args.locus.empty());
       APB_ASSERT (!args.alnPaths.empty());
-      if (const auto rc = apb_init_db (&conn); rc != SQLITE_OK) {
-        switch (rc) {
-          // more cases may be added if they're outside of apb's control
-          case SQLITE_NOMEM:
-            // FIXME: nomem might be worth failing gracefully on throughout,
-            // since running out of memory on a cluster interactive session
-            // or head node is not implausible.
-            std::cerr
-                << "Error: failed to initialise database BEFORE "
-                   "attempting to load pileup with out of memory error. "
-                   "Are you in a memory constrained environment?"
-                << std::endl;
-            return EXIT_FAILURE;
-          default:
-            APB_UNREACHABLE (
-                "failed to initialise apb database", rc,
-                sqlite3_errstr (rc), sqlite3_errmsg (conn)
-            );
-        }
+      if (!init_db (conn)) {
+        return EXIT_FAILURE;
       }
       if (const auto ret = ingest_sam_auto (
               conn, args.alnPaths, args.locus, args.refPath,
@@ -169,100 +181,50 @@ int main (int argc, char** argv)
       }
       break;
     case ApbMode::demo: {
-      if (const auto rc = apb_init_db (&conn); rc != SQLITE_OK) {
-        switch (rc) {
-          // more cases may be added if they're outside of apb's control
-          case SQLITE_NOMEM:
-            std::cerr
-                << "Error: failed to initialise database BEFORE "
-                   "attempting to load pileup with out of memory error. "
-                   "Are you in a memory constrained environment?"
-                << std::endl;
-            return EXIT_FAILURE;
-          default:
-            APB_UNREACHABLE (
-                "failed to initialise apb database", rc,
-                sqlite3_errstr (rc), sqlite3_errmsg (conn)
-            );
-        }
+      if (!init_db (conn)) {
+        return EXIT_FAILURE;
       }
       ingest_demo_auto (conn);
       break;
     }
     case ApbMode::db: {
-      // FIXME: to reinstate
-      // APB_ASSERT (args.dbPath);
-      // APB_ASSERT (!args.dbPath.value().empty());
-      // auto loadRet =
-      //     setup_db::load_from_disk (args.dbPath.value().string());
-      // if (!loadRet) {
-      //   const auto& loadErr = loadRet.error();
-      //   switch (loadErr.code) {
-      //     case setup_db::LoadErr::openFail:
-      //       std::cerr << fmt::format (
-      //                        "Error: failed to open database at {}, "
-      //                        "reporting error: {}; and extended status "
-      //                        "msg: "
-      //                        "{}",
-      //                        args.dbPath.value(),
-      //                        sqlite3_errstr (loadErr.rc.value()),
-      //                        loadErr.msg.value()
-      //                    )
-      //                 << std::endl;
-      //       return EXIT_FAILURE;
-      //     case setup_db::LoadErr::copyFail:
-      //       std::cerr << "Error: "
-      //                 << setup_db::describe_sqlite_failure (
-      //                        loadErr.rc.value(), "load database",
-      //                        loadErr.msg
-      //                    )
-      //                 << std::endl;
-      //       return EXIT_FAILURE;
-      //     case setup_db::LoadErr::contentCorrupt:
-      //       std::cerr << fmt::format (
-      //                        "Error: database at {} appears to be "
-      //                        "corrupt:\n{}",
-      //                        args.dbPath.value(), loadErr.msg.value()
-      //                    )
-      //                 << std::endl;
-      //       return EXIT_FAILURE;
-      //     case setup_db::LoadErr::schemaMismatch:
-      //       std::cerr << fmt::format (
-      //                        "Error: database at {} does not have the "
-      //                        "expected schema for an apb database. Is "
-      //                        "it from an old version?",
-      //                        args.dbPath.value()
-      //                    )
-      //                 << std::endl;
-      //       return EXIT_FAILURE;
-      //   }
-      // }
-      // g_db::conn = loadRet.value();
-      // // load_from_disk only checks the metadata row exists
-      // if (!sql::get_locus_data (g_db::conn).valid()) {
-      //   std::cerr << fmt::format (
-      //                    "Error: database at {} appears to be "
-      //                    "corrupt:\nlocus metadata in database is "
-      //                    "invalid or corrupt.",
-      //                    args.dbPath.value()
-      //                )
-      //             << std::endl;
-      //   return EXIT_FAILURE;
-      // }
-      // break;
+      APB_ASSERT (args.dbPath);
+      APB_ASSERT (!args.dbPath.value().empty());
+      auto loadRet = load_from_disk (args.dbPath.value().string());
+      if (!loadRet) {
+        std::cerr << "Error: "
+                  << apb_describe_load_failure (
+                         args.dbPath.value().string(), loadRet.error()
+                     )
+                  << std::endl;
+        return EXIT_FAILURE;
+      }
+      conn = *loadRet;
+      // load_from_disk only checks the metadata row exists
+      if (!get_locus_data (conn).valid()) {
+        std::cerr << fmt::format (
+                         "Error: database at {} appears to be "
+                         "corrupt:\nlocus metadata in database is "
+                         "invalid or corrupt.",
+                         args.dbPath.value()
+                     )
+                  << std::endl;
+        return EXIT_FAILURE;
+      }
+      break;
     }
     case ApbMode::UNSET:
       APB_UNREACHABLE ("CLI code malformed; mode unset");
   }
 
   if (args.dumpPath) {
-    if (const auto rc =
+    if (const auto ret =
             dump_to_disk (conn, args.dumpPath.value().string());
-        rc != SQLITE_OK) {
+        !ret) {
       std::cerr << "Error: "
                 << apb_describe_sqlite_failure (
-                       "Failed to dump database to disk", rc,
-                       sqlite3_errmsg (conn)
+                       "Failed to dump database to disk", ret.error().rc,
+                       ret.error().msg
                    )
                 << std::endl;
       return EXIT_FAILURE;
