@@ -63,14 +63,13 @@ CREATE TABLE locus_metadata (
 )sql";
 
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
-INSERT INTO locus_metadata (apb_db_version, contig, pos, start, end, ref, n_aln) VALUES (?,?,?,?,?,?,?);
+INSERT INTO locus_metadata (contig, pos, start, end, ref, n_aln) VALUES (?,?,?,?,?,?);
 )sql";
 
 struct MetaTableSelect {
   // TIED TO EXPLICIT SELECT STATEMENT
   enum Idx : uint8_t {
     id,
-    dbVersion,
     contig,
     pos,
     start,
@@ -90,12 +89,12 @@ inline constexpr std::string_view sqlCreateFileTable = R"sql(
     id  INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
     has_contig INTEGER NOT NULL CHECK (has_contig IN (0, 1)),
-    n_reads INTEGER NOT NULL CHECK (has_reads >= 0)
+    n_reads INTEGER NOT NULL CHECK (n_reads >= 0)
   ) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertFile = R"sql(
-  INSERT INTO alignment_files (path, has_contig, has_reads) VALUES (?, ?, ?);
+  INSERT INTO alignment_files (path, has_contig, n_reads) VALUES (?, ?, ?);
 )sql";
 
 // One row per read overlapping pileup reference position.

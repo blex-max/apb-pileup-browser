@@ -1,19 +1,19 @@
-#include "app/event.hpp"
+#include "event.hpp"
 
 #include <algorithm>
 #include <cstdint>
 
-#include "app/cmd.hpp"
-#include "app/g_state.hpp"
-#include "app/widgets.hpp"
-#include "frontend/history.hpp"
-#include "frontend/input.hpp"
+#include "cmd.hpp"
+#include "history.hpp"
+#include "input.hpp"
+#include "state.hpp"
+#include "widgets.hpp"
 
-namespace g_db = g_state::db;
-namespace g_browsr = g_state::ui::browsr;
-namespace g_cmd = g_state::ui::cmd;
-namespace g_overlay = g_state::ui::overlay;
-namespace g_ui = g_state::ui;
+namespace g_db = tui_state::db;
+namespace g_browsr = tui_state::ui::browsr;
+namespace g_cmd = tui_state::ui::cmd;
+namespace g_overlay = tui_state::ui::overlay;
+namespace g_ui = tui_state::ui;
 
 static bool handle_nav (const tb_event& ev)
 {
@@ -69,7 +69,7 @@ static bool handle_nav (const tb_event& ev)
         clear (g_cmd::inputBuf);
       }
       else {
-        g_state::run = false;
+        tui_state::run = false;
       }
       break;
 

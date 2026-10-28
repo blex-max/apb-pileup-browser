@@ -5,8 +5,7 @@
 #include <ranges>
 #include <string>
 
-#include "frontend/extb/box/span.hpp"
-#include "frontend/extb/extb.hpp"
+#include "span.hpp"
 
 namespace extb {
 

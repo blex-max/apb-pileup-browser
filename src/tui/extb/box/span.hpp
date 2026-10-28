@@ -5,7 +5,7 @@
 #include <ranges>
 #include <string>
 
-#include "frontend/extb/extb.hpp"
+#include "tui/extb/extb.hpp"
 
 namespace extb {
 

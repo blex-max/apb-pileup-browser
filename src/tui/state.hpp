@@ -6,13 +6,13 @@
 #include <string_view>
 #include <vector>
 
-#include "data/hts_sql.hpp"
-#include "data/sql.hpp"
 #include "extb/box/box.hpp"
 #include "extb/extb.hpp"
 #include "helpblocks.hpp"
 #include "history.hpp"
 #include "input.hpp"
+#include "query.hpp"
+#include "shared/apb_assert.hpp"
 
 struct ColMetadata {
   bool visible;
@@ -21,14 +21,19 @@ struct ColMetadata {
   std::string (*const fn_retrieve_from_db) (sqlite3_stmt*);
 };
 
-namespace g_state {
+namespace tui_state {
 
 inline constinit bool run = true;
+
+// shutdown tui
+// does not shutdown db,
+// as tui does not own.
+void tui_shutdown();
 
 namespace db {
 
 inline constinit sqlite3* conn = nullptr;
-inline constinit sql::QueryFragments userClause;
+inline constinit QueryFragments userClause;
 inline constinit sqlite3_stmt* selectStmt = nullptr;
 inline constinit uint64_t nStmtRows = 0;  // rows in current stmt
 inline constinit int32_t stmtRowScrollOffset = 0;
@@ -52,18 +57,13 @@ inline uint64_t nScrollRows()
   return nStmtRows + static_cast<uint64_t> (emptyFiles.size());
 }
 
-inline constinit sql::PileupMetadata
+inline constinit PileupMetadata
     locusInfo;  // cached metadata-table row; queried once at init()
 
 enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // Replace the active query with `clause`.
 // On failure extra details are available from sqlite3_errmsg (conn).
-[[nodiscard]] SetQueryStatus set_query (sql::QueryFragments userFrags);
-
-// shutdown tui
-// does not shutdown db,
-// as tui does not own.
-inline void tui_shutdown() { sqlite3_finalize (selectStmt); }
+[[nodiscard]] SetQueryStatus set_query (QueryFragments userFrags);
 
 }  // namespace db
 
@@ -138,4 +138,39 @@ inline constinit int contentLnOffset = 0;
 
 }  // namespace ui
 
-}  // namespace g_state
+// as APB_ASSERT,
+// but shutdown tb2
+#define TUI_ASSERT(expr, ...)                     \
+  do {                                            \
+    if (expr) [[likely]] {                        \
+      /* success, do nothing */                   \
+    }                                             \
+    else [[unlikely]] {                           \
+      tui_state::tui_shutdown();                  \
+      apb_abort_fatal (                           \
+          __FILE__, __LINE__,                     \
+          "assertion failed: " #expr __VA_OPT__ ( \
+              , #__VA_ARGS__, __VA_ARGS__         \
+          )                                       \
+      );                                          \
+    }                                             \
+  } while (false)
+
+#define TUI_UNREACHABLE(msg, ...)                                         \
+  do {                                                                    \
+    tui_state::tui_shutdown();                                            \
+    apb_abort_fatal (                                                     \
+        __FILE__, __LINE__, (msg)__VA_OPT__ (, #__VA_ARGS__, __VA_ARGS__) \
+    );                                                                    \
+  } while (false)
+
+#define TUI_S3_EXPECT(fn, val)                                    \
+  do {                                                            \
+    TUI_ASSERT (                                                  \
+        const auto rc = fn; rc == (val), rc, sqlite3_errstr (rc), \
+                            sqlite3_errmsg (tui_state::db::conn)  \
+    );                                                            \
+  } while (false)
+
+
+}  // namespace tui_state

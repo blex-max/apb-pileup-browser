@@ -21,16 +21,16 @@
 #include <unordered_set>
 #include <vector>
 
-#include "app/describe.hpp"
-#include "app/dump.hpp"
-#include "app/ingest.hpp"
-#include "data/hts2apb.hpp"
+#include "frontend/db_io.hpp"
+#include "frontend/describe.hpp"
+#include "ingest.hpp"
+#include "model/hts2apb.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/stringify.hpp"
 #include "shared/version.hpp"
-#include "tui/init.hpp"
 #include "tui/manual.hpp"
+#include "tui/run.hpp"
 
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
@@ -139,7 +139,26 @@ int main (int argc, char** argv)
     case ApbMode::locus:
       APB_ASSERT (!args.locus.empty());
       APB_ASSERT (!args.alnPaths.empty());
-      apb_init_db (conn);
+      if (const auto rc = apb_init_db (&conn); rc != SQLITE_OK) {
+        switch (rc) {
+          // more cases may be added if they're outside of apb's control
+          case SQLITE_NOMEM:
+            // FIXME: nomem might be worth failing gracefully on throughout,
+            // since running out of memory on a cluster interactive session
+            // or head node is not implausible.
+            std::cerr
+                << "Error: failed to initialise database BEFORE "
+                   "attempting to load pileup with out of memory error. "
+                   "Are you in a memory constrained environment?"
+                << std::endl;
+            return EXIT_FAILURE;
+          default:
+            APB_UNREACHABLE (
+                "failed to initialise apb database", rc,
+                sqlite3_errstr (rc), sqlite3_errmsg (conn)
+            );
+        }
+      }
       if (const auto ret = ingest_sam_auto (
               conn, args.alnPaths, args.locus, args.refPath,
               args.zeroBased, args.limitHeapSize
@@ -150,7 +169,23 @@ int main (int argc, char** argv)
       }
       break;
     case ApbMode::demo: {
-      apb_init_db (conn);
+      if (const auto rc = apb_init_db (&conn); rc != SQLITE_OK) {
+        switch (rc) {
+          // more cases may be added if they're outside of apb's control
+          case SQLITE_NOMEM:
+            std::cerr
+                << "Error: failed to initialise database BEFORE "
+                   "attempting to load pileup with out of memory error. "
+                   "Are you in a memory constrained environment?"
+                << std::endl;
+            return EXIT_FAILURE;
+          default:
+            APB_UNREACHABLE (
+                "failed to initialise apb database", rc,
+                sqlite3_errstr (rc), sqlite3_errmsg (conn)
+            );
+        }
+      }
       ingest_demo_auto (conn);
       break;
     }
@@ -236,8 +271,7 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
-  run_tui (conn);
-  return EXIT_SUCCESS;
+  return run_tui (conn, verboseLog);
 }
 
 // returns expected type/str since any failure

@@ -6,10 +6,10 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
-#include "app/demo.hpp"
-#include "app/describe.hpp"
-#include "data/hts2apb.hpp"
-#include "data/hts_types.hpp"
+#include "frontend/demo.hpp"
+#include "frontend/describe.hpp"
+#include "model/hts2apb.hpp"
+#include "model/hts_types.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
 #include "shared/stringify.hpp"
@@ -323,18 +323,18 @@ std::expected<void, std::string> ingest_sam_auto (
     const auto get_mtid_name = [&aln] (int mtid) {
       return sam_hdr_tid2name (aln.o_hdr, mtid);
     };
-    {
-      const auto ret = apb_insert_pileup (
-          conn, {pileup.br_plpArr, pileup.nPlp}, alnID, get_mtid_name
-      );
-      switch (ret.code) {
-        case insert_pileup_status_t::success:
-        case insert_pileup_status_t::sqlFail:
+    if (const auto ret = apb_insert_pileup (
+            conn, {pileup.br_plpArr, pileup.nPlp}, alnID, get_mtid_name
+        );
+        !ret) {
+      const auto& err = ret.error();
+      switch (err.kind) {
+        case insert_pileup_err_t::sqlFail:
           return std::unexpected (apb_describe_sqlite_failure (
-              "Failed to transform/insert alignment data", ret.rc.value(),
+              "Failed to transform/insert alignment data", err.rc.value(),
               sqlite3_errmsg (conn)
           ));
-        case insert_pileup_status_t::auxParseFail:
+        case insert_pileup_err_t::auxParseFail:
           // FIXME: provide qname/read/tag details
           return std::unexpected (
               "Failed to parse aux tag in alignment file. Is aux "
@@ -403,7 +403,8 @@ void ingest_demo_auto (sqlite3* conn)
   constexpr std::string_view demoContig = "demo-contig";
   constexpr hts_pos_t demoPos = 10'000'000;
 
-  const auto demoData = generate_demo_data (300, 1000, demoPos);
+  auto demoData = generate_demo_data (300, 1000, demoPos);
+  Defer data_cleanup ([&demoData]() { demoData.destroy(); });
   int demoAlnId;
   if (const auto ret = apb_insert_aln (
           conn, "demo-aln-1", true,
@@ -418,27 +419,31 @@ void ingest_demo_auto (sqlite3* conn)
   else {
     demoAlnId = *ret;
   }
-  {
-    const auto ret = apb_insert_pileup (
-        conn, demoData.p, demoAlnId,
-        [&demoContig] (int) { return demoContig.data(); }
-    );
-    switch (ret.code) {
-      case insert_pileup_status_t::sqlFail:
+
+  if (const auto ret = apb_insert_pileup (
+          conn, demoData.p, demoAlnId,
+          [&demoContig] (int) { return demoContig.data(); }
+      );
+      !ret) {
+    const auto& err = ret.error();
+    switch (err.kind) {
+      case insert_pileup_err_t::sqlFail:
         APB_UNREACHABLE (
-            "demo insertion malformed", sqlite3_errstr (ret.rc.value()),
+            "demo insertion malformed", sqlite3_errstr (err.rc.value()),
             sqlite3_errmsg (conn)
         );
-      case insert_pileup_status_t::auxParseFail:
+      case insert_pileup_err_t::auxParseFail:
         APB_UNREACHABLE ("bad tag data in demo pileup");
-      case insert_pileup_status_t::success:
-        break;
+      default:
+        APB_UNREACHABLE ("unrecognised InsertPileupErr code");
     }
   }
-  APB_S3_EXPECT_OK (
-      conn, apb_insert_locus (
-                conn, std::string{demoContig}, demoPos, demoData.pspan,
-                demoData.ref
-            )
+  APB_S3_EXPECT (
+      conn,
+      apb_insert_locus (
+          conn, std::string{demoContig}, demoPos, demoData.pspan,
+          demoData.ref
+      ),
+      SQLITE_OK
   );
 }

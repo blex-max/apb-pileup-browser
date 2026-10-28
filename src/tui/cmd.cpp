@@ -16,18 +16,16 @@
 #include <utility>
 #include <vector>
 
-#include "app/g_state.hpp"
-#include "app/helpblocks.hpp"
-#include "app/sql.hpp"
-#include "app/widgets.hpp"
-#include "backend/hts_sql.hpp"
-#include "shared/apb_assert.hpp"
+#include "frontend/db_io.hpp"
+#include "frontend/describe.hpp"
+#include "helpblocks.hpp"
+#include "query.hpp"
 #include "shared/cleanup.hpp"
-#include "shared/version.hpp"
-#include "tui/tui_assert.hpp"
+#include "state.hpp"
+#include "widgets.hpp"
 
-namespace g_db = g_state::db;
-namespace g_ui = g_state::ui;
+namespace g_db = tui_state::db;
+namespace g_ui = tui_state::ui;
 
 
 // --- HELPERS --- //
@@ -131,7 +129,7 @@ struct QuitCmd {
     if (const auto ret = cmd_validate_args_empty (args, usage); !ret) {
       return ret.error();
     }
-    g_state::run = false;
+    tui_state::run = false;
     return {true, "Bye!"};
   }
 
@@ -229,7 +227,7 @@ struct ShowTableColCmd {
 // on failure. Any earlier sql already compiled, so can't be at fault.
 // Empty for commands that add none.
 static CmdResult try_apply_query_clause (
-    sql::QueryFragments newClause, std::string_view incomingSql,
+    QueryFragments newClause, std::string_view incomingSql,
     std::string_view successMsg
 )
 {
@@ -445,7 +443,7 @@ struct CountCmd {
     }
 
     std::string sqlCountQuery{"SELECT COUNT(*) FROM reads"};
-    const auto sqlUserWhere = sql::process_where (where);
+    const auto sqlUserWhere = process_where (where);
     if (!where.empty()) {
       sqlCountQuery.append (" WHERE ");
       sqlCountQuery.append (sqlUserWhere);
@@ -675,21 +673,15 @@ struct DumpCmd {
     }
 
     const std::string path{tokens[0]};
-    switch (const auto dumpStatus =
-                setup_db::dump_to_disk (g_db::conn, path);
-            dumpStatus.code) {
-      case setup_db::DiskDumpStatus::success:
-        return {true, fmt::format ("Dumped database to {}", path)};
-      case setup_db::DiskDumpStatus::fail:
-        return {
-            false, setup_db::describe_sqlite_failure (
-                       dumpStatus.sqlRc.value(), "dump database to disk",
-                       dumpStatus.dumpDbMsg
-                   )
-        };
-      default:
-        TUI_UNREACHABLE ("unrecognised DiskDumpStatus code");
+    if (const auto rc = dump_to_disk (g_db::conn, path); rc != SQLITE_OK) {
+      return {
+          false, apb_describe_sqlite_failure (
+                     "Failed to dump database to disk", rc,
+                     sqlite3_errmsg (g_db::conn)
+                 )
+      };
     }
+    return {true, fmt::format ("Dumped database to {}", path)};
   }
 
   inline static const CmdView view{call, {}, &operator(), usage, desc};

@@ -15,7 +15,7 @@
 //
 // call macros, not this fn
 template <typename... Args>
-[[noreturn]] void abort_fatal (
+[[noreturn]] void apb_abort_fatal (
     const char* file, int line, const std::string_view what,
     const std::string_view varNames = "", const Args&... values
 )
@@ -32,7 +32,7 @@ template <typename... Args>
       name.remove_prefix (1);
     }
     if (!varInfo.empty()) {
-      varInfo += ", ";
+      varInfo += "\n";
     }
     varInfo += fmt::format ("{}={}", name, value);
     pos = (comma == std::string_view::npos) ? varNames.size() : comma + 1;
@@ -62,7 +62,7 @@ template <typename... Args>
       /* success, do nothing */                   \
     }                                             \
     else [[unlikely]] {                           \
-      abort_fatal (                               \
+      apb_abort_fatal (                           \
           __FILE__, __LINE__,                     \
           "assertion failed: " #expr __VA_OPT__ ( \
               , #__VA_ARGS__, __VA_ARGS__         \
@@ -73,23 +73,15 @@ template <typename... Args>
 
 #define APB_UNREACHABLE(msg, ...)                                         \
   do {                                                                    \
-    abort_fatal (                                                         \
+    apb_abort_fatal (                                                     \
         __FILE__, __LINE__, (msg)__VA_OPT__ (, #__VA_ARGS__, __VA_ARGS__) \
     );                                                                    \
   } while (false)
 
-#define APB_S3_EXPECT(conn, fn, val)                                \
-  do {                                                              \
-    APB_ASSERT (                                                    \
-        const auto rc = fn;                                         \
-        rc == (val), rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
-    );                                                              \
-  } while (false)
-
-#define APB_S3_EXPECT_OK(conn, fn)                                      \
+#define APB_S3_EXPECT(conn, fn, exp_val)                                \
   do {                                                                  \
     APB_ASSERT (                                                        \
         const auto rc = fn;                                             \
-        rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
+        rc == (exp_val), rc, sqlite3_errstr (rc), sqlite3_errmsg (conn) \
     );                                                                  \
   } while (false)

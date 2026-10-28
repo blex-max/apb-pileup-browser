@@ -1,4 +1,4 @@
-#include "app/widgets.hpp"
+#include "widgets.hpp"
 
 #include <fmt/format.h>
 #include <htslib/sam.h>
@@ -16,24 +16,23 @@
 #include <string_view>
 #include <vector>
 
-#include "app/g_state.hpp"
-#include "app/helpblocks.hpp"
-#include "app/sql.hpp"
-#include "backend/schema.hpp"
-#include "frontend/drawing_chars.hpp"
-#include "frontend/extb/box/box.hpp"
-#include "frontend/extb/box/span.hpp"
-#include "frontend/extb/extb.hpp"
+#include "drawing_chars.hpp"
+#include "extb/box/box.hpp"
+#include "extb/box/span.hpp"
+#include "extb/extb.hpp"
+#include "helpblocks.hpp"
+#include "model/schema.hpp"
+#include "query.hpp"
 #include "shared/apb_assert.hpp"
-#include "tui/tui_assert.hpp"
+#include "state.hpp"
 
 namespace e2 = extb;
 
-namespace g_db = g_state::db;
-namespace g_browsr = g_state::ui::browsr;
-namespace g_cmd = g_state::ui::cmd;
-namespace g_overlay = g_state::ui::overlay;
-namespace g_ui = g_state::ui;
+namespace g_db = tui_state::db;
+namespace g_browsr = tui_state::ui::browsr;
+namespace g_cmd = tui_state::ui::cmd;
+namespace g_overlay = tui_state::ui::overlay;
+namespace g_ui = tui_state::ui;
 
 // --- helpers --- //
 
@@ -482,7 +481,7 @@ static e2::Delta seq1 (
             iGcScan > fa.writeStartXGPos) {
           return true;
         }
-        if (bam_cigar_type (op) & consumesRef) {
+        if (bam_cigar_type (bam_cigar_op (op)) & consumesRef) {
           iGcScan += bam_cigar_oplen (op);
         }
       }
@@ -510,8 +509,8 @@ static e2::Delta seq1 (
   // FOR EACH OP
   for (size_t iOp = 0; iOp < readFields.nCig; iOp++) {
     const auto op = readFields.cig_br[iOp];
-    const auto opConsumeType = bam_cigar_type (op);
     const auto opType = bam_cigar_op (op);
+    const auto opConsumeType = bam_cigar_type (opType);
     const auto opSz = bam_cigar_oplen (op);
     const auto opOnScreen = (iGc + opSz) >= fa.writeStartXGPos;
 
@@ -708,7 +707,7 @@ void draw_main_to_buffer()
   // since some places just overwrite
   // previous draw calls
   APB_ASSERT_MAIN_UI_VALID;
-  TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
+  TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
 
 
   {
@@ -891,12 +890,18 @@ void draw_main_to_buffer()
     uint16_t nUnitsDrawn = 0;
     sqlite3_reset (g_db::selectStmt);
     // bind offset and limit
-    APB_S3_EXPECT_OK (
-        sqlite3_bind_int64 (g_db::selectStmt, 1, g_db::stmtRowScrollOffset)
+    TUI_S3_EXPECT (
+        sqlite3_bind_int64 (
+            g_db::selectStmt, 1, g_db::stmtRowScrollOffset
+        ),
+        SQLITE_OK
     );
-    APB_S3_EXPECT_OK (sqlite3_bind_int64 (
-        g_db::selectStmt, 2, seqWriteLim.y - seqWriteHead.y
-    ));
+    TUI_S3_EXPECT (
+        sqlite3_bind_int64 (
+            g_db::selectStmt, 2, seqWriteLim.y - seqWriteHead.y
+        ),
+        SQLITE_OK
+    );
     if (g_db::nStmtRows > 0) {
       // file of the last header drawn on this page
       std::string headerFile;
@@ -1061,7 +1066,7 @@ void draw_main_to_buffer()
     std::string userQueryDisplay;
     if (!userQueryFrags.where.empty()) {
       userQueryDisplay.append ("WHERE ");
-      userQueryDisplay.append (sql::process_where (userQueryFrags.where));
+      userQueryDisplay.append (process_where (userQueryFrags.where));
     }
     if (!userQueryFrags.orderBy.empty()) {
       if (!userQueryDisplay.empty()) {

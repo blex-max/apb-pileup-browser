@@ -1,3 +1,5 @@
+#include "hts2apb.hpp"
+
 #include <fmt/format.h>
 #include <htslib/hts.h>
 #include <htslib/kstring.h>
@@ -15,7 +17,6 @@
 #include <string_view>
 #include <vector>
 
-#include "hts_sql.hpp"
 #include "hts_types.hpp"
 #include "schema.hpp"
 #include "shared/apb_assert.hpp"
@@ -40,18 +41,18 @@ static int exec_sql (sqlite3* conn, const std::string_view sql)
   return sqlite3_exec (conn, std::string{sql}.c_str(), NULL, NULL, NULL);
 };
 
-int apb_init_db (sqlite3* conn)
+int apb_init_db (sqlite3** connp)
 {
-  TRY_OK_INT (sqlite3_open (":memory:", &conn));
+  TRY_OK_INT (sqlite3_open (":memory:", connp));
 
-  TRY_OK_INT (exec_sql (conn, schema::sqlSetAppId));
-  TRY_OK_INT (exec_sql (conn, schema::sqlSetVersion));
-  TRY_OK_INT (exec_sql (conn, schema::sqlSetTempStoreMemory));
-  TRY_OK_INT (exec_sql (conn, schema::sqlSetFK));
-  TRY_OK_INT (exec_sql (conn, schema::sqlCreateLocusTable));
-  TRY_OK_INT (exec_sql (conn, schema::sqlCreateFileTable));
-  TRY_OK_INT (exec_sql (conn, schema::sqlCreatePerRecordTable));
-  TRY_OK_INT (exec_sql (conn, schema::sqlCreateUserView));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlSetAppId));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlSetVersion));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlSetTempStoreMemory));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlSetFK));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlCreateLocusTable));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlCreateFileTable));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlCreatePerRecordTable));
+  TRY_OK_INT (exec_sql (*connp, schema::sqlCreateUserView));
 
   return SQLITE_OK;
 }
@@ -62,8 +63,7 @@ static int read_int_pragma (sqlite3* conn, const char* sql, int& result)
   TRY_OK_INT (sqlite3_prepare_v2 (conn, sql, -1, &o_stmt, NULL));
   Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
-  int rc = sqlite3_step (o_stmt);
-  if (rc != SQLITE_ROW) {
+  if (const int rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
     return rc;
   }
 
@@ -125,7 +125,7 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
   }
   // Verify the loaded schema matches apb's expected schema.
   sqlite3* refdb = nullptr;
-  if (const auto rc = apb_init_db (refdb); rc != SQLITE_OK) {
+  if (const auto rc = apb_init_db (&refdb); rc != SQLITE_OK) {
     return std::unexpected (rc);
   }
   Defer refdbCleanup ([&]() { sqlite3_close_v2 (refdb); });
@@ -433,7 +433,7 @@ static bool fill_fields (
   return true;
 }
 
-insert_pileup_status_t apb_insert_pileup (
+std::expected<void, insert_pileup_err_t> apb_insert_pileup (
     sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
     const std::function<const char*(int)>& mtid2name
 )
@@ -444,13 +444,17 @@ insert_pileup_status_t apb_insert_pileup (
           static_cast<int> (schema::sqlInsertReads.size()), &o_stmt, NULL
       );
       rc != SQLITE_OK) {
-    return {insert_pileup_status_t::sqlFail, rc};
+    return std::unexpected (
+        insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
+    );
   }
   Defer stmt_cleanup ([&o_stmt]() { return sqlite3_finalize (o_stmt); });
 
   // manually begin/commit transaction.
   if (const auto rc = exec_sql (conn, "BEGIN;"); rc != SQLITE_OK) {
-    return {insert_pileup_status_t::sqlFail, rc};
+    return std::unexpected (
+        insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
+    );
   }
 
   for (size_t i = 0; i < plp.size(); ++i) {
@@ -479,17 +483,20 @@ insert_pileup_status_t apb_insert_pileup (
     // FIXME: return qname of offending read on failure
     // NOTE: fill_fields asserts internally
     if (!fill_fields (readI, p1, mtidName)) {
-      return insert_pileup_status_t{
-          .code = insert_pileup_status_t::auxParseFail,
-          .rc = std::nullopt /* no specific code */
-      };
+      return std::unexpected (
+          insert_pileup_err_t{
+              insert_pileup_err_t::auxParseFail, std::nullopt
+          }
+      );
     }
 
-#define TRY_BIND(bind_fn)                           \
-  do {                                              \
-    if (const auto rc = bind_fn; rc != SQLITE_OK) { \
-      return {insert_pileup_status_t::sqlFail, rc}; \
-    }                                               \
+#define TRY_BIND(bind_fn)                                       \
+  do {                                                          \
+    if (const auto rc = bind_fn; rc != SQLITE_OK) {             \
+      return std::unexpected (                                  \
+          insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc} \
+      );                                                        \
+    }                                                           \
   } while (false)
 
     /* bind statement */
@@ -602,14 +609,18 @@ insert_pileup_status_t apb_insert_pileup (
 #undef TRY_BIND
 
     if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
-      return {insert_pileup_status_t::sqlFail, rc};
+      return std::unexpected (
+          insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
+      );
     }
     sqlite3_reset (o_stmt);  // rc mirrors the step already checked above
     sqlite3_clear_bindings (o_stmt);  // cannot fail per sqlite3 docs
   }
 
   if (const auto rc = exec_sql (conn, "COMMIT;"); rc != SQLITE_OK) {
-    return {insert_pileup_status_t::sqlFail, rc};
+    return std::unexpected (
+        insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
+    );
   }
   return {};
 };
@@ -638,7 +649,8 @@ insert_pileup_status_t apb_insert_pileup (
     TRY_OK_INT (sqlite3_prepare_v2 (
         conn, "SELECT COUNT(*) FROM alignment_files;", -1, &o_stmt, NULL
     ));
-    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
+    Defer count_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
       return rc;
     }
     nAln = static_cast<uint16_t> (sqlite3_column_int (o_stmt, 0));
@@ -713,7 +725,6 @@ std::expected<int, int> apb_insert_aln (
 /* --- TESTS --- */
 #ifndef DOCTEST_CONFIG_DISABLE
 
-#include <filesystem>
 #include <limits>
 
 #include "doctest.h"
@@ -727,12 +738,12 @@ TEST_CASE ("append_json_escaped escapes per JSON string rules")
   {
     std::string out;
     const std::string in = "A\"B";
-    hts2sql::append_json_escaped (in.data(), in.size(), out);
+    append_json_escaped (in.data(), in.size(), out);
     CHECK (out == "A\\\"B");
 
     out.clear();
     const std::string in2 = "A\\B";
-    hts2sql::append_json_escaped (in2.data(), in2.size(), out);
+    append_json_escaped (in2.data(), in2.size(), out);
     CHECK (out == "A\\\\B");
   }
 
@@ -740,12 +751,12 @@ TEST_CASE ("append_json_escaped escapes per JSON string rules")
   {
     std::string out;
     const char in[] = {static_cast<char> (0x01)};
-    hts2sql::append_json_escaped (in, 1, out);
+    append_json_escaped (in, 1, out);
     CHECK (out == "\\u0001");
 
     out.clear();
     const char in2[] = {static_cast<char> (0x1f)};
-    hts2sql::append_json_escaped (in2, 1, out);
+    append_json_escaped (in2, 1, out);
     CHECK (out == "\\u001f");
   }
 
@@ -756,12 +767,12 @@ TEST_CASE ("append_json_escaped escapes per JSON string rules")
   {
     std::string out;
     const std::string in = "hello";
-    hts2sql::append_json_escaped (in.data(), in.size(), out);
+    append_json_escaped (in.data(), in.size(), out);
     CHECK (out == "hello");
 
     out.clear();
     const char in2[] = {static_cast<char> (0xC3)};
-    hts2sql::append_json_escaped (in2, 1, out);
+    append_json_escaped (in2, 1, out);
     REQUIRE (out.size() == 1);
     CHECK (static_cast<unsigned char> (out[0]) == 0xC3);
   }
@@ -769,7 +780,7 @@ TEST_CASE ("append_json_escaped escapes per JSON string rules")
   SUBCASE ("empty input appends nothing")
   {
     std::string out = "unchanged";
-    hts2sql::append_json_escaped (nullptr, 0, out);
+    append_json_escaped (nullptr, 0, out);
     CHECK (out == "unchanged");
   }
 }
@@ -780,7 +791,7 @@ TEST_CASE ("aux1_to_json escapes quote and backslash in string tags")
   SUBCASE ("string value containing '\"' and '\\' gets escaped")
   {
     uint8_t buf[] = {'Z', 'Z', 'Z', 'a', '"', 'b', '\\', 'c', '\0'};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
 
     std::string expectedVal = "a";
@@ -805,7 +816,7 @@ TEST_CASE (
   SUBCASE ("zero elements")
   {
     uint8_t buf[] = {'X', 'Y', 'B', 'c', 0, 0, 0, 0};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"XY\":[]");
   }
@@ -813,7 +824,7 @@ TEST_CASE (
   SUBCASE ("single element")
   {
     uint8_t buf[] = {'X', 'Y', 'B', 'c', 1, 0, 0, 0, 5};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"XY\":[5]");
   }
@@ -821,7 +832,7 @@ TEST_CASE (
   SUBCASE ("three elements")
   {
     uint8_t buf[] = {'X', 'Y', 'B', 'c', 3, 0, 0, 0, 1, 2, 3};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"XY\":[1,2,3]");
   }
@@ -832,7 +843,7 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
   const auto floatTag = [] (float f) {
     uint8_t buf[7] = {'X', 'F', 'f'};
     std::memcpy (buf + 3, &f, sizeof (f));
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     return *r;
   };
@@ -843,7 +854,7 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
   {
     uint8_t buf[] = {'X', 'F', 'B', 'f', 2, 0, 0,  0,
                      0,   0,   192, 63,  0, 0, 32, 64};  // 1.5f, 2.5f
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"XF\":[1.5,2.5]");
   }
@@ -869,7 +880,7 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
     };
     uint8_t buf[8 + sizeof (v)] = {'X', 'F', 'B', 'f', 3, 0, 0, 0};
     std::memcpy (buf + 8, v, sizeof (v));
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"XF\":[1.5,null,null]");
   }
@@ -877,7 +888,7 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
   SUBCASE ("empty string")
   {
     uint8_t buf[] = {'Z', 'E', 'Z', '\0'};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"ZE\":\"\"");
   }
@@ -885,7 +896,7 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
   SUBCASE ("hex string")
   {
     uint8_t buf[] = {'H', 'X', 'H', '1', 'A', '\0'};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"HX\":\"1A\"");
   }
@@ -893,89 +904,12 @@ TEST_CASE ("aux1_to_json formats float, hex and awkward string tags")
   SUBCASE ("control character in string")
   {
     uint8_t buf[] = {'C', 'C', 'Z', 'a', 0x01, 'b', '\0'};
-    auto r = hts2sql::aux1_to_json (buf + 2, buf + sizeof (buf));
+    auto r = aux1_to_json (buf + 2, buf + sizeof (buf));
     REQUIRE (r);
     CHECK (*r == "\"CC\":\"a\\u0001b\"");
   }
 }
 
-namespace test {
-
-// alignment_files row that per-record inserts reference via path_id.
-constexpr sqlite3_int64 k_testFileId = 1;
-
-void seed_file (sqlite3* conn)
-{
-  const char* sql =
-      "INSERT INTO alignment_files (id, path, has_contig, has_reads) "
-      "VALUES (1, 'test.bam', 1, 1);";
-  REQUIRE (
-      sqlite3_exec (conn, sql, nullptr, nullptr, nullptr) == SQLITE_OK
-  );
-}
-
-}  // namespace test
-
-/* ---- TESTS seed_reads (shared fixture) ---- */
-
-namespace test {
-
-// seed a fresh db with locus metadata and three reads
-void seed_reads (
-    sqlite3* conn, int16_t nAln, std::optional<std::string> refSlice
-)
-{
-  seed_file (conn);
-  REQUIRE (
-      hts2sql::insert_metadata (
-          conn, "chr1", 149, GenomicSpan{.start = 99, .end = 200},
-          std::move (refSlice), nAln
-      ) == SQLITE_OK
-  );
-
-  auto stmt = hts2sql::prepare_insert_reads_stmt (conn);
-
-  auto row = [] (std::string qName, uint16_t flag, uint8_t mapQ,
-                 hts_pos_t start, hts_pos_t end) {
-    hts2sql::PileupFields pf{};
-    pf.qName = std::move (qName);
-    pf.flag = flag;
-    pf.start = start - 1;  // 0-indexed input -> db start
-    pf.end = end;  // unshifted -> db end
-    pf.mapQ = mapQ;
-    pf.base = 'A';
-    pf.baseQual = 30;
-    pf.qPos = 0;
-    pf.indel = 0;
-    pf.isDel = false;
-    pf.isHead = false;
-    pf.isTail = false;
-    pf.isRefSkip = false;
-    pf.cig = "1M";
-    pf.seq = "A";
-    pf.rawQual = std::vector<uint8_t> (1, 30);
-    pf.auxJson = "";
-    pf.rawCig = {static_cast<uint32_t> (bam_cigar_gen (1, BAM_CMATCH))};
-    pf.nCig = pf.rawCig.size();
-    return pf;
-  };
-
-  // (qName, flag, mapQ, start, end) -- all satisfy
-  // 100 <= start <= 150 <= end <= 200.
-  const std::vector<hts2sql::PileupFields> rows{
-      row ("readA", 99, 60, 100, 170),
-      row ("readB", 4, 10, 120, 190),
-      row ("readC", 99, 45, 140, 200),
-  };
-  for (const auto& pf : rows) {
-    hts2sql::bind_read_data (stmt, pf, k_testFileId);
-    REQUIRE (sqlite3_step (stmt) == SQLITE_DONE);
-    sqlite3_reset (stmt);
-    sqlite3_clear_bindings (stmt);
-  }
-}
-
-}  // namespace test
 
 /* ---- TESTS insert_pileup ---- */
 
@@ -1192,7 +1126,8 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
   }
 
   /* pile up and insert */
-  sqlite3* conn = setup_db::init();
+  sqlite3* conn = nullptr;
+  REQUIRE (apb_init_db (&conn) == SQLITE_OK);
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
   test::seed_file (conn);
 
@@ -1214,12 +1149,12 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
     }
     REQUIRE (plpPos == pileupPos0);
     REQUIRE (static_cast<size_t> (nPlp) == cases.size());
-    const auto status = hts2sql::insert_pileup (
-        conn, br_plp, static_cast<size_t> (nPlp), "chr1",
+    const auto status = apb_insert_pileup (
+        conn, std::span (br_plp, static_cast<size_t> (nPlp)),
         test::k_testFileId,
         [hdr] (int tid) { return sam_hdr_tid2name (hdr, tid); }
     );
-    REQUIRE (status.code == hts2sql::InsertPileupStatus::success);
+    REQUIRE (status.has_value());
     found = true;
     break;
   }
@@ -1328,139 +1263,6 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
     CHECK (got == want);
   }
   CHECK (nRows == cases.size());
-}
-
-/* ---- TESTS dump_to_disk / load_from_disk ---- */
-
-namespace test {
-
-std::filesystem::path temp_db_path (std::string_view name)
-{
-  return std::filesystem::temp_directory_path() / name;
-}
-
-// Every column of every row of `sql`'s result, as one string.
-std::string digest (sqlite3* conn, const char* sql)
-{
-  sqlite3_stmt* o_stmt = nullptr;
-  REQUIRE (sqlite3_prepare_v2 (conn, sql, -1, &o_stmt, NULL) == SQLITE_OK);
-  Defer stmtCleanup ([&]() { sqlite3_finalize (o_stmt); });
-  std::string out;
-  while (sqlite3_step (o_stmt) == SQLITE_ROW) {
-    for (int i = 0; i < sqlite3_column_count (o_stmt); ++i) {
-      if (sqlite3_column_type (o_stmt, i) == SQLITE_NULL) {
-        out += "NULL";
-      }
-      else if (sqlite3_column_type (o_stmt, i) == SQLITE_BLOB) {
-        const auto* br_blob =
-            static_cast<const uint8_t*> (sqlite3_column_blob (o_stmt, i));
-        for (int j = 0; j < sqlite3_column_bytes (o_stmt, i); ++j) {
-          out += fmt::format ("{:02x}", br_blob[j]);
-        }
-      }
-      else {
-        out += reinterpret_cast<const char*> (
-            sqlite3_column_text (o_stmt, i)
-        );
-      }
-      out += '|';
-    }
-    out += '\n';
-  }
-  return out;
-}
-
-}  // namespace test
-
-TEST_CASE ("dump_to_disk then load_from_disk round-trips a database")
-{
-  const auto path = test::temp_db_path ("apb-test-roundtrip.db");
-  std::filesystem::remove (path);
-  Defer removeFile ([&]() { std::filesystem::remove (path); });
-
-  sqlite3* conn = setup_db::init();
-  Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn, 2, std::make_optional<std::string> ("ACGTACGT"));
-  REQUIRE (
-      sqlite3_exec (
-          conn,
-          "INSERT INTO alignment_files (path, has_contig, has_reads) "
-          "VALUES ('other.bam', 0, 0);",
-          nullptr, nullptr, nullptr
-      ) == SQLITE_OK
-  );
-
-  REQUIRE (
-      setup_db::dump_to_disk (conn, path.string()).code ==
-      setup_db::DiskDumpStatus::success
-  );
-  auto loadRet = setup_db::load_from_disk (path.string());
-  REQUIRE (loadRet);
-  sqlite3* loaded = *loadRet;
-  Defer closeLoaded ([&]() { sqlite3_close_v2 (loaded); });
-
-  CHECK (
-      test::digest (loaded, "SELECT * FROM reads ORDER BY id;") ==
-      test::digest (conn, "SELECT * FROM reads ORDER BY id;")
-  );
-  CHECK (
-      test::digest (
-          loaded, "SELECT * FROM alignment_files ORDER BY id;"
-      ) ==
-      test::digest (conn, "SELECT * FROM alignment_files ORDER BY id;")
-  );
-  CHECK (
-      test::digest (loaded, "SELECT * FROM locus_metadata;") ==
-      test::digest (conn, "SELECT * FROM locus_metadata;")
-  );
-}
-
-TEST_CASE ("load_from_disk reports a typed error for unusable files")
-{
-  const auto path = test::temp_db_path ("apb-test-unusable.db");
-  std::filesystem::remove (path);
-  Defer removeFile ([&]() { std::filesystem::remove (path); });
-
-  SUBCASE ("nonexistent file")
-  {
-    const auto ret = setup_db::load_from_disk (path.string());
-    REQUIRE_FALSE (ret);
-    CHECK (ret.error().code == setup_db::LoadErr::openFail);
-  }
-
-  SUBCASE ("sqlite file with a different schema")
-  {
-    sqlite3* other = nullptr;
-    REQUIRE (
-        sqlite3_open_v2 (
-            path.c_str(), &other,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL
-        ) == SQLITE_OK
-    );
-    REQUIRE (
-        sqlite3_exec (other, "CREATE TABLE x (a);", NULL, NULL, NULL) ==
-        SQLITE_OK
-    );
-    sqlite3_close_v2 (other);
-
-    const auto ret = setup_db::load_from_disk (path.string());
-    REQUIRE_FALSE (ret);
-    CHECK (ret.error().code == setup_db::LoadErr::schemaMismatch);
-  }
-
-  SUBCASE ("apb database with no locus metadata")
-  {
-    sqlite3* conn = setup_db::init();
-    Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-    REQUIRE (
-        setup_db::dump_to_disk (conn, path.string()).code ==
-        setup_db::DiskDumpStatus::success
-    );
-
-    const auto ret = setup_db::load_from_disk (path.string());
-    REQUIRE_FALSE (ret);
-    CHECK (ret.error().code == setup_db::LoadErr::contentCorrupt);
-  }
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

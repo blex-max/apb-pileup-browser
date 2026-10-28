@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "data/hts_types.hpp"
+#include "model/hts_types.hpp"
 
 struct synthetic_pileup_t {
   std::vector<bam_pileup1_t> p;

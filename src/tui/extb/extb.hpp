@@ -1,13 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <ranges>
+#include <span>
+#include <string_view>
+
 extern "C" {
 #include "termbox2.h"
 }
 
-#include <ranges>
-#include <span>
-#include <string_view>
 
 // NOTE: on API design
 // - free functions favoured where a concept applies over more than one type

@@ -1,3 +1,5 @@
+#include "state.hpp"
+
 #include <fmt/format.h>
 #include <sqlite3.h>
 
@@ -9,14 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "app/g_state.hpp"
-#include "app/sql.hpp"
-#include "backend/hts_sql.hpp"
-#include "backend/schema.hpp"
+#include "model/schema.hpp"
+#include "query.hpp"
 #include "shared/cleanup.hpp"
-#include "tui/tui_assert.hpp"
 
-namespace g_state::ui {
+namespace tui_state::ui {
 
 constinit std::array<ColMetadata, 10> tableCols{{
     {false, "qpos", 6,
@@ -109,11 +108,11 @@ constinit std::array<ColMetadata, 10> tableCols{{
      }},
 }};
 
-}  // namespace g_state::ui
+}  // namespace tui_state::ui
 
-namespace g_state::db {
+namespace tui_state::db {
 
-SetQueryStatus set_query (sql::QueryFragments userFrags)
+SetQueryStatus set_query (QueryFragments userFrags)
 {
   // minor guard/cleanup of user sql
   for (auto& whereFrag : userFrags.where) {
@@ -129,7 +128,7 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
   // build WHERE
   if (!userFrags.where.empty()) {
     userQuerySuffix.append ("WHERE ");
-    userQuerySuffix.append (sql::process_where (userFrags.where));
+    userQuerySuffix.append (process_where (userFrags.where));
     // add newline to avoid issues from user sql e.g. trailing
     // -- comment
     userQuerySuffix.append ("\n");
@@ -166,7 +165,6 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
     Defer stmt_cleanup ([&o_createTblStmt]() {
       sqlite3_finalize (o_createTblStmt);
     });
-    // NOTE: these probably don't need seperate return codes...
     if (const auto rc = sqlite3_prepare_v2 (
             conn, sqlCreateTempTable.data(),
             static_cast<int> (sqlCreateTempTable.size()), &o_createTblStmt,
@@ -188,17 +186,37 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
 
   // Materialise temp table of ordered rowids for reads view
   // to avoid paying the cost of sorting every frame.
-  APB_S3_EXPECT_OK (sqlite3_exec (
-      g_state::db::conn,
-      "DROP TABLE IF EXISTS ordered_query;"
-      "ALTER TABLE new_ordered_query RENAME TO ordered_query;",
-      NULL, NULL, NULL
-  ));
+  if (const auto rc = sqlite3_exec (
+          conn,
+          "DROP TABLE IF EXISTS ordered_query;"
+          "ALTER TABLE new_ordered_query RENAME TO ordered_query;",
+          NULL, NULL, NULL
+      );
+      rc != SQLITE_OK) {
+    // DROP will fail if there are any active statements
+    if (rc == SQLITE_LOCKED || rc == SQLITE_BUSY) {
+      std::string busySql;
+      for (auto* s = sqlite3_next_stmt (conn, nullptr); s != nullptr;
+           s = sqlite3_next_stmt (conn, s)) {
+        if (sqlite3_stmt_busy (s) != 0) {
+          busySql += fmt::format ("\n  {}", sqlite3_sql (s));
+        }
+      }
+      TUI_UNREACHABLE (
+          "failed to drop previous query: active statements", rc,
+          sqlite3_errstr (rc), sqlite3_errmsg (conn), busySql
+      );
+    }
+    TUI_UNREACHABLE (
+        "failed to drop previous query", rc, sqlite3_errstr (rc),
+        sqlite3_errmsg (conn)
+    );
+  }
 
   int64_t queryRowCount = 0;
   {
     sqlite3_stmt* o_queryRowCountStmt = nullptr;
-    APB_S3_EXPECT (
+    TUI_S3_EXPECT (
         sqlite3_prepare_v2 (
             conn, "SELECT COUNT(*) FROM ordered_query;", -1,
             &o_queryRowCountStmt, NULL
@@ -208,7 +226,7 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
     Defer cleanup ([&o_queryRowCountStmt]() {
       sqlite3_finalize (o_queryRowCountStmt);
     });
-    APB_S3_EXPECT (sqlite3_step (o_queryRowCountStmt), SQLITE_ROW);
+    TUI_S3_EXPECT (sqlite3_step (o_queryRowCountStmt), SQLITE_ROW);
     queryRowCount = sqlite3_column_int64 (o_queryRowCountStmt, 0);
     TUI_ASSERT (queryRowCount >= 0);
   }
@@ -217,14 +235,17 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
     /* check which alignments have reads */
     std::vector<EmptyFile> emptyForQuery;
     sqlite3_stmt* o_alnSelStmt = nullptr;
-    APB_S3_EXPECT_OK (sqlite3_prepare_v2 (
-        conn,
-        "SELECT a.path, a.has_contig, a.has_reads FROM "
-        "alignment_files AS a LEFT JOIN (SELECT DISTINCT path_id FROM "
-        "ordered_query) AS o ON o.path_id = a.id WHERE o.path_id IS "
-        "NULL ORDER BY a.id;",
-        -1, &o_alnSelStmt, NULL
-    ));
+    TUI_S3_EXPECT (
+        sqlite3_prepare_v2 (
+            conn,
+            "SELECT a.path, a.has_contig, a.n_reads FROM "
+            "alignment_files AS a LEFT JOIN (SELECT DISTINCT path_id FROM "
+            "ordered_query) AS o ON o.path_id = a.id WHERE o.path_id IS "
+            "NULL ORDER BY a.id;",
+            -1, &o_alnSelStmt, NULL
+        ),
+        SQLITE_OK
+    );
     Defer alnSelStmt_cleanup ([&o_alnSelStmt]() {
       sqlite3_finalize (o_alnSelStmt);
     });
@@ -238,13 +259,12 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
       };
       const bool hasContig =
           static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 1));
-      const bool hasReads =
-          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 2));
+      const int64_t n_reads = sqlite3_column_int64 (o_alnSelStmt, 2);
 
       // NOTE: any file which does not have locus reads/contig
       // will always retain the same reason, so maybe this is
       // suboptimal. But it will do.
-      if (hasReads) {
+      if (n_reads > 0) {
         emptyForQuery.emplace_back (
             path, EmptyFileReason::noMatchingReads
         );
@@ -268,7 +288,7 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
   // so why are we selecting it!
   // This will need additional machinery for getting
   // the right columns on retrieval though.
-  APB_S3_EXPECT (
+  TUI_S3_EXPECT (
       sqlite3_prepare_v2 (
           conn,
           "SELECT r.* FROM ordered_query o JOIN reads r ON r.id = o.id "
@@ -286,24 +306,37 @@ SetQueryStatus set_query (sql::QueryFragments userFrags)
   return SetQueryStatus::success;
 }
 
-}  // namespace g_state::db
+}  // namespace tui_state::db
+
+namespace tui_state {
+
+void tui_shutdown()
+{
+  run = false;
+  sqlite3_finalize (db::selectStmt);
+  tb_shutdown();
+}
+
+}  // namespace tui_state
+
 
 #ifndef DOCTEST_CONFIG_DISABLE
 
 #include "doctest.h"
 #include "fixtures.hpp"
+#include "model/hts2apb.hpp"
 
 namespace {
 
-namespace g_db = g_state::db;
+namespace g_db = tui_state::db;
 
-// owns the g_state::db globals for the duration of a test
+// owns the tui_state::db globals for the duration of a test
 struct DbFixture {
   explicit DbFixture (int16_t nAln)
   {
-    g_db::conn = setup_db::init();
+    REQUIRE (apb_init_db (&g_db::conn) == SQLITE_OK);
     test::seed_reads (g_db::conn, nAln);
-    g_db::locusInfo = sql::get_locus_data (g_db::conn);
+    g_db::locusInfo = get_locus_data (g_db::conn);
   }
   ~DbFixture()
   {
@@ -319,13 +352,7 @@ struct DbFixture {
   DbFixture& operator= (const DbFixture&) = delete;
 };
 
-void exec (const char* sql)
-{
-  REQUIRE (
-      sqlite3_exec (g_db::conn, sql, nullptr, nullptr, nullptr) ==
-      SQLITE_OK
-  );
-}
+void exec (const char* sql) { test::exec_ok (g_db::conn, sql); }
 
 // duplicate file 1's reads into file `id`
 void copy_reads_to_file (int id)
@@ -349,7 +376,7 @@ void add_file (int id, const char* path, int hasContig, int hasReads)
 {
   exec (
       fmt::format (
-          "INSERT INTO alignment_files (id, path, has_contig, has_reads) "
+          "INSERT INTO alignment_files (id, path, has_contig, n_reads) "
           "VALUES ({}, '{}', {}, {});",
           id, path, hasContig, hasReads
       )

@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "data/hts_types.hpp"
+#include "model/hts_types.hpp"
 #include "shared/apb_assert.hpp"
 
 static const char kBaseArray[] = "ACGT";

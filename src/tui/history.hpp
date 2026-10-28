@@ -3,11 +3,12 @@
 #include <string>
 #include <vector>
 
-#include "frontend/input.hpp"
+#include "input.hpp"
 
+//FIXME: merge this TU with input
 struct CmdHistory {
   std::vector<std::string> entries;
-  size_t idx = 0;  // == entries.size() means "at the live line"
+  size_t idx = 0;  // == entries.size() means at input line
   std::string draft;  // in-progress text stashed when browsing starts
 };
 

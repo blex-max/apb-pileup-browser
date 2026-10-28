@@ -5,9 +5,14 @@
 #include <string>
 #include <string_view>
 
+#include "shared/cleanup.hpp"
+
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
-[[nodiscard]] int dump_to_disk (sqlite3* conn, std::string_view path)
+// Returns sqlite3 integer status code.
+[[nodiscard]] inline int dump_to_disk (
+    sqlite3* conn, std::string_view path
+)
 {
   sqlite3* o_dumpConn = nullptr;
   sqlite3_backup* o_backupConn = nullptr;

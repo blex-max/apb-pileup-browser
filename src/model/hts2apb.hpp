@@ -18,11 +18,11 @@
 #include <string>
 #include <string_view>
 
-#include "data/hts_types.hpp"
+#include "hts_types.hpp"
 
 
 // Initialise db with pileup schema (see schema.hpp).
-int apb_init_db (sqlite3* conn);
+[[nodiscard]] int apb_init_db (sqlite3** connp);
 
 // verify a sqlite3* object for use from apb.
 // For e.g. loading from a dump on disk.
@@ -48,14 +48,14 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn);
     sqlite3* conn, std::string_view alnPath, bool hasContig, int64_t nPlp
 );
 
-struct insert_pileup_status_t {
-  enum Code : uint8_t { success, sqlFail, auxParseFail };
-  Code code;
+struct insert_pileup_err_t {
+  enum Kind : uint8_t { sqlFail, auxParseFail };
+  Kind kind;
   std::optional<int> rc = std::nullopt;
 };
 // insert pileup into db for a single alignment file.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-[[nodiscard]] insert_pileup_status_t apb_insert_pileup (
+[[nodiscard]] std::expected<void, insert_pileup_err_t> apb_insert_pileup (
     sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
     const std::function<const char*(int)>& mtid2name
 );

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/helpblocks.hpp"
+#include "helpblocks.hpp"
 
 // Calculates and sets sizes on statically-sized UI elements.
 // Returns true on success, false on failure due

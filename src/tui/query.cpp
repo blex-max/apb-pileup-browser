@@ -1,3 +1,5 @@
+#include "query.hpp"
+
 #include <fmt/format.h>
 #include <sqlite3.h>
 
@@ -6,10 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "schema.hpp"
+#include "model/schema.hpp"
 #include "shared/cleanup.hpp"
-#include "sql.hpp"
-#include "tui/tui_assert.hpp"
+#include "state.hpp"
 
 std::string process_where (const std::vector<std::string>& where)
 {
@@ -92,12 +93,10 @@ PileupMetadata get_locus_data (sqlite3* conn)
 
 TEST_CASE ("process_where left-wraps fragments in parens")
 {
-  CHECK (sql::process_where ({}) == "");
-  CHECK (sql::process_where ({"flag = 99"}) == "flag = 99");
+  CHECK (process_where ({}) == "");
+  CHECK (process_where ({"flag = 99"}) == "flag = 99");
 
-  CHECK (
-      sql::process_where ({"a", "OR b", "AND c"}) == "((a) OR b) AND c"
-  );
+  CHECK (process_where ({"a", "OR b", "AND c"}) == "((a) OR b) AND c");
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

@@ -1,22 +1,30 @@
-#include "init.hpp"
+#include "run.hpp"
 
+#include <cstdlib>
+
+#include "event.hpp"
 #include "query.hpp"
 #include "shared/apb_assert.hpp"
+#include "shared/cleanup.hpp"
 #include "state.hpp"
+#include "widgets.hpp"
 
-int run_tui (sqlite3* conn)
+namespace e2 = extb;
+namespace g_ui = tui_state::ui;
+namespace g_db = tui_state::db;
+
+int run_tui (sqlite3* conn, bool verboseLog)
 {
-  // retrieve locus metadata from db (if we entering
-  // via a dumped db it has not just been inserted).
-  g_db::locusInfo = get_locus_data (conn);
-  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo);
+  g_db::conn = conn;
+  g_db::locusInfo = get_locus_data (g_db::conn);
+  APB_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
   if (g_db::set_query ({}) != g_db::SetQueryStatus::success) {
     APB_UNREACHABLE (
         "Failed to set initial query", sqlite3_errmsg (g_db::conn)
     );
   }
 
-  g_state::ui::cmd::msgBuf =
+  g_ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "
       "coordinates.";
 
@@ -33,11 +41,8 @@ int run_tui (sqlite3* conn)
               << std::endl;
   }
   if (const auto rc = tb_init(); rc != TB_OK) {
-    // Most of tb_init's other failure codes lose their errno text
-    // before we see them: tb_init calls tb_shutdown() ->
-    // tb_reset() internally on any failure, and tb_reset() zeroes
-    // the errno it just recorded. Only TB_ERR_INIT_OPEN survievs.
-    // So we have to word manually.
+    // Most tb_init failure codes lose their errno text
+    // before we see them; word manually.
     switch (rc) {
       case TB_ERR_INIT_ALREADY:
       case TB_ERR_MEM:
@@ -75,7 +80,7 @@ int run_tui (sqlite3* conn)
   }
   // NOTE: cleanup should be invoked before
   // writing to stderr.
-  Defer tb_cleanup ([]() { tb_shutdown(); });
+  Defer tb_cleanup ([]() { tui_state::tui_shutdown(); });
   tb_set_input_mode (TB_INPUT_ALT);
   tb_clear();
 
@@ -90,8 +95,7 @@ int run_tui (sqlite3* conn)
     draw_main_to_buffer();
 
     e2::write_string (
-        first (g_state::ui::cmd::inputLine),
-        last (g_state::ui::cmd::inputLine.xspan),
+        first (g_ui::cmd::inputLine), last (g_ui::cmd::inputLine.xspan),
         /* startup help msg */
         "type here - try `help`", {.fg = TB_DIM}
     );
@@ -111,7 +115,7 @@ int run_tui (sqlite3* conn)
   }
 
   tb_event ev{};
-  while (g_state::run) {
+  while (tui_state::run) {
     tb_clear();
 
     tb_poll_event (&ev);
@@ -119,7 +123,7 @@ int run_tui (sqlite3* conn)
     // too small, to allow quitting.
     handle_event (ev);
     {
-      if (g_state::ui::tooSmall) {
+      if (g_ui::tooSmall) {
         // hold until a resize succeeds
         e2::write_string (
             e2::GlobalCell{0, 0}, tb_width(), "terminal too small",
@@ -128,7 +132,7 @@ int run_tui (sqlite3* conn)
       }
       else {
         draw_main_to_buffer();
-        if (g_state::ui::showOverlay) {
+        if (g_ui::showOverlay) {
           // For help overlays
           draw_overlay_to_buffer();
         }
@@ -159,4 +163,5 @@ int run_tui (sqlite3* conn)
   }
 
   std::cerr << "Bye!" << std::endl;
+  return EXIT_SUCCESS;
 }

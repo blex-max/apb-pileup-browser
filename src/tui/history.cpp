@@ -3,7 +3,7 @@
 #include <string>
 #include <utility>
 
-#include "frontend/input.hpp"
+#include "input.hpp"
 
 void history_push (CmdHistory& h, std::string entry)
 {
