@@ -81,17 +81,20 @@ set(APB_COMPILE_DEFINITIONS
 
 add_executable(apb
   src/app/main.cpp
-  src/app/g_state.cpp
-  src/app/sql.cpp
-  src/app/widgets.cpp
-  src/app/cmd.cpp
-  src/app/manual.cpp
-  src/app/event.cpp
-  src/backend/hts_sql.cpp
-  src/frontend/tb2_impl.cpp
-  src/frontend/input.cpp
-  src/frontend/history.cpp
-  src/demo/demo.cpp
+  src/app/ingest.cpp
+  src/frontend/demo.cpp
+  src/model/hts2apb.cpp
+  src/shared/log.cpp
+  src/tui/cmd.cpp
+  src/tui/event.cpp
+  src/tui/history.cpp
+  src/tui/input.cpp
+  src/tui/manual.cpp
+  src/tui/query.cpp
+  src/tui/run.cpp
+  src/tui/state.cpp
+  src/tui/tb2_impl.cpp
+  src/tui/widgets.cpp
 )
 target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS} DOCTEST_CONFIG_DISABLE)
 target_compile_options(apb
@@ -122,29 +125,35 @@ target_link_libraries(apb
 
 # Tests are co-located with the code they test and compiled out of apb.
 # Any source containing tests must be listed here.
-add_executable(apb-tests
-  tests/test.cpp
-  src/app/g_state.cpp
-  src/app/sql.cpp
-  src/backend/hts_sql.cpp
-  src/frontend/tb2_impl.cpp
-)
-target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
-target_include_directories(apb-tests PRIVATE src tests)
-target_link_libraries(apb-tests
-  PRIVATE
-  doctest
-  termbox2
-  fmt::fmt-header-only
-  ${HTSLIB_TARGET}
-  PkgConfig::DEPS
-)
+option(APB_BUILD_TESTS "Build and run apb-tests" ON)
+if(APB_BUILD_TESTS)
+  add_executable(apb-tests
+    tests/test.cpp
+    tests/fixtures.cpp
+    tests/db_io.cpp
+    src/model/hts2apb.cpp
+    src/shared/log.cpp
+    src/tui/query.cpp
+    src/tui/state.cpp
+    src/tui/tb2_impl.cpp
+  )
+  target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
+  target_include_directories(apb-tests PRIVATE src tests)
+  target_link_libraries(apb-tests
+    PRIVATE
+    doctest
+    termbox2
+    fmt::fmt-header-only
+    ${HTSLIB_TARGET}
+    PkgConfig::DEPS
+  )
 
-add_custom_command(
-  TARGET apb-tests
-  POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E echo "---- running apb-tests ----"
-  COMMAND apb-tests
-  COMMENT "Running apb-tests"
-  VERBATIM
-)
+  add_custom_command(
+    TARGET apb-tests
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "---- running apb-tests ----"
+    COMMAND apb-tests
+    COMMENT "Running apb-tests"
+    VERBATIM
+  )
+endif()
