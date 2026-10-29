@@ -77,6 +77,13 @@ static bool handle_nav (const tb_event& ev)
       move_end (g_cmd::inputBuf);
       break;
 
+    case TB_KEY_CTRL_U:
+      history_next (g_cmd::history, g_cmd::inputBuf);
+      break;
+    case TB_KEY_CTRL_D:
+      history_prev (g_cmd::history, g_cmd::inputBuf);
+      break;
+
     case TB_KEY_ARROW_DOWN:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
         history_next (g_cmd::history, g_cmd::inputBuf);

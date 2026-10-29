@@ -10,8 +10,7 @@
 
 struct synthetic_pileup_t {
   std::vector<bam_pileup1_t> p;
-  GenomicSpan pspan;
-  hts_pos_t ppos;
+  genomic_span_t pspan;
   std::string ref;
 
   // owners must call.
@@ -23,7 +22,7 @@ struct synthetic_pileup_t {
     }
   }
 };
-// generates a synthetic single-alignment pileup.
+
 synthetic_pileup_t generate_demo_data (
     uint16_t regWidth, uint16_t nQuery, hts_pos_t pos
 );

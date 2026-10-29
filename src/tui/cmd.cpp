@@ -16,8 +16,8 @@
 #include <utility>
 #include <vector>
 
-#include "frontend/db_io.hpp"
-#include "frontend/describe.hpp"
+#include "generic/db_io.hpp"
+#include "generic/describe.hpp"
 #include "helpblocks.hpp"
 #include "query.hpp"
 #include "shared/cleanup.hpp"

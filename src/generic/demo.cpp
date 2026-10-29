@@ -71,8 +71,10 @@ synthetic_pileup_t generate_demo_data (
   constexpr size_t maxClipLen = 20;
   std::uniform_int_distribution<size_t> clipLenGen (1, maxClipLen);
   std::uniform_int_distribution<int> mapQGen (0, 60);
-  const std::array<char, 3> qualVals{'F' - 33, 'E' - 33, 'D' - 33};
-  std::discrete_distribution<int> qualValPicker ({100, 20, 10});
+  const std::array<char, 5> qualVals{
+      'F' - 33, 'E' - 33, 'D' - 33, ':' - 33, ';' - 33
+  };
+  std::discrete_distribution<int> qualValPicker ({80, 30, 20, 15, 15});
 
   // Each read carries one allele at the pileup column...
   enum class Allele : uint8_t { Ref, Alt, Ins, Del };
@@ -84,7 +86,7 @@ synthetic_pileup_t generate_demo_data (
   std::discrete_distribution<int> featurePicker ({0.80, 0.10, 0.10});
 
   // read/ref coordinates are absolute (0-based); index refSeq via winStart
-  GenomicSpan span{INT64_MAX, 0};
+  genomic_span_t span{INT64_MAX, 0};
   std::mt19937 rng;
   synthetic_pileup_t out;
   out.p.reserve (nQuery);
@@ -209,7 +211,6 @@ synthetic_pileup_t generate_demo_data (
       static_cast<size_t> (span.start - winStart),
       static_cast<size_t> (span.end - span.start)
   );
-  out.ppos = pos;
   out.pspan = span;
   return out;
 }

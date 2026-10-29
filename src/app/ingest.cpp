@@ -6,8 +6,8 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
-#include "frontend/demo.hpp"
-#include "frontend/describe.hpp"
+#include "generic/demo.hpp"
+#include "generic/describe.hpp"
 #include "model/hts2apb.hpp"
 #include "model/hts_types.hpp"
 #include "shared/apb_assert.hpp"
@@ -159,7 +159,7 @@ std::expected<void, std::string> ingest_sam_auto (
   bool contigFound = false;
   bool readsFoundAtLocus = false;
   uint64_t estLocusBytes = 0;
-  GenomicSpan maxPileupSpan{
+  genomic_span_t maxSpan{
       INT64_MAX, 0
   };  // for fetching appropriate reference slice
   for (const auto& fp : alnPaths) {
@@ -293,8 +293,8 @@ std::expected<void, std::string> ingest_sam_auto (
               bam_cigar2rlen (
                   static_cast<int> (b1->core.n_cigar), bam_get_cigar (b1)
               );
-          maxPileupSpan.start = std::min (maxPileupSpan.start, rStart);
-          maxPileupSpan.end = std::max (maxPileupSpan.end, rEnd);
+          maxSpan.start = std::min (maxSpan.start, rStart);
+          maxSpan.end = std::max (maxSpan.end, rEnd);
         }
         break;
       }
@@ -358,16 +358,16 @@ std::expected<void, std::string> ingest_sam_auto (
       hts_pos_t regLen;
       // uses closed coordinates, hence -1
       auto* o_fetch = faidx_fetch_seq64 (
-          *ff, locusContigName.c_str(), maxPileupSpan.start,
-          maxPileupSpan.end - 1, &regLen
+          *ff, locusContigName.c_str(), maxSpan.start, maxSpan.end - 1,
+          &regLen
       );
       if (o_fetch == NULL) {
         return std::unexpected (
             fmt::format (
                 "Failed to fetch reference region from fasta at {} "
                 "for span {}:{}-{} (0-based end-exclusive coordinates)",
-                refPath.value(), locusContigName, maxPileupSpan.start,
-                maxPileupSpan.end
+                refPath.value(), locusContigName, maxSpan.start,
+                maxSpan.end
             )
         );
       }
@@ -376,7 +376,7 @@ std::expected<void, std::string> ingest_sam_auto (
     }
 
     if (const auto rc = apb_insert_locus (
-            conn, locusContigName, locusPos, maxPileupSpan, refSlice
+            conn, locusContigName, locusPos, maxSpan, refSlice
         );
         rc != SQLITE_OK) {
       return std::unexpected (apb_describe_sqlite_failure (
@@ -397,44 +397,57 @@ std::expected<void, std::string> ingest_sam_auto (
 void ingest_demo_auto (sqlite3* conn)
 {
   APB_ASSERT (conn != nullptr);
-  // TODO: APB_ASSERT(verify_db(connn))
 
   constexpr std::string_view demoContig = "demo-contig";
   constexpr hts_pos_t demoPos = 10'000'000;
 
-  auto demoData = generate_demo_data (300, 1000, demoPos);
+  auto demoData = generate_demo_data (300, 300, demoPos);
   Defer data_cleanup ([&demoData]() { demoData.destroy(); });
-  int demoAlnId;
-  if (const auto ret = apb_insert_aln (
-          conn, "demo-aln-1", true,
-          static_cast<int64_t> (demoData.p.size())
-      );
-      !ret) {
-    APB_UNREACHABLE (
-        "demo insertion malformed", sqlite3_errstr (ret.error()),
-        sqlite3_errmsg (conn)
-    );
-  }
-  else {
-    demoAlnId = *ret;
-  }
+  std::array<std::span<bam_pileup1_t>, 3> demoAlns{
+      std::span<bam_pileup1_t>{
+          begin (demoData.p), begin (demoData.p) + 100
+      },
+      std::span<bam_pileup1_t>{
+          begin (demoData.p) + 100, begin (demoData.p) + 200
+      },
+      std::span<bam_pileup1_t>{begin (demoData.p) + 200, end (demoData.p)}
+  };
+  for (size_t i = 0; i < demoAlns.size(); ++i) {
+    const auto plp = demoAlns[i];
+    std::string alnPath{"/data/samples/demo-aln-"};
+    alnPath.append (std::to_string (i));
 
-  if (const auto ret = apb_insert_pileup (
-          conn, demoData.p, demoAlnId,
-          [&demoContig] (int) { return demoContig.data(); }
-      );
-      !ret) {
-    const auto& err = ret.error();
-    switch (err.kind) {
-      case insert_pileup_err_t::sqlFail:
-        APB_UNREACHABLE (
-            "demo insertion malformed", sqlite3_errstr (err.rc.value()),
-            sqlite3_errmsg (conn)
+    int alnId;
+    if (const auto ret = apb_insert_aln (
+            conn, alnPath, true, static_cast<int64_t> (plp.size())
         );
-      case insert_pileup_err_t::auxParseFail:
-        APB_UNREACHABLE ("bad tag data in demo pileup");
-      default:
-        APB_UNREACHABLE ("unrecognised InsertPileupErr code");
+        !ret) {
+      APB_UNREACHABLE (
+          "demo insertion malformed", sqlite3_errstr (ret.error()),
+          sqlite3_errmsg (conn)
+      );
+    }
+    else {
+      alnId = *ret;
+    }
+
+    if (const auto ret = apb_insert_pileup (
+            conn, plp, alnId,
+            [&demoContig] (int) { return demoContig.data(); }
+        );
+        !ret) {
+      const auto& err = ret.error();
+      switch (err.kind) {
+        case insert_pileup_err_t::sqlFail:
+          APB_UNREACHABLE (
+              "demo insertion malformed", sqlite3_errstr (err.rc.value()),
+              sqlite3_errmsg (conn)
+          );
+        case insert_pileup_err_t::auxParseFail:
+          APB_UNREACHABLE ("bad tag data in demo pileup");
+        default:
+          APB_UNREACHABLE ("unrecognised InsertPileupErr code");
+      }
     }
   }
   APB_ASSERT (

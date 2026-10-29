@@ -21,8 +21,8 @@
 #include <unordered_set>
 #include <vector>
 
-#include "frontend/db_io.hpp"
-#include "frontend/describe.hpp"
+#include "generic/db_io.hpp"
+#include "generic/describe.hpp"
 #include "ingest.hpp"
 #include "model/hts2apb.hpp"
 #include "shared/apb_assert.hpp"

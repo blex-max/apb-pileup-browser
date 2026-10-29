@@ -82,9 +82,9 @@ set(APB_COMPILE_DEFINITIONS
 add_executable(apb
   src/app/main.cpp
   src/app/ingest.cpp
-  src/frontend/db_io.cpp
-  src/frontend/demo.cpp
-  src/frontend/describe.cpp
+  src/generic/db_io.cpp
+  src/generic/demo.cpp
+  src/generic/describe.cpp
   src/model/hts2apb.cpp
   src/tui/cmd.cpp
   src/tui/event.cpp
@@ -102,6 +102,7 @@ target_compile_options(apb
   PRIVATE
   -Wall
   -Wextra
+  -Wno-sign-compare
   -Wpedantic
   -Wshadow
   -Wconversion
@@ -131,8 +132,8 @@ if(APB_BUILD_TESTS)
   add_executable(apb-tests
     tests/test.cpp
     tests/fixtures.cpp
-    src/frontend/db_io.cpp
-    src/frontend/describe.cpp
+    src/generic/db_io.cpp
+    src/generic/describe.cpp
     src/model/hts2apb.cpp
     src/tui/query.cpp
     src/tui/state.cpp

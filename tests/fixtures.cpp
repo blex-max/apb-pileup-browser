@@ -113,7 +113,7 @@ void seed_reads (
   }));
 
   // locus last: it counts the alignment files
-  const GenomicSpan span{.start = 99, .end = 200};
+  const genomic_span_t span{.start = 99, .end = 200};
   std::string ref;
   if (withRef) {
     for (hts_pos_t i = 0; i < span.end - span.start; ++i) {

@@ -336,6 +336,10 @@ htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 0-bas
 
 apb uses 1-based closed coordinates throughtout, i.e coordinates start at 1, and coordinate ranges are [x-y] where both x and y are included. 1-based closed coordinates match the human-readable VCF and SAM format specs, and to `samtools` commands e.g. `samtools view ...`. Coordinates from these sources, i.e. a variant locus from a VCF, may be passed directly to the locus CLI argument at startup. Loci from 0-indexed sources, e.g. BED files, may be passed directly to the CLI argument if the `-0` flag is set, but the display and internal data will still be in 1-based closed coordinates. If extracting loci from unspecified or uncertain sources, make sure to confirm the coordinate system! The 1-based coordinates as displayed in apb also match the behaviour of both `IGV` and `jbrowse`.
 
+## macOS Terminal users
+
+By default the macOS terminal app strips the shift modifier from the up and down arrow keys. Change the terminal settings as described here https://world.hey.com/scottguthart/fix-shift-up-and-shift-down-on-mac-s-terminal-app-7e2908a4, or use the alternative keybinds for stepping through the command history.
+
 ---
 
 See the README or the project GitHub (https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap, and other background.

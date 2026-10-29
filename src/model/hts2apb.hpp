@@ -70,5 +70,5 @@ struct insert_pileup_err_t {
 // Another fn?
 [[nodiscard]] int apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
-    GenomicSpan span, std::optional<std::string_view> ref
+    genomic_span_t span, std::optional<std::string_view> ref
 );

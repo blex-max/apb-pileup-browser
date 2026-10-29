@@ -632,7 +632,7 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
 
 [[nodiscard]] int apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
-    GenomicSpan span, std::optional<std::string_view> ref
+    genomic_span_t span, std::optional<std::string_view> ref
 )
 {
   /*
@@ -646,7 +646,7 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
   APB_ASSERT (span.valid(), span.to_string());
   APB_ASSERT (pos >= 0, pos);
   APB_ASSERT (pos >= span.start, pos, span.to_string());
-  APB_ASSERT (pos <= span.end, pos, span.to_string());
+  APB_ASSERT (pos < span.end, pos, span.to_string());  // end-exclusive
   if (ref) {
     APB_ASSERT (!ref->empty());
   }

@@ -5,7 +5,7 @@
 
 #include <string>
 
-struct GenomicSpan {
+struct genomic_span_t {
   // 0-indexed htslib-side span
   hts_pos_t start;
   hts_pos_t end;

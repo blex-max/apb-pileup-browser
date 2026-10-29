@@ -19,5 +19,5 @@ Checks: >
   -readability-redundant-inline-specifier
 
 WarningsAsErrors: ''
-HeaderFilterRegex: 'src/(app|backend|frontend|demo|shared)/'
+HeaderFilterRegex: 'src/(app|backend|generic|demo|shared)/'
 FormatStyle: file
