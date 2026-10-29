@@ -301,9 +301,25 @@ SetQueryStatus set_query (QueryFragments userFrags)
 
   sqlite3_finalize (selectStmt);
   selectStmt = br_newStmt;
+
+  std::string userQueryStr;
+  if (!userFrags.where.empty()) {
+    userQueryStr.append ("WHERE ");
+    userQueryStr.append (process_where (userFrags.where));
+  }
+  if (!userFrags.orderBy.empty()) {
+    if (!userQueryStr.empty()) {
+      userQueryStr.append (" ");
+    }
+    userQueryStr.append ("ORDER BY ");
+    userQueryStr.append (userFrags.orderBy);
+  }
+  ui::cmd::userQueryStr = userQueryStr;
+
   userClause = std::move (userFrags);
   stmtRowScrollOffset = 0;  // reset row view
   nStmtRows = static_cast<uint64_t> (queryRowCount);
+
   return SetQueryStatus::success;
 }
 

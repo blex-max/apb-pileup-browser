@@ -1063,22 +1063,23 @@ void draw_main_to_buffer()
         {.fg = TB_DIM}
     );
 
-    std::string userQueryDisplay;
-    if (!userQueryFrags.where.empty()) {
-      userQueryDisplay.append ("WHERE ");
-      userQueryDisplay.append (process_where (userQueryFrags.where));
-    }
-    if (!userQueryFrags.orderBy.empty()) {
-      if (!userQueryDisplay.empty()) {
-        userQueryDisplay.append (" ");
-      }
-      userQueryDisplay.append ("ORDER BY ");
-      userQueryDisplay.append (userQueryFrags.orderBy);
-    }
+    // FIXME: set once per query in set_query
+    // g_cmd::userQueryStr.clear();
+    // if (!userQueryFrags.where.empty()) {
+    //   g_cmd::userQueryStr.append ("WHERE ");
+    //   g_cmd::userQueryStr.append (process_where (userQueryFrags.where));
+    // }
+    // if (!userQueryFrags.orderBy.empty()) {
+    //   if (!g_cmd::userQueryStr.empty()) {
+    //     g_cmd::userQueryStr.append (" ");
+    //   }
+    //   g_cmd::userQueryStr.append ("ORDER BY ");
+    //   g_cmd::userQueryStr.append (userQueryFrags.orderBy);
+    // }
 
     e2::write_string (
         first (g_cmd::queryStatusLine), last (g_cmd::queryStatusLine).x,
-        userQueryDisplay, {.fg = TB_DIM}
+        g_cmd::userQueryStr, {.fg = TB_DIM}
     );
   }
 

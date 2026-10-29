@@ -26,7 +26,7 @@ static bool handle_nav (const tb_event& ev)
       // execute user command
       if (!g_cmd::inputBuf.text.empty()) {
         history_push (g_cmd::history, g_cmd::inputBuf.text);
-        g_cmd::msgBuf = exec_cmd (g_cmd::inputBuf.text).msg;  // return msg
+        g_cmd::msgBuf = exec_cmd (g_cmd::inputBuf.text);  // return msg
         clear (g_cmd::inputBuf);
       }
       break;
@@ -75,6 +75,12 @@ static bool handle_nav (const tb_event& ev)
 
     case TB_KEY_CTRL_E:
       move_end (g_cmd::inputBuf);
+      break;
+
+    case TB_KEY_CTRL_R:
+      if (!g_cmd::userQueryStr.empty()) {
+        set_text (g_cmd::inputBuf, g_cmd::userQueryStr);
+      }
       break;
 
     case TB_KEY_CTRL_U:

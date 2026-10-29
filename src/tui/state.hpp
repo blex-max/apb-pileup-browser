@@ -120,6 +120,7 @@ inline constinit CmdHistory history;
 inline constinit extb::HLine sepLine;
 inline constinit extb::HLine msgLine;
 inline constinit std::string msgBuf;
+inline constinit std::string userQueryStr;
 
 }  // namespace cmd
 

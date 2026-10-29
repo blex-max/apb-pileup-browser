@@ -135,9 +135,11 @@ if(APB_BUILD_TESTS)
     src/generic/db_io.cpp
     src/generic/describe.cpp
     src/model/hts2apb.cpp
+    src/tui/cmd.cpp
     src/tui/query.cpp
     src/tui/state.cpp
     src/tui/tb2_impl.cpp
+    src/tui/widgets.cpp
   )
   target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
   target_include_directories(apb-tests PRIVATE src tests)
