@@ -200,13 +200,6 @@ synthetic_pileup_t generate_demo_data (
     span.start = std::min (readStart, span.start);
     span.end = std::max (refPos, span.end);
   }
-
-  std::sort (
-      out.p.begin(), out.p.end(), [] (const auto& a, const auto& b) {
-        return a.b->core.pos < b.b->core.pos;
-      }
-  );
-
   out.ref = refSeq.substr (
       static_cast<size_t> (span.start - winStart),
       static_cast<size_t> (span.end - span.start)

@@ -414,6 +414,9 @@ void ingest_demo_auto (sqlite3* conn)
   };
   for (size_t i = 0; i < demoAlns.size(); ++i) {
     const auto plp = demoAlns[i];
+    std::sort (begin (plp), end (plp), [] (const auto& a, const auto& b) {
+      return a.b->core.pos < b.b->core.pos;
+    });
     std::string alnPath{"/data/samples/demo-aln-"};
     alnPath.append (std::to_string (i));
 

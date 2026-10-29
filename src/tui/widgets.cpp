@@ -1046,9 +1046,7 @@ void draw_main_to_buffer()
     set (writeHead, boxch::vertLine, {.fg = TB_DIM});
   }
   {
-    // draw cmd
-    const auto& userQueryFrags = g_db::userClause;
-
+    // draw cmd data
     e2::write_string (
         first (g_cmd::inputLine), last (g_cmd::inputLine).x,
         g_cmd::inputBuf.text
@@ -1062,21 +1060,6 @@ void draw_main_to_buffer()
         first (g_cmd::msgLine), last (g_cmd::msgLine).x, g_cmd::msgBuf,
         {.fg = TB_DIM}
     );
-
-    // FIXME: set once per query in set_query
-    // g_cmd::userQueryStr.clear();
-    // if (!userQueryFrags.where.empty()) {
-    //   g_cmd::userQueryStr.append ("WHERE ");
-    //   g_cmd::userQueryStr.append (process_where (userQueryFrags.where));
-    // }
-    // if (!userQueryFrags.orderBy.empty()) {
-    //   if (!g_cmd::userQueryStr.empty()) {
-    //     g_cmd::userQueryStr.append (" ");
-    //   }
-    //   g_cmd::userQueryStr.append ("ORDER BY ");
-    //   g_cmd::userQueryStr.append (userQueryFrags.orderBy);
-    // }
-
     e2::write_string (
         first (g_cmd::queryStatusLine), last (g_cmd::queryStatusLine).x,
         g_cmd::userQueryStr, {.fg = TB_DIM}
