@@ -389,7 +389,7 @@ If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pile
 
 ## Addenda
 
-### macOS users
+### macOS Terminal App Users
 
 By default the macOS terminal app strips the shift modifier from the up and down arrow keys. Change the terminal settings as described here https://world.hey.com/scottguthart/fix-shift-up-and-shift-down-on-mac-s-terminal-app-7e2908a4, or use the alternative keybinds for stepping through the command history. Also note that PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
 
