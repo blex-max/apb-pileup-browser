@@ -116,22 +116,22 @@ Every command submitted at the command line is interpreted like `<command> [args
     clause alone.
     alias: ct
 
-  `track [(quality|insertion)...]`:
-    Show/hide insertion and quality score tracks in
-    alignment pane, or reset to default with no
-    args. Any unambiguous substring of the track
-    name may be used, e.g. `track qual`.
-    alias: t, tr
-
   `col <field-name>...`:
     Show/hide read data columns in the table pane.
     For a list of available columns, check the
     manual or run `? col`.
     alias: c
 
-  `show-table`:
-    Show/hide table pane
-    alias: st
+  `toggle (quality|insertion|table|sparkline)`:
+    Toggle various aspects of the display. quality
+    and insertion toggle display of their respective
+    tracks in the alignment pane. table toggles
+    display of the table pane. sparkline toggles
+    display of the quality track between Phred ASCII
+    and a quick-look sparkline graph. Accepts any
+    unambiguous substring of the argument to toggle,
+    e.g. `tg qual`.
+    alias: tg
 
   `dump <path>`:
     Write the pileup database to an sqlite3 dump
