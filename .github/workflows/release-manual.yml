@@ -1,0 +1,59 @@
+name: Release manual
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build the manual for (e.g. v0.3.0)
+        required: true
+
+permissions:
+  contents: write
+
+# One push to gh-pages at a time.
+concurrency:
+  group: release-manual
+  cancel-in-progress: false
+
+jobs:
+  manual:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libsqlite3-dev libhts-dev pandoc
+
+      - name: Build apb
+        run: |
+          cmake -S . -B build
+          cmake --build build -j"$(nproc)" --target apb
+
+      - name: Check out gh-pages
+        run: |
+          if git fetch --depth 1 origin gh-pages:gh-pages; then
+            git worktree add site gh-pages
+          else
+            git worktree add --orphan -b gh-pages site
+          fi
+
+      - name: Build site
+        run: dev-scripts/build-manual-site.sh "$TAG" site build/apb
+
+      - name: Publish
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "manual for $TAG"
+          git push origin gh-pages
