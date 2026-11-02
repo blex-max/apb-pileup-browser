@@ -112,9 +112,6 @@ General suggestions regarding improvements to commands and navigation are also a
 - Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
 - More stats in the status bar; allele counts/VAF, reference span complexity (useful when
   assessing artefactual variants), etc.
-- Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
-  e.g. `where cigar_at(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
-  This is not plausible in direct SQL. Exact syntax TBD!
 - Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
   like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
 
@@ -139,6 +136,9 @@ These are items that I think might be useful and could implement, but am unlikel
   - Output format would require consideration.
   - This would allow use of apb programatically.
   - It may also be possible to expose apb as a library to scripting languages.
+- Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
+  e.g. `where cigar_at(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
+  This is not plausible in direct SQL. Exact syntax TBD!
 - Display of reads aligned to adjacent bases at the specified locus.
 
 ## Development

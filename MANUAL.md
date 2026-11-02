@@ -179,6 +179,9 @@ To count reads matching the current query, use `count`. You may also optionally 
 (base != 'G') AND mapq > 10: 17 reads
 ```
 
+**IMPORTANT**:
+Missing values are encoded as NULL, and NULL values always fail comparison in SQL, therefore e.g. `where basequal < 20` excludes rows where basequal is missing. To check for the presence of missing values for a field, use `where <col> IS NULL`. Only values which may be missing per the SAM format spec may be NULL.
+
 ### 3.3.2) Further Examples
 
 The query syntax is flexible and powerful. Some useful examples:
@@ -237,7 +240,7 @@ where instr(cigar, 'S')
 
 When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
 ```
-where base != 'A' and instr(path, 'PD12345a')
+where instr(path, 'PD12345a') and base != 'A'
 ```
 
 **MOTIFS AT THE QUERY POSITION**:
