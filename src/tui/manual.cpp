@@ -92,20 +92,20 @@ ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you 
 
 The parser incrementally wraps these commands into a complete SQL statement, which is displayed above the command line:
 ```
-where (base != 'G') AND flag & 3584 = 0 ORDER BY basequal ASC
+where base != 'G' AND (flag & 3584) = 0 ORDER BY basequal ASC
 ```
 
 You can remove clauses added in a piecewise manner with the `undo` command.
 
 Note that you can provide more than one condition at a time, so:
 ```
-where base != 'G' AND flag & 3584
+where base != 'G' AND (flag & 3584) = 0
 ```
 is equivalent to `where base != 'G'`, `and (flag & 3584) = 0` (But see Section 3.3.3).
 
-To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used with our latest query above, the status bar will show:
+To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used after `where base != 'G'`, the status bar will show:
 ```
-(base != 'G') AND mapq > 10: 17 reads
+base != 'G' AND mapq > 10: 17 reads
 ```
 
 **IMPORTANT**:
@@ -213,11 +213,11 @@ would, in natural SQL, resolve to:
 ```
 flag = [x] OR (flag = [y] and mapq > 0) OR basequal > 35
 ```
-As such, when using the piecewise query interface apb wraps each new conditional provided via the `and`/`or` commands in parentheses, such that our example resolves to:
+As such, when using the piecewise query interface apb adds parentheses wherever operator precedence would otherwise change the meaning of the typed command. In practice, this only affects the `and` command - the `and` command wraps the existing query, and the new condition, in parentheses if either contains an `OR`. Therefore, our example resolves to:
 ```
-(flag = [x] OR flag = [y]) and (mapq > 0 OR basequal > 35)
+(flag = [x] OR flag = [y]) AND (mapq > 0 OR basequal > 35)
 ```
-i.e. as it was provided at the command line. The added wrapping parentheses are displayed in the status bar to ensure clarity. If you prefer to use natural SQL operator precedence, use the submit-and-edit interface; submit your queries written as natural SQL via the `where` command, and get the current query for editing with `Ctrl-r`.
+i.e. as it was provided at the command line. Any added parentheses are displayed in the status bar to ensure clarity. If you prefer to use natural SQL operator precedence, use the submit-and-edit interface; submit your queries written as natural SQL via the `where` command, and get the current query for editing with `Ctrl-r`.
 
 ### 3.4) Column Reference
 

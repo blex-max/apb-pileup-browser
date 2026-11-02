@@ -63,7 +63,9 @@ std::expected<void, std::string> ingest_sam_auto (
         hts_itr_destroy (o_cap->o_it);
         delete o_cap;
       }
-      bam_plp_destroy (o_plp);
+      if (o_plp != nullptr) {
+        bam_plp_destroy (o_plp);
+      }
       br_plpArr = nullptr;
     }
   };
@@ -307,7 +309,8 @@ std::expected<void, std::string> ingest_sam_auto (
         }
         break;
       }
-      if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
+      // tid/pos are untouched if no column was ever yielded; only nPlp signals error
+      if (nPlp < 0) {
         // FIXME: Again, what is the error space here? should this be a crash or a skip. read src.
         return std::unexpected (
             fmt::format (

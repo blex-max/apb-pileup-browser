@@ -307,14 +307,12 @@ static constexpr Cmd andCmd{
       }
 
       auto query = g_db::userQuery;
-      std::string newCond{"AND "};
-      newCond.append (args);
 
-      update_where (query, newCond);
+      update_where (query, args, Conjunctions::AND);
 
       // validates clause
       return try_apply_query_clause (
-          std::move (query), newCond, CMD_GENERIC_SUCCESS
+          std::move (query), args, CMD_GENERIC_SUCCESS
       );
     }
 };
@@ -336,13 +334,11 @@ static constexpr Cmd orCmd{
       }
 
       auto query = g_db::userQuery;
-      std::string newCond{"OR "};
-      newCond.append (args);
 
-      update_where (query, newCond);
+      update_where (query, args, Conjunctions::OR);
 
       return try_apply_query_clause (
-          std::move (query), newCond, CMD_GENERIC_SUCCESS
+          std::move (query), args, CMD_GENERIC_SUCCESS
       );
     }
 };
@@ -380,9 +376,7 @@ static constexpr Cmd countCmd{
           update_where (query, args);
         }
         else {
-          std::string cond{"AND "};
-          cond.append (args);
-          update_where (query, cond);
+          update_where (query, args, Conjunctions::AND);
         }
       }
 

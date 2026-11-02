@@ -5,19 +5,34 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 // User-supplied query components input at command line
 struct QueryFragments {
   std::string where;
   std::string orderBy;
 };
-// If where is empty, sets where to cond. If where is not empty,
-// wraps existing clause in parens and appends cond to where.
-// paren wrapping avoids AND taking precedence over OR in
-// mulit-condition statements.
+
+enum class Conjunctions : uint8_t {
+  AND,
+  OR,
+};
+// Without conjunction, replaces where with cond.
+// With conjunction, appends `<conjunction> cond` to where, which
+// must be non-empty. Operands are parenthesised only where
+// AND/OR precedence would change their meaning: for AND, the
+// existing clause and cond are each wrapped if they have a
+// top-level OR; for OR nothing is wrapped. So:
+// `where flag = [x] OR flag = [y]`, then `and mapq > 0 OR basequal > 35`
+// gives `(flag = [x] OR flag = [y]) AND (mapq > 0 OR basequal > 35)`.
+// An existing clause containing `--` is always wrapped, so a
+// comment errors rather than swallowing cond.
 // Sanitises cond before use. No-op if cond is empty.
 // Does not check if resulting string is valid sql.
-void update_where (QueryFragments& query, std::string_view cond);
+void update_where (
+    QueryFragments& query, std::string_view cond,
+    std::optional<Conjunctions> conjunction = std::nullopt
+);
 // Sanitises order before use. No-op if order is empty.
 // Does not check if resulting string is valid sql.
 void update_order (QueryFragments& query, std::string_view order);

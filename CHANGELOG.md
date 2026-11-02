@@ -10,6 +10,7 @@
 - `back` command has become `undo`, and behaviour has been made more intuitive.
 - schema update; database dumps from previous versions will no longer load.
 - Improved querying examples in manual.
+- `and` now adds parentheses only where operator precedence requires: `and` wraps the existing query, and the new condition, if either contains a top-level `OR`. Previously the existing query was always left-wrapped and a new `and`/`or` condition could corrupt meaning.
 - Improved demo data.
 
 ### Internal
