@@ -48,8 +48,6 @@ inline constinit extb::HLine headerSep;
 inline constinit extb::Box alnPaneDataBox;
 inline constinit extb::VLine vSep;
 inline constinit extb::Box tablePaneDataBox;
-inline constinit extb::HLine ambientSep;
-inline constinit extb::HLine ambientLine;
 // scroll units: reads + empty-file labels
 inline constinit uint16_t nUnitsOnscreen = 0;
 inline constinit int64_t userPanOffset = 0;
@@ -60,17 +58,17 @@ namespace cmd {
 
 // cmd widget has fixed height. browser widget
 // scales to accomodate.
-inline constexpr auto kWidgetHeight = 5;  // inc. borders
+inline constexpr auto kWidgetHeight = 3;  // inc. borders
 
 inline constinit extb::Box frame;
-inline constinit extb::HLine
-    statusLine;  // for displaying current filter applied to records
+inline constinit extb::HLine contextLine;
+// inline constinit extb::HLine
+//     statusLine;  // for displaying current filter applied to records
 inline constinit extb::HLine inputSep;
 inline constinit extb::HLine inputLine;
 inline constinit extb::GlobalCell inputCaret;
 inline constinit EditBuf inputBuf;
 inline constinit CmdHistory inputHistory;
-inline constinit extb::HLine msgCaret;
 inline constinit extb::HLine msgLine;
 inline constinit std::string msgBuf;
 

@@ -252,27 +252,21 @@ bool size_main_widgets()
 
   {
     g_browsr::frame = e2::Box{screenX, mainY};
-    const auto& browsrContentX = body (screenX);
-    const auto& browsrContentY = body (mainY);
-    // skip header, separator. leave 2 rows at end
-    const auto dataY =
-        e2::Span{first (browsrContentY) + 2, last (browsrContentY) - 1};
+    // skip header, separator.
     g_browsr::headerSep = {
-        screenX, first (browsrContentY) + 1
+        screenX, first (body (mainY)) + 1
     };  // overlapping frame in X, to set connectors
-    g_browsr::ambientSep = {screenX, last (dataY)};
-    g_browsr::ambientLine = {browsrContentX, last (browsrContentY)};
   }
 
   {
     g_cmd::frame = e2::Box{screenX, cmdY};
 
-    auto y = first (cmdY) + 1;
-    g_cmd::statusLine = e2::HLine{body (screenX), y++};
-    g_cmd::inputSep = e2::HLine{
-        screenX,  // include frame, to draw pipe connectors at line ends
-        y++
-    };
+    auto y = first (cmdY);
+    g_cmd::contextLine = e2::HLine{body (screenX), y++};
+    // g_cmd::inputSep = e2::HLine{
+    //     screenX,  // include frame, to draw pipe connectors at line ends
+    //     y++
+    // };
 
     // cmd input
     g_cmd::inputCaret = e2::GlobalCell{first (screenX) + 1, y};
@@ -281,17 +275,7 @@ bool size_main_widgets()
         construct_relative (screenX, 2, size (screenX) - 1), y++
     };
 
-    // g_cmd::msgSep = e2::HLine{
-    //     screenX,  // include frame, to draw pipe connectors at line ends
-    //     y++
-    // };
-
-    g_cmd::msgCaret = e2::HLine{
-        construct_relative (screenX, 0, std::min (size (screenX) - 1, 10)),
-        y
-    };
-    g_cmd::msgLine =
-        e2::HLine{construct_relative (screenX, 10, size (screenX) - 1), y};
+    g_cmd::msgLine = e2::HLine{body (screenX), y};
   }
 
   APB_ASSERT_MAIN_UI_VALID;
@@ -791,37 +775,24 @@ void draw_main_to_buffer()
   // previous draw calls
   APB_ASSERT_MAIN_UI_VALID;
   TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
-
+  constexpr e2::Style dim{.fg = TB_DIM};
   {
     /* --- draw browser chrome --- */
-    const e2::Style dim{.fg = TB_DIM};
     const auto& bFrame = g_browsr::frame;
+    set (edgeAB (bFrame), tui_ch::horzLine, dim);
+    set (edgeCD (bFrame), tui_ch::horzLine, dim);
+    set (edgeDA (bFrame), tui_ch::vertLine, dim);
+    set (edgeBC (bFrame), tui_ch::vertLine, dim);
     set (vertexA (bFrame), tui_ch::topLeftRoundCorner, dim);
     set (vertexB (bFrame), tui_ch::topRightRoundCorner, dim);
 
-    set (body (edgeAB (bFrame)), tui_ch::horzLine, dim);
-    set (
-        construct_relative (edgeDA (bFrame), 1, height (bFrame)),
-        tui_ch::vertLine, dim
-    );
-    set (
-        construct_relative (edgeBC (bFrame), 1, height (bFrame)),
-        tui_ch::vertLine, dim
-    );
-
     set (body (g_browsr::headerSep), tui_ch::horzLine, dim);
     set (first (g_browsr::headerSep), tui_ch::rightTConnect, dim);
-
-    set (body (g_browsr::ambientSep), tui_ch::horzLine, dim);
-    set (first (g_browsr::ambientSep), tui_ch::rightTConnect, dim);
-    set (last (g_browsr::ambientSep), tui_ch::leftTConnect, dim);
 
     set (last (g_browsr::headerSep), tui_ch::leftTConnect, dim);
   }
   {
     /* --- draw cmd chrome --- */
-    const e2::Style dim{.fg = TB_DIM};
-    // preconds
     const auto& cFrame = g_cmd::frame;
     set (vertexA (cFrame), tui_ch::topLeftRoundCorner, dim);
     set (vertexB (cFrame), tui_ch::topRightRoundCorner, dim);
@@ -834,13 +805,12 @@ void draw_main_to_buffer()
     set (body (g_cmd::inputSep), tui_ch::horzLine, dim);
 
     set (g_cmd::inputCaret, ':');
-    set (body (g_cmd::msgCaret), tui_ch::horzLine, dim);
   }
 
   /* --- draw query data --- */
   {
+    // FIXME: doesn't change on most frames...
     /* size dynamic widgets */
-    // FIXME: these don't change on most frames...
     uint16_t tableWidth = 0;
     std::vector<const ColMetadata*> activeCols;
     for (const auto& col : g_ui::tableCols) {
@@ -865,8 +835,8 @@ void draw_main_to_buffer()
     const auto& [frameX, frameY] = spans (g_browsr::frame);
     const auto& contentX = body (frameX);
     const auto& contentY = body (frameY);
-    // skip header, separator. leave 2 rows at end
-    const auto dataY = e2::Span{first (contentY) + 2, last (contentY) - 1};
+    // skip header, separator.
+    const auto dataY = e2::Span{first (contentY) + 2, last (contentY)};
 
     if (showTable) {
       const int splitAbsX = last (contentX) - tableWidth;
@@ -878,7 +848,7 @@ void draw_main_to_buffer()
       g_browsr::alnPaneDataBox = {alnPaneX, dataY};
       g_browsr::tablePaneDataBox = {tablePaneX, dataY};
       g_browsr::vSep = {
-          splitAbsX, construct_relative (frameY, 0, size (frameY) - 1)
+          splitAbsX, construct_relative (frameY, 0, size (frameY))
       };
 
       TUI_ASSERT (
@@ -1101,31 +1071,38 @@ void draw_main_to_buffer()
   }
 
   {
-    // draw pileup ambient
+    // draw ambient
     const auto& locusData = g_db::locusInfo;
+    auto writeHead = first (g_cmd::contextLine);
+    const auto queryStr = to_display_string (g_db::userQuery);
+    if (!queryStr.empty()) {
+      writeHead.x++;
+      e2::set (writeHead, ' ');
+      writeHead.x++;
+      writeHead.x += e2::write_string (
+          writeHead, last (g_cmd::contextLine).x,
+          to_display_string (g_db::userQuery), {.fg = TB_DIM}
+      );
+      e2::set (writeHead, ' ');
+    }
 
-    auto writeHead = first (g_browsr::ambientLine);
-    const auto lineEnd = last (g_browsr::ambientLine.xspan);
-    writeHead.x++;  // initial space
-    writeHead.x +=
-        e2::write_string (writeHead, lineEnd, "LOCUS:", {.fg = TB_DIM});
-    writeHead.x++;  // space
-    writeHead.x += e2::write_string (
-        writeHead, lineEnd,
-        fmt::format ("{}:{}", locusData.contig, locusData.pos)
-    );
+    const auto lineEnd = last (g_cmd::contextLine.xspan);
+    const auto locusStr =
+        fmt::format ("{}:{}", locusData.contig, locusData.pos);
+    const auto spanStr =
+        fmt::format ("{}-{}", locusData.start, locusData.end);
+    // leave space for separator + spacing, hence + padding
+    const auto locusInfoWidth = locusStr.size() + spanStr.size() + 4;
+    writeHead = last (g_cmd::contextLine);
+    writeHead.x -= locusInfoWidth;
+    writeHead.x += e2::write_string (writeHead, lineEnd, locusStr);
     writeHead.x++;  // space
     set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
     writeHead.x += 2;  // past bar, then space
-    writeHead.x +=
-        e2::write_string (writeHead, lineEnd, "SPAN:", {.fg = TB_DIM});
-    writeHead.x++;  // space
     writeHead.x += e2::write_string (
         writeHead, lineEnd,
         fmt::format ("{}-{}", locusData.start, locusData.end)
     );
-    writeHead.x++;  // space
-    set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
   }
   {
     // draw cmd data
@@ -1138,14 +1115,20 @@ void draw_main_to_buffer()
     if (cursorCell.x < last (g_cmd::inputLine).x) {
       e2::add_attr (cursorCell, {.fg = TB_REVERSE});
     }
-    e2::write_string (
-        first (g_cmd::msgLine), last (g_cmd::msgLine).x, g_cmd::msgBuf,
-        {.fg = TB_DIM}
+
+    e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
+    e2::set (
+        e2::construct_relative (g_cmd::msgLine, 0, 10), tui_ch::horzLine,
+        dim
     );
-    e2::write_string (
-        first (g_cmd::statusLine), last (g_cmd::statusLine).x,
-        to_display_string (g_db::userQuery), {.fg = TB_DIM}
+    auto writeHead = first (g_cmd::msgLine);
+    writeHead.x += 10;
+    e2::set (writeHead, ' ');
+    writeHead.x++;
+    writeHead.x += e2::write_string (
+        writeHead, last (g_cmd::msgLine).x, g_cmd::msgBuf, dim
     );
+    e2::set (writeHead, ' ');
   }
 
   // postconditions:
