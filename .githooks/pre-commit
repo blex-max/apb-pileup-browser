@@ -15,17 +15,19 @@ if [ "$current_branch" = "main" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|
   git add MANUAL.md
 fi
 
-# Commits to dev make the same attempt, but a failed build or manual is only
-# reported: MANUAL.md is left as it was and the commit goes ahead.
+# Commits to dev regenerate MANUAL.md but leave it in the working tree to be
+# committed separately. A failed build or manual is only reported: MANUAL.md is
+# left as it was and the commit goes ahead.
 if [ "$current_branch" = "dev" ] && printf '%s\n' "$staged" | grep -qE '\.(cpp|hpp)$'; then
-  if (
-    [ -f build/CMakeCache.txt ] || cmake -S . -B build
-    cmake --build build -j
-    build/apb --manual > "$(git rev-parse --git-dir)/MANUAL.md.tmp"
-  ); then
-    mv "$(git rev-parse --git-dir)/MANUAL.md.tmp" MANUAL.md
-    git add MANUAL.md
+  tmp="$(git rev-parse --git-dir)/MANUAL.md.tmp"
+  if { [ -f build/CMakeCache.txt ] || cmake -S . -B build; } &&
+    cmake --build build -j &&
+    build/apb --manual > "$tmp"; then
+    mv "$tmp" MANUAL.md
+    git diff --quiet -- MANUAL.md ||
+      echo "pre-commit: MANUAL.md regenerated, commit it" >&2
   else
+    rm -f "$tmp"
     echo "pre-commit: build failed on dev, MANUAL.md not updated" >&2
   fi
 fi
