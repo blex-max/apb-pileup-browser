@@ -233,7 +233,7 @@ static void header (
     if (writeHead.x > xLim) {
       break;
     }
-    set (writeHead, boxch::vertLine);
+    set (writeHead, tui_ch::vertLine);
     writeHead.x++;
   }
 }
@@ -253,7 +253,7 @@ static void row_separators (
     }
     set (
         e2::VLine{.x = writeHead.x, .yspan = {writeHead.y, paneYLimit}},
-        boxch::vertLine
+        tui_ch::vertLine
     );
     writeHead.x++;
   }
@@ -268,6 +268,14 @@ struct Row1FrameArgs {
   {
     // check before calling row1
     return writeXStart <= writeXLimit;
+  }
+
+  std::string to_string() const
+  {
+    return fmt::format (
+        "Row1FrameArgs{{writeXStart: {}, writeXLimit: {}}}", writeXStart,
+        writeXLimit
+    );
   }
 };
 
@@ -299,23 +307,6 @@ static void row1 (int writeY, sqlite3_stmt* br_dbRow, Row1FrameArgs fa)
 
 }  // namespace draw_table
 
-template <>
-struct fmt::formatter<draw_table::Row1FrameArgs>
-    : fmt::formatter<std::string> {
-  auto format (
-      const draw_table::Row1FrameArgs& fa, format_context& ctx
-  ) const
-  {
-    return fmt::formatter<std::string>::format (
-        fmt::format (
-            "Row1FrameArgs{{writeXStart: {}, writeXLimit: {}}}",
-            fa.writeXStart, fa.writeXLimit
-        ),
-        ctx
-    );
-  }
-};
-
 namespace draw_aln {
 
 namespace {
@@ -329,17 +320,25 @@ struct ReadAlnFields {
   uint64_t nCig;
 };
 
-// placeholder drawn (dim) when a read has SEQ or QUAL '*'
-constexpr uint32_t kNoDataChar = U'\u00BF';  // inverted question mark
 
 uint32_t seq_char (const std::optional<std::string>& seq, size_t i)
 {
-  return seq ? static_cast<unsigned char> ((*seq)[i]) : kNoDataChar;
+  return seq ? static_cast<unsigned char> ((*seq)[i]) : tui_ch::missing;
 }
 
-uint32_t qual_char (const std::optional<std::string>& qual, size_t i)
+uint32_t qual_char (
+    const std::optional<std::string>& qual, size_t i, bool useSparkline
+)
 {
-  return qual ? static_cast<unsigned char> ((*qual)[i]) : kNoDataChar;
+  if (qual) {
+    if (useSparkline) {
+      return tui_ch::qual_to_sparkline (
+          static_cast<unsigned char> ((*qual)[i])
+      );
+    }
+    return static_cast<unsigned char> ((*qual)[i]);
+  }
+  return tui_ch::missing;
 }
 
 ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
@@ -410,6 +409,15 @@ struct Seq1FrameArgs {
     return writeStartX >= 0 && writeStartXGPos >= 0 &&
            e2::valid (writeLimits);
   }
+
+  std::string to_string() const
+  {
+    return fmt::format (
+        "Seq1FrameArgs{{writeStartX: {}, writeStartXGPos: {}, "
+        "writeLimits: ({}, {})}}",
+        writeStartX, writeStartXGPos, writeLimits.x, writeLimits.y
+    );
+  }
 };
 
 static e2::Delta seq1 (
@@ -476,9 +484,9 @@ static e2::Delta seq1 (
   }();
   const int trackYOffsetQual =
       xtraYOffsetBase + static_cast<int> (drawInsTrack);
-  // a read with no qual draws kNoDataChar in its qual rows
-  const e2::Style qualStyle =
-      readFields.qual ? e2::Style{} : e2::Style{.fg = TB_DIM};
+  const e2::Style qualStyle = !readFields.qual || g_ui::drawSparkline
+                                  ? e2::Style{.fg = TB_DIM}
+                                  : e2::Style{};
   bool drawQualTrack = g_ui::drawQualTrack &&
                        (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
   const int trackYOffsetInsQual = xtraYOffsetBase +
@@ -549,12 +557,12 @@ static e2::Delta seq1 (
         // modify anchor base
         const auto anchorCell = writeHead - e2::dX (1);
         e2::clear_attrs (anchorCell);
-        e2::extend (anchorCell, indicators::insRingAbove);
+        e2::extend (anchorCell, tui_ch::insRingAbove);
 
         if (drawInsTrack) {
           auto opInsWriteHead = anchorCell + e2::dY (trackYOffsetIns);
           if (opInsWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsWriteHead, indicators::insAt);
+            e2::set (opInsWriteHead, tui_ch::insAt);
             opInsWriteHead.x++;
           }
           for (size_t i = 0;
@@ -575,7 +583,7 @@ static e2::Delta seq1 (
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
           if (opInsQualWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsQualWriteHead, indicators::insAt);
+            e2::set (opInsQualWriteHead, tui_ch::insAt);
             opInsQualWriteHead.x++;
           }
           for (size_t i = 0;
@@ -583,7 +591,10 @@ static e2::Delta seq1 (
                ++i, ++opInsQualWriteHead.x) {
             set (
                 opInsQualWriteHead,
-                qual_char (readFields.qual, iQuery + i), qualStyle
+                qual_char (
+                    readFields.qual, iQuery + i, g_ui::drawSparkline
+                ),
+                qualStyle
             );
           }
         }
@@ -599,6 +610,9 @@ static e2::Delta seq1 (
            i < opSz && writeHead.x < fa.writeLimits.x;
            ++i, ++writeHead.x) {
         set (writeHead, 'x', {.fg = TB_UNDERLINE});
+        // if (drawQualTrack) {
+        //   set (writeHead + e2::dY (trackYOffsetQual), 'x');
+        // }
       }
       iGc += opSz;
     }
@@ -631,7 +645,8 @@ static e2::Delta seq1 (
         if (drawQualTrack) {
           set (
               writeHead + e2::dY (trackYOffsetQual),
-              qual_char (readFields.qual, iQuery + i), qualStyle
+              qual_char (readFields.qual, iQuery + i, g_ui::drawSparkline),
+              qualStyle
           );
         }
       }
@@ -668,27 +683,6 @@ static e2::Delta seq1 (
 
 }  // namespace draw_aln
 
-template <>
-struct fmt::formatter<draw_aln::Seq1FrameArgs>
-    : fmt::formatter<std::string> {
-  auto format (
-      const draw_aln::Seq1FrameArgs& fa, format_context& ctx
-  ) const
-  {
-    return fmt::formatter<std::string>::format (
-        fmt::format (
-            "Seq1FrameArgs{{writeStartX: {}, writeStartXGPos: {}, "
-            "writeLimits: ({}, {})}}",
-            fa.writeStartX, fa.writeStartXGPos, fa.writeLimits.x,
-            fa.writeLimits.y
-        ),
-        ctx
-    );
-  }
-};
-
-// --- end draw browser pane --- //
-
 void draw_main_to_buffer()
 {
   // NOTE: set order does matter,
@@ -697,50 +691,49 @@ void draw_main_to_buffer()
   APB_ASSERT_MAIN_UI_VALID;
   TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
 
-
   {
     /* --- draw browser chrome --- */
     const e2::Style dim{.fg = TB_DIM};
     const auto& bFrame = g_browsr::frame;
-    set (vertexA (bFrame), boxch::topLeftRoundCorner, dim);
-    set (vertexB (bFrame), boxch::topRightRoundCorner, dim);
+    set (vertexA (bFrame), tui_ch::topLeftRoundCorner, dim);
+    set (vertexB (bFrame), tui_ch::topRightRoundCorner, dim);
 
-    set (body (edgeAB (bFrame)), boxch::horzLine, dim);
+    set (body (edgeAB (bFrame)), tui_ch::horzLine, dim);
     set (
         construct_relative (edgeDA (bFrame), 1, height (bFrame)),
-        boxch::vertLine, dim
+        tui_ch::vertLine, dim
     );
     set (
         construct_relative (edgeBC (bFrame), 1, height (bFrame)),
-        boxch::vertLine, dim
+        tui_ch::vertLine, dim
     );
 
-    set (body (g_browsr::headerSep), boxch::horzLine, dim);
-    set (first (g_browsr::headerSep), boxch::rightTConnect, dim);
+    set (body (g_browsr::headerSep), tui_ch::horzLine, dim);
+    set (first (g_browsr::headerSep), tui_ch::rightTConnect, dim);
 
-    set (body (g_browsr::ambientSep), boxch::horzLine, dim);
-    set (first (g_browsr::ambientSep), boxch::rightTConnect, dim);
-    set (last (g_browsr::ambientSep), boxch::leftTConnect, dim);
+    set (body (g_browsr::ambientSep), tui_ch::horzLine, dim);
+    set (first (g_browsr::ambientSep), tui_ch::rightTConnect, dim);
+    set (last (g_browsr::ambientSep), tui_ch::leftTConnect, dim);
 
-    set (last (g_browsr::headerSep), boxch::leftTConnect, dim);
+    set (last (g_browsr::headerSep), tui_ch::leftTConnect, dim);
   }
   {
     /* --- draw cmd chrome --- */
     const e2::Style dim{.fg = TB_DIM};
     // preconds
     const auto& cFrame = g_cmd::frame;
-    set (vertexA (cFrame), boxch::topLeftRoundCorner, dim);
-    set (vertexB (cFrame), boxch::topRightRoundCorner, dim);
-    set (vertexD (cFrame), boxch::bottomLeftRoundCorner, dim);
-    set (vertexC (cFrame), boxch::bottomRightRoundCorner, dim);
+    set (vertexA (cFrame), tui_ch::topLeftRoundCorner, dim);
+    set (vertexB (cFrame), tui_ch::topRightRoundCorner, dim);
+    set (vertexD (cFrame), tui_ch::bottomLeftRoundCorner, dim);
+    set (vertexC (cFrame), tui_ch::bottomRightRoundCorner, dim);
 
-    set (body (edgeAB (cFrame)), boxch::horzHeavy, dim);
-    set (body (edgeDA (cFrame)), boxch::vertLine, dim);
-    set (body (edgeBC (cFrame)), boxch::vertLine, dim);
-    set (body (g_cmd::statusSep), boxch::horzLine, dim);
+    set (body (edgeAB (cFrame)), tui_ch::horzHeavy, dim);
+    set (body (edgeDA (cFrame)), tui_ch::vertLine, dim);
+    set (body (edgeBC (cFrame)), tui_ch::vertLine, dim);
+    set (body (g_cmd::statusSep), tui_ch::horzLine, dim);
 
     set (g_cmd::inputCaret, ':');
-    set (body (g_cmd::sepLine), boxch::horzLine, dim);
+    set (body (g_cmd::sepLine), tui_ch::horzLine, dim);
   }
 
   /* --- draw query data --- */
@@ -852,9 +845,9 @@ void draw_main_to_buffer()
       draw_table::header (g_browsr::tablePaneHeaderLine, activeCols);
       draw_table::row_separators (g_browsr::tablePaneDataBox, activeCols);
       /* draw pane separator */
-      set (body (g_browsr::vSep), boxch::vertLine, {.fg = TB_DIM});
-      set (first (g_browsr::vSep), boxch::downTConnect, {.fg = TB_DIM});
-      set (last (g_browsr::vSep), boxch::upTConnect, {.fg = TB_DIM});
+      set (body (g_browsr::vSep), tui_ch::vertLine, {.fg = TB_DIM});
+      set (first (g_browsr::vSep), tui_ch::downTConnect, {.fg = TB_DIM});
+      set (last (g_browsr::vSep), tui_ch::upTConnect, {.fg = TB_DIM});
     }
 
     /* iteratively draw query data */
@@ -866,13 +859,13 @@ void draw_main_to_buffer()
         .writeStartXGPos = alnPaneLeftmostGPos,
         .writeLimits = seqWriteLim,
     };
-    TUI_ASSERT (seq1Frame.valid(), seq1Frame);
+    TUI_ASSERT (seq1Frame.valid(), seq1Frame.to_string());
     const draw_table::Row1FrameArgs row1Frame{
         .writeXStart = first (g_browsr::tablePaneDataBox.xspan),
         .writeXLimit = last (g_browsr::tablePaneDataBox.xspan),
         .cols = activeCols,
     };
-    TUI_ASSERT (row1Frame.valid(), row1Frame);
+    TUI_ASSERT (row1Frame.valid(), row1Frame.to_string());
     const bool multiAln = g_db::locusInfo.nAln > 1;
     // scroll units drawn on this page: reads, then empty-file labels
     uint16_t nUnitsDrawn = 0;
@@ -1021,7 +1014,7 @@ void draw_main_to_buffer()
         fmt::format ("{}:{}", locusData.contig, locusData.pos)
     );
     writeHead.x++;  // space
-    set (writeHead, boxch::vertLine, {.fg = TB_DIM});
+    set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
     writeHead.x += 2;  // past bar, then space
     writeHead.x +=
         e2::write_string (writeHead, lineEnd, "SPAN:", {.fg = TB_DIM});
@@ -1031,7 +1024,7 @@ void draw_main_to_buffer()
         fmt::format ("{}-{}", locusData.start, locusData.end)
     );
     writeHead.x++;  // space
-    set (writeHead, boxch::vertLine, {.fg = TB_DIM});
+    set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
   }
   {
     // draw cmd data
@@ -1073,15 +1066,15 @@ void draw_overlay_to_buffer()
   clear (box);
   clear (frame);
 
-  set (edgeAB (frame), boxch::horzLine);
-  set (edgeBC (frame), boxch::vertLine);
-  set (edgeCD (frame), boxch::horzLine);
-  set (edgeDA (frame), boxch::vertLine);
+  set (edgeAB (frame), tui_ch::horzLine);
+  set (edgeBC (frame), tui_ch::vertLine);
+  set (edgeCD (frame), tui_ch::horzLine);
+  set (edgeDA (frame), tui_ch::vertLine);
 
-  set (vertexA (frame), boxch::topLeftRoundCorner);
-  set (vertexB (frame), boxch::topRightRoundCorner);
-  set (vertexD (frame), boxch::bottomLeftRoundCorner);
-  set (vertexC (frame), boxch::bottomRightRoundCorner);
+  set (vertexA (frame), tui_ch::topLeftRoundCorner);
+  set (vertexB (frame), tui_ch::topRightRoundCorner);
+  set (vertexD (frame), tui_ch::bottomLeftRoundCorner);
+  set (vertexC (frame), tui_ch::bottomRightRoundCorner);
 
   auto xEnd = last (box.xspan) - 1;  // leave a gap before the border
 

@@ -82,6 +82,7 @@ inline constinit bool tooSmall = false;
 inline constinit bool drawQualTrack = false;
 inline constinit bool drawInsTrack = true;
 inline constinit bool drawTable = true;
+inline constinit bool drawSparkline = false;
 
 inline constexpr auto kMinWidth = 20;
 

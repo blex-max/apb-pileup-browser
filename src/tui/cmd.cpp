@@ -464,126 +464,54 @@ static constexpr Cmd undoCmd{
     }
 };
 
-
-static constexpr std::array<std::string_view, 2> showTableNames{
-    "show-table", "st"
+static constexpr std::array<std::string_view, 2> toggleNames{
+    "toggle", "tg"
 };
-static constexpr Cmd showTableCmd{
-    showTableNames, "show-table", "Show/hide table pane",
+static constexpr Cmd toggleCmd{
+    toggleNames, "toggle (quality|insertion|table|sparkline)",
+    "Toggle various aspects of the display. quality and insertion toggle "
+    "display of their respective tracks in the alignment pane. table "
+    "toggles display of the table pane. sparkline toggles display of the "
+    "quality track between Phred ASCII and a quick-look sparkline graph. "
+    "Accepts any unambiguous substring of the argument to toggle, e.g. "
+    "`tg qual`.",
     [] (std::string_view args) -> std::string {
-      const auto valRet =
-          cmd_validate_args_empty (args, showTableCmd.usage);
-      if (!valRet) {
-        return valRet.error();
-      }
-
-      g_ui::drawTable = !g_ui::drawTable;
-      return fmt::format (
-          "{} table pane", (g_ui::drawTable) ? "Unfolded" : "Folded"
-      );
-    }
-};
-
-enum TrackID : uint8_t { trackQual, trackIns };
-static constexpr std::array<std::string_view, 2> trackNames{
-    {[trackQual] = "quality", [trackIns] = "insertion"}
-};
-static constexpr std::string_view track_by_name (
-    std::string_view name
-) noexcept
-{
-  // NOTE: this works because the track names
-  // are entirely unambiguous from the first character
-  for (const auto& trackName : trackNames) {
-    if (name == trackName.substr (0, name.length())) {
-      return trackName;
-    }
-  }
-  return {};
-}
-
-static constexpr std::array<std::string_view, 3> trackCmdNames{
-    "track", "t", "tr"
-};
-static constexpr Cmd trackCmd{
-    trackCmdNames, "track [(quality|insertion)...]",
-    "Show/hide insertion and quality score tracks in "
-    "alignment pane, or reset to default with no args. "
-    "Any unambiguous substring of the track name may "
-    "be used, e.g. `track qual`.",
-    [] (std::string_view args) -> std::string {
-      if (args.empty()) {
-        // reset
-        g_ui::drawQualTrack = false;
-        g_ui::drawInsTrack = true;
-        return fmt::format (
-            "{} Reset track display to default", CMD_GENERIC_SUCCESS
-        );
-      }
       const auto tokens = split_whitespace (args);
-
-      if (const auto expectedNTok = cmd_validate_ntok (
-              tokens, 1, trackNames.size(), trackCmd.usage
-          );
+      if (const auto expectedNTok =
+              cmd_validate_ntok (tokens, 1, 1, toggleCmd.usage);
           !expectedNTok) {
         return expectedNTok.error();
       }
+      // get single arg
+      const auto& tok = tokens[0];
 
-      // verify tokens are legtimate track names
-      std::vector<std::string_view> tracksToToggle;
-      for (const auto& tok : tokens) {
-        tracksToToggle.emplace_back (track_by_name (tok));
-        if (tracksToToggle.back() == "") {
-          return cmd_format_misuse (
-              fmt::format ("unknown track \"{}\"", tok), trackCmd.usage
-          );
+      // NOTE: all unambiguous from the first char (so far)
+      static constexpr std::array<std::string_view, 4> opts{
+          "quality", "insertion", "table", "sparkline"
+      };
+      for (const auto& opt : opts) {
+        if (tok == opt.substr (0, tok.length())) {
+          if (opt == "quality") {
+            g_ui::drawQualTrack = !g_ui::drawQualTrack;
+          }
+          else if (opt == "insertion") {
+            g_ui::drawInsTrack = !g_ui::drawInsTrack;
+          }
+          else if (opt == "table") {
+            g_ui::drawTable = !g_ui::drawTable;
+          }
+          else if (opt == "sparkline") {
+            g_ui::drawSparkline = !g_ui::drawSparkline;
+          }
+          else {
+            TUI_UNREACHABLE ("toggle command malformed, unknown opt", opt);
+          }
+          return CMD_GENERIC_SUCCESS;
         }
       }
-
-      std::unordered_set<std::string_view> seen;
-      for (const auto& track : tracksToToggle) {
-        if (!seen.insert (track).second) {
-          return cmd_format_misuse (
-              fmt::format ("duplicated track \"{}\"", track),
-              trackCmd.usage
-          );
-        }
-      }
-
-      // switch drawing behaviour
-      std::vector<std::string_view> nowShown;
-      std::vector<std::string_view> nowHidden;
-      for (const auto& track : tracksToToggle) {
-        if (track == trackNames[TrackID::trackQual]) {
-          g_ui::drawQualTrack = !g_ui::drawQualTrack;
-          (g_ui::drawQualTrack ? nowShown : nowHidden).push_back (track);
-        }
-        else if (track == trackNames[TrackID::trackIns]) {
-          g_ui::drawInsTrack = !g_ui::drawInsTrack;
-          (g_ui::drawInsTrack ? nowShown : nowHidden).push_back (track);
-        }
-        else {
-          // we have already verified the tokens,
-          TUI_UNREACHABLE ("unrecognised track name in toggle list");
-        }
-      }
-
-      std::string outMsg;
-      if (!nowShown.empty()) {
-        outMsg += fmt::format (
-            "Showing track/s: {}", fmt::join (nowShown, ", ")
-        );
-      }
-      if (!nowHidden.empty()) {
-        if (!outMsg.empty()) {
-          outMsg += " | ";
-        }
-        outMsg += fmt::format (
-            "Hiding track/s: {}", fmt::join (nowHidden, ", ")
-        );
-      }
-
-      return outMsg;
+      return cmd_format_misuse (
+          fmt::format ("Unknown option: \"{}\"", tok), toggleCmd.usage
+      );
     }
 };
 
@@ -737,7 +665,7 @@ static constexpr Cmd helpCmd{
 
 static std::span<const Cmd* const> get_cmd_registry()
 {
-  static constexpr std::array<const Cmd*, 13> registry{{
+  static constexpr std::array<const Cmd*, 12> registry{{
       /* all cmds must be added here */
       &helpCmd,
       &quitCmd,
@@ -748,9 +676,8 @@ static std::span<const Cmd* const> get_cmd_registry()
       &orderCmd,
       &clearCmd,
       &countCmd,
-      &trackCmd,
       &colCmd,
-      &showTableCmd,
+      &toggleCmd,
       &dumpCmd,
   }};
   return registry;

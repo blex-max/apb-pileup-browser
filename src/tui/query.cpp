@@ -77,7 +77,7 @@ void update_where (
       }
       return false;
     };
-    const auto wrap = [] (std::string& s) {
+    const auto paren_wrap = [] (std::string& s) {
       s.insert (0, 1, '(');
       s.append (")");
     };
@@ -89,10 +89,10 @@ void update_where (
     // Comments (--) also would break queries. By wrapping
     // they are forced to fail
     if ((isAnd && hasTopLevelOr (where)) || where.contains ("--")) {
-      wrap (where);
+      paren_wrap (where);
     }
     if (isAnd && hasTopLevelOr (safeCond)) {
-      wrap (safeCond);
+      paren_wrap (safeCond);
     }
     where.append (isAnd ? " AND " : " OR ");
     where.append (safeCond);
