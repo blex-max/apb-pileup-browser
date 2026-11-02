@@ -1072,6 +1072,7 @@ void draw_main_to_buffer()
 
   {
     // draw ambient
+    // FIXME: what if parts overlap??
     const auto& locusData = g_db::locusInfo;
     auto writeHead = first (g_cmd::contextLine);
     const auto queryStr = to_display_string (g_db::userQuery);
@@ -1117,18 +1118,18 @@ void draw_main_to_buffer()
     }
 
     e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
-    e2::set (
-        e2::construct_relative (g_cmd::msgLine, 0, 10), tui_ch::horzLine,
-        dim
-    );
-    auto writeHead = first (g_cmd::msgLine);
-    writeHead.x += 10;
-    e2::set (writeHead, ' ');
-    writeHead.x++;
-    writeHead.x += e2::write_string (
-        writeHead, last (g_cmd::msgLine).x, g_cmd::msgBuf, dim
-    );
-    e2::set (writeHead, ' ');
+    if (!g_cmd::msgBuf.empty()) {
+      auto writeHead = first (g_cmd::msgLine);
+      writeHead.x += 10;
+      e2::set (writeHead, tui_ch::doubleChevron, dim);
+      writeHead.x++;
+      e2::set (writeHead, ' ');
+      writeHead.x++;
+      writeHead.x += e2::write_string (
+          writeHead, last (g_cmd::msgLine).x, g_cmd::msgBuf, dim
+      );
+      e2::set (writeHead, ' ');
+    }
   }
 
   // postconditions:

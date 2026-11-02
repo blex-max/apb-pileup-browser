@@ -25,21 +25,23 @@ enum box : uint16_t {
 enum indicator : uint16_t {
   insAt = '^',
   insRingAbove = 0x030A,
+
+  doubleChevron = 0x00BB,
 };
 
-// fine range 0-46, steps of 5 offset by 10
-enum sparkline : uint16_t {
-  oneEighth = 0x2581,    // 0-15
-  twoEighth = 0x2582,    // 16-20
-  threeEighth = 0x2583,  // 21-25
-  fourEighth = 0x2584,   // 26-30
-  fiveEighth = 0x2585,   // 31-35
-  sixEighth = 0x2586,    // 36-40
-  sevenEighth = 0x2587,  // 41-45
-  full = 0x2588,         // 46-max
+enum block : uint16_t {
+  oneEighth = 0x2581,
+  twoEighth = 0x2582,
+  threeEighth = 0x2583,
+  fourEighth = 0x2584,
+  fiveEighth = 0x2585,
+  sixEighth = 0x2586,
+  sevenEighth = 0x2587,
+  full = 0x2588,
 };
 constexpr auto qual_to_sparkline (uint8_t asciiQual)
 {
+  // fine range 0-46, steps of 5 offset by 10
   const auto qual = asciiQual - 33;
   if (qual < 16) {
     return oneEighth;
