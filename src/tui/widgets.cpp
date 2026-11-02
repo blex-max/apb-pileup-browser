@@ -1119,8 +1119,8 @@ void draw_main_to_buffer()
 
     e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
     if (!g_cmd::msgBuf.empty()) {
-      auto writeHead = first (g_cmd::msgLine);
-      writeHead.x += 10;
+      auto writeHead = last (g_cmd::msgLine);
+      writeHead.x -= (g_cmd::msgBuf.size() + 4);
       e2::set (writeHead, tui_ch::doubleChevron, dim);
       writeHead.x++;
       e2::set (writeHead, ' ');
