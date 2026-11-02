@@ -356,8 +356,8 @@ struct DbFixture {
     g_db::selectStmt = nullptr;
     sqlite3_close_v2 (g_db::conn);
     g_db::conn = nullptr;
-    g_db::userClause = {};
-    g_db::emptyFiles.clear();
+    g_db::userQuery = {};
+    g_db::queryEmptyFiles.clear();
     g_db::nStmtRows = 0;
   }
   DbFixture (const DbFixture&) = delete;
@@ -439,7 +439,7 @@ TEST_CASE ("set_query failure leaves the active query untouched")
 
   CHECK (g_db::selectStmt == stmtBefore);
   CHECK (g_db::nStmtRows == 2);
-  CHECK (g_db::userClause.where == std::vector<std::string>{"flag = 99"});
+  CHECK (g_db::userQuery.where == "flag = 99");
   CHECK (fetch_page (0, 10) == pageBefore);
 }
 
@@ -465,9 +465,9 @@ TEST_CASE ("set_query replaces the previous query")
 TEST_CASE ("set_query classifies files with no reads in the query")
 {
   DbFixture fx (
-      {{"no_reads.bam", true, 0},
-       {"no_contig.bam", false, 0},
-       {"has_reads.bam", true, 3}}
+      {{"no_reads.bam", true},
+       {"no_contig.bam", false},
+       {"has_reads.bam", true}}
   );
   copy_reads_to_file (4);
 
@@ -478,7 +478,7 @@ TEST_CASE ("set_query classifies files with no reads in the query")
   );
   CHECK (g_db::nStmtRows == 0);
   using R = g_db::EmptyFileReason;
-  const auto& ef = g_db::emptyFiles;
+  const auto& ef = g_db::queryEmptyFiles;
   REQUIRE (ef.size() == 4);
   CHECK (ef[0].path == "test.bam");
   CHECK (ef[0].reason == R::noMatchingReads);
@@ -490,12 +490,12 @@ TEST_CASE ("set_query classifies files with no reads in the query")
 
   // files with matching reads are not listed
   REQUIRE (g_db::set_query ({}) == g_db::SetQueryStatus::success);
-  CHECK (g_db::emptyFiles.size() == 2);
+  CHECK (g_db::queryEmptyFiles.size() == 2);
 }
 
 TEST_CASE ("set_query keeps path as the primary sort key")
 {
-  DbFixture fx ({{"b.bam", true, 3}});
+  DbFixture fx ({{"b.bam", true}});
   copy_reads_to_file (2);
 
   REQUIRE (

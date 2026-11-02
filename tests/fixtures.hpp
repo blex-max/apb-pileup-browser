@@ -24,7 +24,6 @@ void exec_ok (sqlite3* conn, const char* sql);
 struct ExtraFile {
   std::string path;
   bool hasContig;
-  int64_t nReads;
 };
 
 // Fills an empty apb db as ingest does: file k_testFileId ("test.bam"),

@@ -51,7 +51,7 @@ void update_order (QueryFragments& query, std::string_view order)
   if (safeOrder.empty()) {
     return;
   }
-  query.orderBy = order;
+  query.orderBy = safeOrder;
 }
 
 std::string PileupMetadata::to_string() const
@@ -127,12 +127,29 @@ PileupMetadata get_locus_data (sqlite3* conn)
 
 #include "doctest.h"
 
-TEST_CASE ("process_where left-wraps fragments in parens")
+TEST_CASE ("update_where left-wraps earlier conditions in parens")
 {
-  CHECK (process_where ({}) == "");
-  CHECK (process_where ({"flag = 99"}) == "flag = 99");
+  QueryFragments q;
+  update_where (q, "flag = 99");
+  CHECK (q.where == "flag = 99");
 
-  CHECK (process_where ({"a", "OR b", "AND c"}) == "((a) OR b) AND c");
+  update_where (q, "OR b");
+  update_where (q, "AND c");
+  CHECK (q.where == "((flag = 99) OR b) AND c");
+}
+
+TEST_CASE ("update_where and update_order sanitise their input")
+{
+  QueryFragments q;
+  update_where (q, " ; ");
+  update_order (q, "  ");
+  CHECK (q.where.empty());
+  CHECK (q.orderBy.empty());
+
+  update_where (q, "  flag = 99; ");
+  update_order (q, "  mapq DESC; ");
+  CHECK (q.where == "flag = 99");
+  CHECK (q.orderBy == "mapq DESC");
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

@@ -99,13 +99,11 @@ void seed_reads (
     plp.push_back (make_pileup1 (r));
   }
 
-  const auto alnId = apb_insert_aln (
-      conn, "test.bam", true, static_cast<int64_t> (plp.size())
-  );
+  const auto alnId = apb_insert_aln (conn, "test.bam", true);
   REQUIRE (alnId);
   REQUIRE (*alnId == k_testFileId);
   for (const auto& f : extraFiles) {
-    REQUIRE (apb_insert_aln (conn, f.path, f.hasContig, f.nReads));
+    REQUIRE (apb_insert_aln (conn, f.path, f.hasContig));
   }
 
   REQUIRE (apb_insert_pileup (conn, plp, *alnId, [] (int) -> const char* {
@@ -120,12 +118,10 @@ void seed_reads (
       ref += "ACGT"[i % 4];
     }
   }
-  REQUIRE (
-      apb_insert_locus (
-          conn, "chr1", k_seedPos, span,
-          withRef ? std::optional<std::string_view>{ref} : std::nullopt
-      ) == SQLITE_OK
-  );
+  REQUIRE (apb_insert_locus (
+      conn, "chr1", k_seedPos, span,
+      withRef ? std::optional<std::string_view>{ref} : std::nullopt
+  ));
 }
 
 std::filesystem::path temp_db_path (std::string_view name)

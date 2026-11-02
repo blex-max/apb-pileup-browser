@@ -22,13 +22,6 @@ void update_where (QueryFragments& query, std::string_view cond);
 // Does not check if resulting string is valid sql.
 void update_order (QueryFragments& query, std::string_view order);
 
-// Joins WHERE fragments into a single expression, left-wrapping
-// each in parens: later fragments begin with their own connective
-// (e.g. "OR b", "AND c"), so {"a", "OR b", "AND c"} gives
-// "((a) OR b) AND c".
-// Empty if no fragments. Does not prepend "WHERE" keyword.
-// std::string process_where (const std::vector<std::string>& where);
-
 // locus metadata as extracted from db.
 // 1-indexed!
 struct PileupMetadata {

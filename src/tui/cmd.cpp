@@ -441,14 +441,11 @@ static constexpr Cmd clearCmd{
     }
 };
 
-static constexpr std::array<std::string_view, 2> backNames{"back", "bk"};
-static constexpr Cmd backCmd{
-    backNames, "back",
-    "Drop the most recently added condition from the query "
-    "WHERE clause, or clear if only a single condition is "
-    "present.",
+static constexpr std::array<std::string_view, 2> undoNames{"undo", "u"};
+static constexpr Cmd undoCmd{
+    undoNames, "undo", "Undo the last modification to the current query.",
     [] (std::string_view args) -> std::string {
-      if (const auto res = cmd_validate_args_empty (args, backCmd.usage);
+      if (const auto res = cmd_validate_args_empty (args, undoCmd.usage);
           !res) {
         return res.error();
       };
@@ -753,7 +750,7 @@ static std::span<const Cmd* const> get_cmd_registry()
       &whereCmd,
       &andCmd,
       &orCmd,
-      &backCmd,
+      &undoCmd,
       &orderCmd,
       &clearCmd,
       &countCmd,

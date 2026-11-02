@@ -455,7 +455,7 @@ void ingest_demo_auto (sqlite3* conn)
   };
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
-      rc != SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
+      rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
 
   for (size_t i = 0; i < demoAlns.size(); ++i) {
@@ -505,6 +505,6 @@ void ingest_demo_auto (sqlite3* conn)
   );
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
-      rc != SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
+      rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
 }

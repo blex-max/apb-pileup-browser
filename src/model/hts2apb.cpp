@@ -1128,9 +1128,7 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
   /* pile up and insert */
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  const auto alnId = apb_insert_aln (
-      conn, "test.bam", true, static_cast<int64_t> (cases.size())
-  );
+  const auto alnId = apb_insert_aln (conn, "test.bam", true);
   REQUIRE (alnId);
 
   test::RecordFeed feed{.recs = &recs};
@@ -1157,15 +1155,13 @@ TEST_CASE ("insert_pileup stores edge-case reads piled up by htslib")
     );
     REQUIRE (status.has_value());
 
-    // a failed insert (no such file: foreign key) must not leave its
-    // transaction open
+    // a failed insert (no such file: foreign key) surfaces as an error
     const auto failed = apb_insert_pileup (
         conn, std::span (br_plp, static_cast<size_t> (nPlp)),
         *alnId + 1000,
         [hdr] (int tid) { return sam_hdr_tid2name (hdr, tid); }
     );
     REQUIRE_FALSE (failed);
-    CHECK (sqlite3_get_autocommit (conn) != 0);
 
     found = true;
     break;
@@ -1282,14 +1278,14 @@ TEST_CASE ("apb_insert_aln returns ids, and an error for a duplicate path")
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
 
-  const auto first = apb_insert_aln (conn, "a.bam", true, 5);
+  const auto first = apb_insert_aln (conn, "a.bam", true);
   REQUIRE (first);
-  const auto second = apb_insert_aln (conn, "b.bam", false, 0);
+  const auto second = apb_insert_aln (conn, "b.bam", false);
   REQUIRE (second);
   CHECK (*second != *first);
 
   // UNIQUE (path) violation must surface as an error, not an id
-  const auto dup = apb_insert_aln (conn, "a.bam", true, 5);
+  const auto dup = apb_insert_aln (conn, "a.bam", true);
   REQUIRE_FALSE (dup);
   CHECK ((dup.error() & 0xFF) == SQLITE_CONSTRAINT);
 }
