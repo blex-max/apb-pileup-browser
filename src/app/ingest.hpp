@@ -8,6 +8,14 @@
 #include <string>
 #include <vector>
 
+/* bounds */
+// max pileup size, to prevent accidentally loading
+// some RAM-destroying pileup.
+#define DEPTH_LIMIT 500'000
+#define GB_LIMIT 4
+constexpr auto kBytesLimit =
+    static_cast<uint64_t> (GB_LIMIT) * 1'000'000'000;
+
 // ingest pileup from disk
 // returns expected void/str since any failure
 // is a top-level crash which can be fully described

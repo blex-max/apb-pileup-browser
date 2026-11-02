@@ -93,17 +93,13 @@ The parser incrementally wraps these commands into a complete SQL statement, whi
 where (base != 'G') AND flag & 3584 = 0 ORDER BY basequal ASC
 ```
 
-You can remove clauses added in a piecewise manner with the `back` command. In this case, a call to back would reduce the statement to:
-```
-where (base != 'G') ORDER BY basequal ASC
-```
-ORDER BY is not affected by back. To reset/clear ordering, simply call `sort` with no arguments.
+You can remove clauses added in a piecewise manner with the `undo` command.
 
 Note that you can provide more than one condition at a time, so:
 ```
 where base != 'G' AND flag & 3584
 ```
-is equivalent to `where base != 'G'`, `and (flag & 3584) = 0`.
+is equivalent to `where base != 'G'`, `and (flag & 3584) = 0` (But see Section 3.3.3).
 
 To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used with our latest query above, the status bar will show:
 ```

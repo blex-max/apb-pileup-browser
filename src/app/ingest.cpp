@@ -16,14 +16,6 @@
 #include "shared/cleanup.hpp"
 #include "shared/stringify.hpp"
 
-/* bounds */
-// max pileup size, to prevent accidentally loading
-// some RAM-destroying pileup.
-#define DEPTH_LIMIT 500'000
-#define GB_LIMIT 4
-constexpr auto kBytesLimit =
-    static_cast<uint64_t> (GB_LIMIT) * 1'000'000'000;
-
 struct PileupCapture {
   htsFile* br_fh = nullptr;
   hts_itr_t* o_it = nullptr;  // owned; freed by PileupIterator::destroy
@@ -332,7 +324,7 @@ std::expected<void, std::string> ingest_sam_auto (
             apb_insert_aln (conn, aln.path.string(), alnHasContig);
         !ret) {
       return std::unexpected (apb_describe_sqlite_failure (
-          "Failed to insert locus metadata", ret.error(),
+          "Failed to insert alignment file", ret.error(),
           sqlite3_errmsg (conn)
       ));
     }

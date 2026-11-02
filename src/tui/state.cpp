@@ -230,8 +230,9 @@ SetQueryStatus set_query (QueryFragments query)
         sqlite3_prepare_v2 (
             conn,
             "SELECT a.path, a.has_contig, "
-            "(SELECT COUNT(*) FROM per_record_data AS r WHERE r.path_id = "
-            "a.id) AS n_reads FROM alignment_files AS a LEFT JOIN (SELECT "
+            "EXISTS (SELECT 1 FROM per_record_data AS r WHERE r.path_id = "
+            "a.id) AS has_any_reads FROM alignment_files AS a LEFT JOIN "
+            "(SELECT "
             "DISTINCT path_id FROM ordered_query) AS o ON o.path_id = "
             "a.id "
             "WHERE o.path_id IS NULL ORDER BY a.id;",
@@ -252,12 +253,13 @@ SetQueryStatus set_query (QueryFragments query)
       };
       const bool hasContig =
           static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 1));
-      const int64_t n_reads = sqlite3_column_int64 (o_alnSelStmt, 2);
+      const bool hasAnyReads =
+          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 2));
 
       // NOTE: any file which does not have locus reads/contig
       // will always retain the same reason, so maybe this is
       // suboptimal. But it will do.
-      if (n_reads > 0) {
+      if (hasAnyReads) {
         emptyForQuery.emplace_back (
             path, EmptyFileReason::noMatchingReads
         );
