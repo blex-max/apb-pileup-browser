@@ -20,5 +20,5 @@ Checks: >
   -readability-else-after-return
 
 WarningsAsErrors: ''
-HeaderFilterRegex: 'src/(app|backend|generic|demo|shared)/'
+HeaderFilterRegex: 'src/(app|generic|model|shared|tui)/'
 FormatStyle: file

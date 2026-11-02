@@ -7,10 +7,10 @@ tag=${1:?usage: $0 TAG SITE_DIR [APB_BINARY]}
 site=${2:?usage: $0 TAG SITE_DIR [APB_BINARY]}
 apb=${3:-build/apb}
 
-case "$tag" in
-  v[0-9]*) ;;
-  *) echo "refusing tag '$tag': expected vX.Y.Z" >&2; exit 1 ;;
-esac
+if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "refusing tag '$tag': expected vX.Y.Z" >&2
+  exit 1
+fi
 
 mkdir -p "$site/$tag"
 tmp=$(mktemp)
