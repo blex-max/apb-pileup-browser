@@ -644,7 +644,7 @@ static e2::Delta seq1 (
     }
     else {
       // FIXME: should this be an assertion? It implies data corruption
-      // over program malformation.
+      // more than program malformation.
       TUI_UNREACHABLE ("CIGAR operation consumption type invalid");
     }
     if (writeHead.x >= fa.writeLimits.x) {
