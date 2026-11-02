@@ -392,22 +392,9 @@ ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
       .cig_br = static_cast<const uint32_t*> (sqlite3_column_blob (
           br_stmtRow, schema::UserReadViewSelect::cig_uint32
       )),
-      .nCig =
-          [&br_stmtRow]() {
-            const auto rawNCig = sqlite3_column_int (
-                br_stmtRow, schema::UserReadViewSelect::ncig
-            );
-            const auto cigBytes = sqlite3_column_bytes (
-                br_stmtRow, schema::UserReadViewSelect::cig_uint32
-            );
-            TUI_ASSERT (
-                rawNCig >= 0 &&
-                    static_cast<uint64_t> (rawNCig) * sizeof (uint32_t) <=
-                        static_cast<uint64_t> (cigBytes),
-                rawNCig, cigBytes
-            );
-            return static_cast<uint64_t> (rawNCig);
-          }()
+      .nCig = static_cast<uint64_t> (
+          sqlite3_column_int (br_stmtRow, schema::UserReadViewSelect::ncig)
+      )
   };
 };
 
@@ -447,7 +434,6 @@ static e2::Delta seq1 (
   if (fa.writeStartX >= fa.writeLimits.x || yStart >= fa.writeLimits.y) {
     return {0, 0};  // no-op
   }
-  TUI_ASSERT ((ref) ? !ref.value().empty() : true);
   TUI_ASSERT (fa.writeStartXGPos >= pileupSpanGStart, fa.writeStartXGPos);
 
   e2::GlobalCell writeHead{{.x = fa.writeStartX, .y = yStart}};
@@ -657,6 +643,8 @@ static e2::Delta seq1 (
       // hard clip: nothing to draw here (label handled above)
     }
     else {
+      // FIXME: should this be an assertion? It implies data corruption
+      // over program malformation.
       TUI_UNREACHABLE ("CIGAR operation consumption type invalid");
     }
     if (writeHead.x >= fa.writeLimits.x) {
@@ -951,10 +939,10 @@ void draw_main_to_buffer()
       const auto labelOffset = static_cast<size_t> (
           std::max<int64_t> (g_db::stmtRowScrollOffset - nReads, 0)
       );
-      for (size_t i = labelOffset;
-           i < g_db::emptyFiles.size() && seqWriteHead.y < seqWriteLim.y;
+      for (size_t i = labelOffset; i < g_db::queryEmptyFiles.size() &&
+                                   seqWriteHead.y < seqWriteLim.y;
            ++i) {
-        const auto& file = g_db::emptyFiles[i];
+        const auto& file = g_db::queryEmptyFiles[i];
         e2::write_string (
             seqWriteHead, seqWriteLim.x, file.path, {.fg = TB_REVERSE}
         );

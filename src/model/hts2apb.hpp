@@ -2,6 +2,8 @@
 // and the database defined by apb.
 // Callers should compose these functions as needed,
 // see app/ingest.cpp::ingest_sam_auto for a complete exapmle.
+// Transactions (begin/commit) and bounds (e.g. memory usage)
+// to be handled by caller.
 #pragma once
 
 #include <fmt/format.h>
@@ -21,31 +23,46 @@
 #include "hts_types.hpp"
 
 
-// Create the apb schema on a db connection
+// Create the apb schema on an open db connection
 [[nodiscard]] int apb_create_schema (sqlite3* conn);
 
-// verify a sqlite3* object for use from apb.
-// For e.g. loading from a dump on disk.
-// It is recommended to use PRAGMA quick_check
-// before verifying for use with apb.
 enum class apb_verify_result_t : uint8_t {
   success,
   appMismatch,
   verMismatch,
+  pragmaMismatch,
   schemaMismatch
 };
-std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn);
+// verify a sqlite3* object for use from apb.
+// For e.g. loading from a dump on disk.
+// It is recommended to use PRAGMA quick_check
+// before verifying for use with apb.
+[[nodiscard]] std::expected<apb_verify_result_t, int> apb_verify_schema (
+    sqlite3* conn
+);
 
 // FIXME: since we're going composable, should add a "check db filled and valid"
 // function so users can easily verify that they've done it right and the
 // db is full and interally consistent.
-// This can be composed with verify_db.
+// This can be composed with verify_schema.
+// But what would this actually test though? I guess that any alignment which
+// has reads has the correct number of reads, that any inserted reference matches
+// the pileup span length, and an sqlite3 integrity check. And perhaps that
+// ncig matches cig bytes (but can this be a check/trigger in the schema?).
+// That all reads cover the locus?
+// That locus and alignment tables have some content.
+// enum class apb_validate_result_t : uint8_t {
+//   success,
+//   corrupt,
+//   readsMismatch
+// };
+// [[nodiscard]] std::expected<apb_validate_result_t, int> apb_validate_db (sqlite3* conn);
 
 // insert metadata for a single alignment file into db
 // returns id for that alignment file for use when subsequently inserting pileup.
 // On failure returns sqlite3 integer status code
 [[nodiscard]] std::expected<int, int> apb_insert_aln (
-    sqlite3* conn, std::string_view alnPath, bool hasContig, int64_t nPlp
+    sqlite3* conn, std::string_view alnPath, bool hasContig
 );
 
 struct insert_pileup_err_t {
@@ -55,6 +72,7 @@ struct insert_pileup_err_t {
 };
 // insert pileup into db for a single alignment file.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+// FIXME: should not internally handle transactions (for the sake of bindings)
 [[nodiscard]] std::expected<void, insert_pileup_err_t> apb_insert_pileup (
     sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
     const std::function<const char*(int)>& mtid2name
@@ -62,13 +80,10 @@ struct insert_pileup_err_t {
 
 // Insert pileup locus info into single-row metadata table.
 // This should be called last, when all alignment files and pilupes
-// have been inserted.
-// Returns sqlite3 int status code.
+// have been inserted, as it retrieves data from those tables
+// Returns sqlite3 int status code on failure.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-// FIXME: since db may be being updated iteratively
-// locus table updates should be able to go via UPDATE rather than INSERT.
-// Another fn?
-[[nodiscard]] int apb_insert_locus (
+[[nodiscard]] std::expected<void, int> apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
     genomic_span_t span, std::optional<std::string_view> ref
 );

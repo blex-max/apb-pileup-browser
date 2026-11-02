@@ -5,20 +5,29 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <vector>
 
-// User-supplied query components, as typed at the command line.
+// User-supplied query components input at command line
 struct QueryFragments {
-  std::vector<std::string> where;
+  std::string where;
   std::string orderBy;
 };
+// If where is empty, sets where to cond. If where is not empty,
+// wraps existing clause in parens and appends cond to where.
+// paren wrapping avoids AND taking precedence over OR in
+// mulit-condition statements.
+// Sanitises cond before use. No-op if cond is empty.
+// Does not check if resulting string is valid sql.
+void update_where (QueryFragments& query, std::string_view cond);
+// Sanitises order before use. No-op if order is empty.
+// Does not check if resulting string is valid sql.
+void update_order (QueryFragments& query, std::string_view order);
 
 // Joins WHERE fragments into a single expression, left-wrapping
 // each in parens: later fragments begin with their own connective
 // (e.g. "OR b", "AND c"), so {"a", "OR b", "AND c"} gives
 // "((a) OR b) AND c".
 // Empty if no fragments. Does not prepend "WHERE" keyword.
-std::string process_where (const std::vector<std::string>& where);
+// std::string process_where (const std::vector<std::string>& where);
 
 // locus metadata as extracted from db.
 // 1-indexed!

@@ -58,6 +58,8 @@ inline constexpr auto navigation = std::to_array<std::string_view> (
      "                                                    ",
      " COMMAND LINE                                       ",
      "  Enter             run command                     ",
+     "  C-r               pull current query to command   ",
+     "                    line, for editing.              ",
      "  S-Up / S-Down     command history                 ",
      "  C-u / C-d         command history                 ",
      "  Left / Right      move command cursor             ",

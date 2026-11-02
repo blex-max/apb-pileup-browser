@@ -31,8 +31,10 @@ void tui_shutdown();
 
 namespace db {
 
+// ALL MANAGED BY set_query()
 inline constinit sqlite3* conn = nullptr;
-inline constinit QueryFragments userClause;
+inline constinit QueryFragments userQuery;
+inline constinit std::vector<QueryFragments> queryUndoStack;
 inline constinit sqlite3_stmt* selectStmt = nullptr;
 inline constinit uint64_t nStmtRows = 0;  // rows in current stmt
 inline constinit int32_t stmtRowScrollOffset = 0;
@@ -48,21 +50,21 @@ struct EmptyFile {
   std::string path;
   EmptyFileReason reason;
 };
-inline constinit std::vector<EmptyFile> emptyFiles;
-
-// total scrollable rows: reads, then empty-file labels
-inline uint64_t nScrollRows()
-{
-  return nStmtRows + static_cast<uint64_t> (emptyFiles.size());
-}
-
-inline constinit PileupMetadata
-    locusInfo;  // cached metadata-table row; queried once at init()
+inline constinit std::vector<EmptyFile> queryEmptyFiles;
 
 enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // Replace the active query with `clause`.
 // On failure extra details are available from sqlite3_errmsg (conn).
-[[nodiscard]] SetQueryStatus set_query (QueryFragments userFrags);
+[[nodiscard]] SetQueryStatus set_query (QueryFragments query);
+
+// total scrollable rows: reads, then empty-file labels
+inline uint64_t nScrollRows()
+{
+  return nStmtRows + static_cast<uint64_t> (queryEmptyFiles.size());
+}
+
+inline constinit PileupMetadata
+    locusInfo;  // cached metadata-table row; queried once at init()
 
 }  // namespace db
 

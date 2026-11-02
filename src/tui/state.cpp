@@ -113,23 +113,13 @@ constinit std::array<ColMetadata, 10> tableCols{{
 
 namespace tui_state::db {
 
-SetQueryStatus set_query (QueryFragments userFrags)
+SetQueryStatus set_query (QueryFragments query)
 {
-  // minor guard/cleanup of user sql
-  for (auto& whereFrag : userFrags.where) {
-    if (!whereFrag.empty() && whereFrag.back() == ';') {
-      whereFrag.pop_back();
-    }
-  }
-  if (!userFrags.orderBy.empty() && userFrags.orderBy.back() == ';') {
-    userFrags.orderBy.pop_back();
-  }
-
   std::string userQuerySuffix;
   // build WHERE
-  if (!userFrags.where.empty()) {
+  if (!query.where.empty()) {
     userQuerySuffix.append ("WHERE ");
-    userQuerySuffix.append (process_where (userFrags.where));
+    userQuerySuffix.append (query.where);
     // add newline to avoid issues from user sql e.g. trailing
     // -- comment
     userQuerySuffix.append ("\n");
@@ -139,9 +129,9 @@ SetQueryStatus set_query (QueryFragments userFrags)
   // of multi-alignment view. Irrelevant
   // for single-file view.
   userQuerySuffix.append (" ORDER BY path");
-  if (!userFrags.orderBy.empty()) {
+  if (!query.orderBy.empty()) {
     userQuerySuffix.append (", ");
-    userQuerySuffix.append (userFrags.orderBy);
+    userQuerySuffix.append (query.orderBy);
     userQuerySuffix.append ("\n");
   }
 
@@ -239,10 +229,12 @@ SetQueryStatus set_query (QueryFragments userFrags)
     TUI_S3_EXPECT (
         sqlite3_prepare_v2 (
             conn,
-            "SELECT a.path, a.has_contig, a.n_reads FROM "
-            "alignment_files AS a LEFT JOIN (SELECT DISTINCT path_id FROM "
-            "ordered_query) AS o ON o.path_id = a.id WHERE o.path_id IS "
-            "NULL ORDER BY a.id;",
+            "SELECT a.path, a.has_contig, "
+            "(SELECT COUNT(*) FROM per_record_data AS r WHERE r.path_id = "
+            "a.id) AS n_reads FROM alignment_files AS a LEFT JOIN (SELECT "
+            "DISTINCT path_id FROM ordered_query) AS o ON o.path_id = "
+            "a.id "
+            "WHERE o.path_id IS NULL ORDER BY a.id;",
             -1, &o_alnSelStmt, NULL
         ),
         SQLITE_OK
@@ -279,7 +271,7 @@ SetQueryStatus set_query (QueryFragments userFrags)
     }
     TUI_ASSERT (rc == SQLITE_DONE);
 
-    emptyFiles = std::move (emptyForQuery);
+    queryEmptyFiles = std::move (emptyForQuery);
   }
 
   sqlite3_stmt* br_newStmt = nullptr;
@@ -303,20 +295,23 @@ SetQueryStatus set_query (QueryFragments userFrags)
   selectStmt = br_newStmt;
 
   std::string userQueryStr;
-  if (!userFrags.where.empty()) {
+  if (!query.where.empty()) {
     userQueryStr.append ("WHERE ");
-    userQueryStr.append (process_where (userFrags.where));
+    userQueryStr.append (query.where);
   }
-  if (!userFrags.orderBy.empty()) {
+  if (!query.orderBy.empty()) {
     if (!userQueryStr.empty()) {
       userQueryStr.append (" ");
     }
     userQueryStr.append ("ORDER BY ");
-    userQueryStr.append (userFrags.orderBy);
+    userQueryStr.append (query.orderBy);
   }
   ui::cmd::userQueryStr = userQueryStr;
-
-  userClause = std::move (userFrags);
+  while (queryUndoStack.size() > 7) {
+    queryUndoStack.erase (begin (queryUndoStack));
+  }
+  queryUndoStack.push_back (userQuery);
+  userQuery = std::move (query);
   stmtRowScrollOffset = 0;  // reset row view
   nStmtRows = static_cast<uint64_t> (queryRowCount);
 

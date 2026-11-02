@@ -48,6 +48,7 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
     functions unnecessarily.
   - Asserting what you believe to be true makes it much easier to implement your intention.
   - Regular use of assertions make debugging much easier.
+  - Assertions are for checking that the code itself is well-formed, not verifying the data integrity
 
 - Braces avoid issues with variable initialisation when jumping via goto or switch case (I forget this sometimes).
   - default to using braces with case statements!

@@ -7,6 +7,7 @@
 - Parsing improved to allow direct SQL to be provided at the command line, e.g.: WHERE ... ORDER BY ...
 - `Ctrl-r` keybind added to pull current query from display status bar into the command line, for editing and resubmission.
 - `Ctrl-u` and `Ctrl-d` keybinds added for stepping command history, for those on terminals which swallow `shift-Up`/`shift-Down`.
+- changes to `back` command; made more intuitive.
 - schema update; database dumps from previous versions will no longer load.
 - Improved querying examples in manual.
 - Improved demo data.

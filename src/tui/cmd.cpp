@@ -232,17 +232,17 @@ static constexpr Cmd colCmd{
     }
 };
 
-// incomingSql: the user sql that has been added to newClause, for
+// incomingSql: the user sql that has been added to query, for
 // display on failure. Any earlier sql already compiled,
 // so can't be at fault and therefore should not be displayed on
 // failure.
 static std::string try_apply_query_clause (
-    QueryFragments newClause, std::string_view incomingSql,
+    QueryFragments query, std::string_view incomingSql,
     std::string_view successMsg
 )
 {
   std::string failReason;
-  switch (g_db::set_query (std::move (newClause))) {
+  switch (g_db::set_query (std::move (query))) {
     case g_db::SetQueryStatus::success:
       return std::string (successMsg);
     case g_db::SetQueryStatus::guardFail:
@@ -269,22 +269,22 @@ static constexpr Cmd whereCmd{
     "manual or run `? col`.",
     [] (std::string_view args) -> std::string {
       // copy in case sql compile fails
-      auto newClause = g_db::userClause;
-      newClause.where.clear();
+      auto query = g_db::userQuery;
+      query.where.clear();
 
       if (!args.empty()) {
         constexpr std::string_view orderBy{" ORDER BY "};
         if (const auto pos = cmd_find_substr (args, orderBy); pos) {
-          newClause.where.emplace_back (args.substr (0, *pos));
-          newClause.orderBy = args.substr (*pos + orderBy.size());
+          update_where (query, args.substr (0, *pos));
+          update_order (query, args.substr (*pos + orderBy.size()));
         }
         else {
-          newClause.where.emplace_back (args);
+          update_where (query, args);
         }
       }
 
       return try_apply_query_clause (
-          std::move (newClause), args, CMD_GENERIC_SUCCESS
+          std::move (query), args, CMD_GENERIC_SUCCESS
       );
     }
 };
@@ -298,7 +298,7 @@ static constexpr Cmd andCmd{
         return cmd_format_misuse ("no condition given", andCmd.usage);
       }
 
-      if (g_db::userClause.where.empty()) {
+      if (g_db::userQuery.where.empty()) {
         return cmd_format_fail ("WHERE clause empty; cannot add term");
       }
 
@@ -306,15 +306,15 @@ static constexpr Cmd andCmd{
         return cmd_format_fail ("AND clause cannot contain ORDER BY");
       }
 
-      auto newClause = g_db::userClause;
+      auto query = g_db::userQuery;
       std::string newCond{"AND "};
       newCond.append (args);
 
-      newClause.where.emplace_back (newCond);
+      update_where (query, newCond);
 
       // validates clause
       return try_apply_query_clause (
-          std::move (newClause), newCond, CMD_GENERIC_SUCCESS
+          std::move (query), newCond, CMD_GENERIC_SUCCESS
       );
     }
 };
@@ -327,7 +327,7 @@ static constexpr Cmd orCmd{
         return cmd_format_misuse ("no condition given", orCmd.usage);
       }
 
-      if (g_db::userClause.where.empty()) {
+      if (g_db::userQuery.where.empty()) {
         return cmd_format_fail ("WHERE clause empty; cannot add term");
       }
 
@@ -335,41 +335,14 @@ static constexpr Cmd orCmd{
         return cmd_format_fail ("OR clause cannot contain ORDER BY");
       }
 
-      auto newClause = g_db::userClause;
+      auto query = g_db::userQuery;
       std::string newCond{"OR "};
       newCond.append (args);
 
-      newClause.where.emplace_back (newCond);
+      update_where (query, newCond);
 
       return try_apply_query_clause (
-          std::move (newClause), newCond, CMD_GENERIC_SUCCESS
-      );
-    }
-};
-
-static constexpr std::array<std::string_view, 2> backNames{"back", "bk"};
-static constexpr Cmd backCmd{
-    backNames, "back",
-    "Drop the most recently added condition from the query "
-    "WHERE clause, or clear if only a single condition is "
-    "present.",
-    [] (std::string_view args) -> std::string {
-      if (const auto res = cmd_validate_args_empty (args, backCmd.usage);
-          !res) {
-        return res.error();
-      };
-
-      auto& curClause = g_db::userClause;
-      if (curClause.where.empty()) {
-        return cmd_format_fail ("WHERE clause empty");
-      }
-      auto newClause = curClause;
-      auto rmClauseElem = newClause.where.back();
-      newClause.where.pop_back();
-
-      return try_apply_query_clause (
-          std::move (newClause), {},
-          fmt::format ("Removed clause: {}", rmClauseElem)
+          std::move (query), newCond, CMD_GENERIC_SUCCESS
       );
     }
 };
@@ -383,11 +356,11 @@ static constexpr Cmd orderCmd{
     "resetting to default ordering. When viewing multiple "
     "alignments, reads are always sorted by file as the primary key.",
     [] (std::string_view args) -> std::string {
-      auto newClause = g_db::userClause;
-      newClause.orderBy = args;
+      auto query = g_db::userQuery;
+      update_order (query, args);
 
       return try_apply_query_clause (
-          std::move (newClause), args, CMD_GENERIC_SUCCESS
+          std::move (query), args, CMD_GENERIC_SUCCESS
       );
     }
 };
@@ -401,31 +374,22 @@ static constexpr Cmd countCmd{
     "clause is present, the optional clause will be used as "
     "the count WHERE clause alone.",
     [] (std::string_view args) -> std::string {
-      // as set_query: tolerate one trailing ';', reject any other
-      if (!args.empty() && args.back() == ';') {
-        args.remove_suffix (1);
-      }
-      if (args.find (';') != std::string_view::npos) {
-        return cmd_format_fail ("semicolon in query!");
-      }
-
-      auto where = g_db::userClause.where;
+      auto query = g_db::userQuery;
       if (!args.empty()) {
-        if (where.empty()) {
-          where.emplace_back (args);
+        if (query.where.empty()) {
+          update_where (query, args);
         }
         else {
-          std::string clause{"AND "};
-          clause.append (args);
-          where.emplace_back (clause);
+          std::string cond{"AND "};
+          cond.append (args);
+          update_where (query, cond);
         }
       }
 
       std::string sqlCountQuery{"SELECT COUNT(*) FROM reads"};
-      const auto sqlUserWhere = process_where (where);
-      if (!where.empty()) {
+      if (!query.where.empty()) {
         sqlCountQuery.append (" WHERE ");
-        sqlCountQuery.append (sqlUserWhere);
+        sqlCountQuery.append (query.where);
         // add newline to avoid issues from user sql e.g. trailing
         // -- comment
         sqlCountQuery.append ("\n");
@@ -454,7 +418,7 @@ static constexpr Cmd countCmd{
       }
 
       return fmt::format (
-          "{}: {} reads", sqlUserWhere, sqlite3_column_int64 (o_stmt, 0)
+          "{}: {} reads", query.where, sqlite3_column_int64 (o_stmt, 0)
       );
     }
 };
@@ -469,15 +433,46 @@ static constexpr Cmd clearCmd{
         return res.error();
       };
 
-      auto newClause = g_db::userClause;
-      newClause.where.clear();
-      newClause.orderBy.clear();
+      auto query = g_db::userQuery;
+      query.where.clear();
+      query.orderBy.clear();
 
-      return try_apply_query_clause (
-          std::move (newClause), {}, "Reset query"
-      );
+      return try_apply_query_clause (std::move (query), {}, "Reset query");
     }
 };
+
+static constexpr std::array<std::string_view, 2> backNames{"back", "bk"};
+static constexpr Cmd backCmd{
+    backNames, "back",
+    "Drop the most recently added condition from the query "
+    "WHERE clause, or clear if only a single condition is "
+    "present.",
+    [] (std::string_view args) -> std::string {
+      if (const auto res = cmd_validate_args_empty (args, backCmd.usage);
+          !res) {
+        return res.error();
+      };
+      auto& undoStack = g_db::queryUndoStack;
+
+      if (undoStack.empty()) {
+        return cmd_format_fail ("Undo buffer empty!");
+      }
+      auto query = undoStack.back();
+      undoStack.pop_back();
+
+      if (const auto ret = g_db::set_query (std::move (query));
+          ret != tui_state::db::SetQueryStatus::success) {
+        TUI_UNREACHABLE (
+            "SQL in undo stack failed to compile upon reuse!"
+        );
+      }
+      // set_query always adds to undo queue on success,
+      // so reverse that.
+      undoStack.pop_back();
+      return CMD_GENERIC_SUCCESS;
+    }
+};
+
 
 static constexpr std::array<std::string_view, 2> showTableNames{
     "show-table", "st"

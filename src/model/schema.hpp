@@ -87,13 +87,12 @@ inline constexpr std::string_view sqlCreateFileTable = R"sql(
   CREATE TABLE alignment_files (
     id  INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
-    has_contig INTEGER NOT NULL CHECK (has_contig IN (0, 1)),
-    n_reads INTEGER NOT NULL CHECK (n_reads >= 0)
+    has_contig INTEGER NOT NULL CHECK (has_contig IN (0, 1))
   ) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertFile = R"sql(
-  INSERT INTO alignment_files (path, has_contig, n_reads) VALUES (?, ?, ?);
+  INSERT INTO alignment_files (path, has_contig) VALUES (?, ?);
 )sql";
 
 // One row per read overlapping pileup reference position.

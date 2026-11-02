@@ -6,6 +6,8 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include <expected>
+
 #include "generic/demo.hpp"
 #include "generic/describe.hpp"
 #include "model/hts2apb.hpp"
@@ -162,6 +164,15 @@ std::expected<void, std::string> ingest_sam_auto (
   genomic_span_t maxSpan{
       INT64_MAX, 0
   };  // for fetching appropriate reference slice
+  if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
+      rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "Failed to begin database transaction, reporting: {} - {}",
+            sqlite3_errstr (rc), sqlite3_errmsg (conn)
+        )
+    );
+  }
   for (const auto& fp : alnPaths) {
     AlnFile aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
@@ -191,7 +202,13 @@ std::expected<void, std::string> ingest_sam_auto (
                 sam_hdr_name2tid (aln.o_hdr, locusContigName.c_str());
             rc) {
       case -2:
-        APB_UNREACHABLE ("Could not parse header despite successful read");
+        return std::unexpected (
+            fmt::format (
+                "Error while attempting to retrive contig id for contig "
+                "{} from alignment file {}",
+                locusContigName, aln.path
+            )
+        );
       case -1:
         break;
       default:
@@ -298,18 +315,26 @@ std::expected<void, std::string> ingest_sam_auto (
         }
         break;
       }
+      if (nPlp < 0 || plpTid < 0 || plpPos < 0) {
+        // FIXME: Again, what is the error space here? should this be a crash or a skip. read src.
+        return std::unexpected (
+            fmt::format (
+                "Unexpected error encountered when iterating pileup for "
+                "alignment at {}",
+                aln.path
+            )
+        );
+      }
     }
 
     int alnID;
-    if (const auto ret = apb_insert_aln (
-            conn, aln.path.string(), alnHasContig,
-            static_cast<int64_t> (pileup.nPlp)
-        );
+    if (const auto ret =
+            apb_insert_aln (conn, aln.path.string(), alnHasContig);
         !ret) {
-      APB_UNREACHABLE (
-          "failed to insert alignment", ret.error(),
-          sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
-      );
+      return std::unexpected (apb_describe_sqlite_failure (
+          "Failed to insert locus metadata", ret.error(),
+          sqlite3_errmsg (conn)
+      ));
     }
     else {
       alnID = *ret;
@@ -365,28 +390,44 @@ std::expected<void, std::string> ingest_sam_auto (
         return std::unexpected (
             fmt::format (
                 "Failed to fetch reference region from fasta at {} "
-                "for span {}:{}-{} (0-based end-exclusive coordinates)",
+                "for span {}:{}-{}",
                 refPath.value(), locusContigName, maxSpan.start,
                 maxSpan.end
             )
+        );
+      }
+      if (regLen < (maxSpan.end - maxSpan.start)) {
+        return std::unexpected (
+            "Reference too short! Fasta missing coverage for pileup span."
         );
       }
       refSlice = {o_fetch, static_cast<size_t> (regLen)};
       free (o_fetch);
     }
 
-    if (const auto rc = apb_insert_locus (
+    if (const auto ret = apb_insert_locus (
             conn, locusContigName, locusPos, maxSpan, refSlice
         );
-        rc != SQLITE_OK) {
+        !ret) {
       return std::unexpected (apb_describe_sqlite_failure (
-          "Failed to insert locus metadata", rc, sqlite3_errmsg (conn)
+          "Failed to insert locus metadata", ret.error(),
+          sqlite3_errmsg (conn)
       ));
     }
   }
   else {
     return std::unexpected (
         "No reads at locus in any input alignment file"
+    );
+  }
+
+  if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
+      rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "Failed to commit database transaction, reporting: {} - {}",
+            sqlite3_errstr (rc), sqlite3_errmsg (conn)
+        )
     );
   }
 
@@ -412,6 +453,11 @@ void ingest_demo_auto (sqlite3* conn)
       },
       std::span<bam_pileup1_t>{begin (demoData.p) + 200, end (demoData.p)}
   };
+  APB_ASSERT (
+      const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
+      rc != SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
+  );
+
   for (size_t i = 0; i < demoAlns.size(); ++i) {
     const auto plp = demoAlns[i];
     std::sort (begin (plp), end (plp), [] (const auto& a, const auto& b) {
@@ -421,10 +467,7 @@ void ingest_demo_auto (sqlite3* conn)
     alnPath.append (std::to_string (i));
 
     int alnId;
-    if (const auto ret = apb_insert_aln (
-            conn, alnPath, true, static_cast<int64_t> (plp.size())
-        );
-        !ret) {
+    if (const auto ret = apb_insert_aln (conn, alnPath, true); !ret) {
       APB_UNREACHABLE (
           "demo insertion malformed", sqlite3_errstr (ret.error()),
           sqlite3_errmsg (conn)
@@ -454,10 +497,14 @@ void ingest_demo_auto (sqlite3* conn)
     }
   }
   APB_ASSERT (
-      const auto rc = apb_insert_locus (
+      const auto ret = apb_insert_locus (
           conn, std::string{demoContig}, demoPos, demoData.pspan,
           demoData.ref
       );
-      rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
+      ret, ret.error(), sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
+  );
+  APB_ASSERT (
+      const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
+      rc != SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
 }

@@ -26,6 +26,7 @@ struct load_err_t {
     appMismatch,
     verMismatch,
     schemaMismatch,
+    pragmaMismatch,
     sqlFail
   };
   Kind kind;

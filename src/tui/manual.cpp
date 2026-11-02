@@ -186,6 +186,10 @@ You can also search for motifs within a window of the `seq` string. This command
 where instr(substr(seq, 1, 10), 'GATC') > 0
 ```
 
+### 3.3.3) SQL operator precedence
+
+In SQL, AND conditions always bind more tightly than OR. This means that the command `where flag = [x] AND basequal > [y] OR flag = [w] AND mapq < [z]` binds as `(flag = [x] AND basequal > [y]) OR (flag = [w] AND mapq < [z])`. This is intuitive and useful for predetermimed queries, however it would be inconvenient when building queries piecewise in an exploratory manner - e.g. `where flag = [x] OR flag = [y]` followed by `and mapq > 0 OR basequal > 35`, would, in natural SQL, resolve to `flag = [x] OR (flag = [y] and mapq > 0) OR basequal > 35`. To avoid this, when using the piecewise query interface apb wraps each new conditional provided via the `and`/`or` commands in parentheses, such that our example would resolve to `(flag = [x] OR flag = [y]) and (mapq > 0 OR basequal > 35)` - i.e. as it was provided at the command line. These parentheses are displayed in the status bar to ensure clarity. If you prefer to use natural SQL operator precedence, use the submit-and-edit interface; submit your queries written as natural SQL via the `where` command, and get the current query for editing with `Ctrl-r`.
+
 ---
 
 Any and all of these approaches may be combined, and more is possible. See SQLite's expression/function reference - https://sqlite.org/lang_expr.html.

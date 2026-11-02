@@ -16,7 +16,8 @@ Checks: >
   -readability-identifier-length,
   -readability-named-parameter,
   -readability-magic-numbers,
-  -readability-redundant-inline-specifier
+  -readability-redundant-inline-specifier,
+  -readability-else-after-return
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/(app|backend|generic|demo|shared)/'

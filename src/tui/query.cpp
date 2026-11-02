@@ -6,26 +6,53 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
+#include <string_view>
 
 #include "model/schema.hpp"
 #include "shared/cleanup.hpp"
 #include "tui_assert.hpp"
 
-std::string process_where (const std::vector<std::string>& where)
+static std::string_view sanitise_clause (std::string_view clause)
 {
-  if (where.empty()) {
-    return {};
+  // trim whitespace, semicolons
+  while (!clause.empty() && clause.front() == ' ') {
+    clause.remove_prefix (1);
   }
-  std::string out = where[0];
-  for (size_t i = 1; i < where.size(); ++i) {
-    out.insert (0, "(");
-    out += ") ";
-    out += where[i];
+  while (!clause.empty() && clause.back() == ' ') {
+    clause.remove_suffix (1);
   }
-  return out;
+  while (!clause.empty() && clause.back() == ';') {
+    clause.remove_suffix (1);
+  }
+  return clause;
 }
 
+void update_where (QueryFragments& query, std::string_view cond)
+{
+  const auto safeCond = sanitise_clause (cond);
+  if (safeCond.empty()) {
+    return;
+  }
+  auto& where = query.where;
+
+  if (where.empty()) {
+    where = safeCond;
+  }
+  else {
+    where.insert (0, 1, '(');
+    where.append (") ");
+    where.append (safeCond);
+  }
+}
+
+void update_order (QueryFragments& query, std::string_view order)
+{
+  const auto safeOrder = sanitise_clause (order);
+  if (safeOrder.empty()) {
+    return;
+  }
+  query.orderBy = order;
+}
 
 std::string PileupMetadata::to_string() const
 {
@@ -86,6 +113,7 @@ PileupMetadata get_locus_data (sqlite3* conn)
             sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
         )
     };
+    TUI_ASSERT (!out.refSlice.value().empty());
   }
 
   out.nAln = static_cast<int16_t> (

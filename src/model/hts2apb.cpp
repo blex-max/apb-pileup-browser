@@ -124,6 +124,14 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
   if (pragmaResult != APB_SCHEMA_VER) {
     return apb_verify_result_t::verMismatch;
   }
+  if (const auto rc =
+          read_int_pragma (conn, "PRAGMA foreign_keys;", pragmaResult);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  if (pragmaResult != 1) {
+    return apb_verify_result_t::pragmaMismatch;
+  }
   // Verify the loaded schema matches apb's expected schema.
   sqlite3* refdb = nullptr;
   Defer refdbCleanup ([&]() { sqlite3_close_v2 (refdb); });
@@ -453,14 +461,6 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
   }
   Defer stmt_cleanup ([&o_stmt]() { return sqlite3_finalize (o_stmt); });
 
-  // manually begin/commit transaction.
-  if (const auto rc = exec_sql (conn, "BEGIN;"); rc != SQLITE_OK) {
-    return std::unexpected (
-        insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
-    );
-  }
-  Defer rollback ([&]() { exec_sql (conn, "ROLLBACK;"); });
-
   for (size_t i = 0; i < plp.size(); ++i) {
     apb_pileup_t readI;
     const auto* p1 = &plp[i];
@@ -621,16 +621,10 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
     sqlite3_clear_bindings (o_stmt);  // cannot fail per sqlite3 docs
   }
 
-  if (const auto rc = exec_sql (conn, "COMMIT;"); rc != SQLITE_OK) {
-    return std::unexpected (
-        insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
-    );
-  }
-  rollback.cancel();
   return {};
 };
 
-[[nodiscard]] int apb_insert_locus (
+[[nodiscard]] std::expected<void, int> apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
     genomic_span_t span, std::optional<std::string_view> ref
 )
@@ -654,18 +648,18 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
   uint16_t nAln;
   {
     sqlite3_stmt* o_stmt;
-    TRY_OK_INT (sqlite3_prepare_v2 (
+    TRY_OK_EXP (sqlite3_prepare_v2 (
         conn, "SELECT COUNT(*) FROM alignment_files;", -1, &o_stmt, NULL
     ));
     Defer count_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
     if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
-      return rc;
+      return std::unexpected (rc);
     }
     nAln = static_cast<uint16_t> (sqlite3_column_int (o_stmt, 0));
   }
 
   sqlite3_stmt* o_stmt;
-  TRY_OK_INT (sqlite3_prepare_v2 (
+  TRY_OK_EXP (sqlite3_prepare_v2 (
       conn, schema::sqlInsertMetadata.data(),
       static_cast<int> (schema::sqlInsertMetadata.size()), &o_stmt, NULL
   ));
@@ -674,35 +668,34 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
   // NOTE: TIED TO SCHEMA ORDER. BE CAREFUL!
   int col = 1;
 
-  TRY_OK_INT (sqlite3_bind_text (
+  TRY_OK_EXP (sqlite3_bind_text (
       o_stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
   ));
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, pos + 1));
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, span.start + 1));
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, span.end));
+  TRY_OK_EXP (sqlite3_bind_int64 (o_stmt, col++, pos + 1));
+  TRY_OK_EXP (sqlite3_bind_int64 (o_stmt, col++, span.start + 1));
+  TRY_OK_EXP (sqlite3_bind_int64 (o_stmt, col++, span.end));
   if (!ref) {
-    TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
+    TRY_OK_EXP (sqlite3_bind_null (o_stmt, col++));
   }
   else {
-    TRY_OK_INT (sqlite3_bind_text (
+    TRY_OK_EXP (sqlite3_bind_text (
         o_stmt, col++, ref->data(), static_cast<int> (ref->size()),
         SQLITE_TRANSIENT
     ));
   }
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col, nAln));
+  TRY_OK_EXP (sqlite3_bind_int64 (o_stmt, col, nAln));
 
   if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
-    return rc;
+    return std::unexpected (rc);
   }
-  return SQLITE_OK;
+  return {};
 }
 
 std::expected<int, int> apb_insert_aln (
-    sqlite3* conn, std::string_view alnPath, bool hasContig, int64_t nPlp
+    sqlite3* conn, std::string_view alnPath, bool hasContig
 )
 {
   APB_ASSERT (conn != nullptr);
-  APB_ASSERT (nPlp >= 0, nPlp);
   APB_ASSERT (!alnPath.empty());
 
   sqlite3_stmt* o_fileInsertStmt;
@@ -721,7 +714,6 @@ std::expected<int, int> apb_insert_aln (
   TRY_OK_EXP (
       sqlite3_bind_int (o_fileInsertStmt, 2, static_cast<bool> (hasContig))
   );
-  TRY_OK_EXP (sqlite3_bind_int64 (o_fileInsertStmt, 3, nPlp));
   if (const auto rc = sqlite3_step (o_fileInsertStmt); rc != SQLITE_DONE) {
     return std::unexpected (rc);
   }
