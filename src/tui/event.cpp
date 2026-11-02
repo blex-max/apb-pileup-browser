@@ -6,6 +6,7 @@
 #include "cmd.hpp"
 #include "history.hpp"
 #include "input.hpp"
+#include "query.hpp"
 #include "state.hpp"
 #include "widgets.hpp"
 
@@ -25,7 +26,7 @@ static bool handle_nav (const tb_event& ev)
     case TB_KEY_ENTER:
       // execute user command
       if (!g_cmd::inputBuf.text.empty()) {
-        history_push (g_cmd::history, g_cmd::inputBuf.text);
+        history_push (g_cmd::inputHistory, g_cmd::inputBuf.text);
         g_cmd::msgBuf = exec_cmd (g_cmd::inputBuf.text);  // return msg
         clear (g_cmd::inputBuf);
       }
@@ -78,21 +79,21 @@ static bool handle_nav (const tb_event& ev)
       break;
 
     case TB_KEY_CTRL_R:
-      if (!g_cmd::userQueryStr.empty()) {
-        set_text (g_cmd::inputBuf, g_cmd::userQueryStr);
+      if (const auto q = to_display_string (g_db::userQuery); !q.empty()) {
+        set_text (g_cmd::inputBuf, q);
       }
       break;
 
     case TB_KEY_CTRL_U:
-      history_prev (g_cmd::history, g_cmd::inputBuf);
+      history_prev (g_cmd::inputHistory, g_cmd::inputBuf);
       break;
     case TB_KEY_CTRL_D:
-      history_next (g_cmd::history, g_cmd::inputBuf);
+      history_next (g_cmd::inputHistory, g_cmd::inputBuf);
       break;
 
     case TB_KEY_ARROW_DOWN:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_next (g_cmd::history, g_cmd::inputBuf);
+        history_next (g_cmd::inputHistory, g_cmd::inputBuf);
       }
       else {
         const auto lastRowOnscreen = static_cast<uint32_t> (
@@ -106,7 +107,7 @@ static bool handle_nav (const tb_event& ev)
 
     case TB_KEY_ARROW_UP:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_prev (g_cmd::history, g_cmd::inputBuf);
+        history_prev (g_cmd::inputHistory, g_cmd::inputBuf);
       }
       else {
         stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);

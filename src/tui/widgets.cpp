@@ -23,7 +23,6 @@
 #include "helpblocks.hpp"
 #include "model/schema.hpp"
 #include "query.hpp"
-#include "state.hpp"
 #include "tui_assert.hpp"
 
 namespace e2 = extb;
@@ -33,6 +32,103 @@ namespace g_browsr = tui_state::ui::browsr;
 namespace g_cmd = tui_state::ui::cmd;
 namespace g_overlay = tui_state::ui::overlay;
 namespace g_ui = tui_state::ui;
+
+// --- table column config --- //
+
+namespace tui_state::ui {
+
+constinit std::array<ColMetadata, 10> tableCols{{
+    {false, "qpos", 6,
+     [] (sqlite3_stmt* row) {
+       return std::to_string (
+           sqlite3_column_int (row, schema::UserReadViewSelect::qpos)
+       );
+     }},
+    {true, "basequal", 12,
+     [] (sqlite3_stmt* row) {
+       if (sqlite3_column_type (
+               row, schema::UserReadViewSelect::basequal
+           ) == SQLITE_NULL) {
+         return std::string{"*"};
+       }
+       return std::to_string (
+           sqlite3_column_int (row, schema::UserReadViewSelect::basequal)
+       );
+     }},
+    {true, "flag", 6,
+     [] (sqlite3_stmt* row) {
+       return std::to_string (
+           sqlite3_column_int (row, schema::UserReadViewSelect::flag)
+       );
+     }},
+    {true, "mapq", 6,
+     [] (sqlite3_stmt* row) {
+       return std::to_string (
+           sqlite3_column_int (row, schema::UserReadViewSelect::mapq)
+       );
+     }},
+    {false, "start", 14,
+     [] (sqlite3_stmt* row) {
+       return std::to_string (
+           sqlite3_column_int64 (row, schema::UserReadViewSelect::start)
+       );
+     }},
+    {false, "end", 14,
+     [] (sqlite3_stmt* row) {
+       return std::to_string (
+           sqlite3_column_int64 (row, schema::UserReadViewSelect::end)
+       );
+     }},
+    {true, "cigar", 16,
+     [] (sqlite3_stmt* row) {
+       const auto* p =
+           sqlite3_column_text (row, schema::UserReadViewSelect::cigar);
+       const auto len =
+           sqlite3_column_bytes (row, schema::UserReadViewSelect::cigar);
+       return std::string (
+           reinterpret_cast<const char*> (p), static_cast<size_t> (len)
+       );
+     }},
+    {false, "qname", 21,
+     [] (sqlite3_stmt* row) {
+       if (sqlite3_column_type (row, schema::UserReadViewSelect::qname) ==
+           SQLITE_NULL) {
+         return std::string{"*"};
+       }
+       const auto* p =
+           sqlite3_column_text (row, schema::UserReadViewSelect::qname);
+       const auto len =
+           sqlite3_column_bytes (row, schema::UserReadViewSelect::qname);
+       return std::string (
+           reinterpret_cast<const char*> (p), static_cast<size_t> (len)
+       );
+     }},
+    {false, "mtid", 10,
+     [] (sqlite3_stmt* row) {
+       if (sqlite3_column_type (row, schema::UserReadViewSelect::mtid) ==
+           SQLITE_NULL) {
+         return std::string{"*"};
+       }
+       const auto* p =
+           sqlite3_column_text (row, schema::UserReadViewSelect::mtid);
+       const auto len =
+           sqlite3_column_bytes (row, schema::UserReadViewSelect::mtid);
+       return std::string (
+           reinterpret_cast<const char*> (p), static_cast<size_t> (len)
+       );
+     }},
+    {false, "mstart", 14, [] (sqlite3_stmt* row) {
+       if (sqlite3_column_type (row, schema::UserReadViewSelect::mstart) ==
+           SQLITE_NULL) {
+         return std::string ("*");
+       }
+       return std::to_string (
+           sqlite3_column_int64 (row, schema::UserReadViewSelect::mstart)
+       );
+     }},
+}};
+
+}  // namespace tui_state::ui
 
 // --- helpers --- //
 
@@ -172,8 +268,8 @@ bool size_main_widgets()
     g_cmd::frame = e2::Box{screenX, cmdY};
 
     auto y = first (cmdY) + 1;
-    g_cmd::queryStatusLine = e2::HLine{body (screenX), y++};
-    g_cmd::statusSep = e2::HLine{
+    g_cmd::statusLine = e2::HLine{body (screenX), y++};
+    g_cmd::inputSep = e2::HLine{
         screenX,  // include frame, to draw pipe connectors at line ends
         y++
     };
@@ -185,12 +281,17 @@ bool size_main_widgets()
         construct_relative (screenX, 2, size (screenX) - 1), y++
     };
 
-    g_cmd::sepLine = e2::HLine{
-        screenX,  // include frame, to draw pipe connectors at line ends
-        y++
-    };
+    // g_cmd::msgSep = e2::HLine{
+    //     screenX,  // include frame, to draw pipe connectors at line ends
+    //     y++
+    // };
 
-    g_cmd::msgLine = e2::HLine{body (screenX), y};
+    g_cmd::msgCaret = e2::HLine{
+        construct_relative (screenX, 0, std::min (size (screenX) - 1, 10)),
+        y
+    };
+    g_cmd::msgLine =
+        e2::HLine{construct_relative (screenX, 10, size (screenX) - 1), y};
   }
 
   APB_ASSERT_MAIN_UI_VALID;
@@ -353,7 +454,7 @@ ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
             ) == SQLITE_NULL) {
           return std::nullopt;
         }
-            // else
+        // else
         const auto* p = sqlite3_column_text (
             br_stmtRow, schema::UserReadViewSelect::seq
         );
@@ -373,7 +474,7 @@ ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
             ) == SQLITE_NULL) {
           return std::nullopt;
         }
-            // else
+        // else
         const auto* br_rawQualBlob =
             static_cast<const uint8_t*> (sqlite3_column_blob (
                 br_stmtRow, schema::UserReadViewSelect::qual
@@ -730,10 +831,10 @@ void draw_main_to_buffer()
     set (body (edgeAB (cFrame)), tui_ch::horzHeavy, dim);
     set (body (edgeDA (cFrame)), tui_ch::vertLine, dim);
     set (body (edgeBC (cFrame)), tui_ch::vertLine, dim);
-    set (body (g_cmd::statusSep), tui_ch::horzLine, dim);
+    set (body (g_cmd::inputSep), tui_ch::horzLine, dim);
 
     set (g_cmd::inputCaret, ':');
-    set (body (g_cmd::sepLine), tui_ch::horzLine, dim);
+    set (body (g_cmd::msgCaret), tui_ch::horzLine, dim);
   }
 
   /* --- draw query data --- */
@@ -1042,8 +1143,8 @@ void draw_main_to_buffer()
         {.fg = TB_DIM}
     );
     e2::write_string (
-        first (g_cmd::queryStatusLine), last (g_cmd::queryStatusLine).x,
-        g_cmd::userQueryStr, {.fg = TB_DIM}
+        first (g_cmd::statusLine), last (g_cmd::statusLine).x,
+        to_display_string (g_db::userQuery), {.fg = TB_DIM}
     );
   }
 
