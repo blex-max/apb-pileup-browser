@@ -50,11 +50,11 @@ The locus coordinate is 1-based, as `samtools` CLI commands and the VCF spec - m
 
 The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. Normal typing goes directly to the command line at the bottom of the TUI. `Enter` dispatches the command. This reference is also available via `help nav` at the in-app command line.
 
-Navigation Keys:
-
+```
 )md";
 
 static constexpr std::string_view manualChunk2 = R"md(
+```
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
@@ -62,9 +62,11 @@ Ctrl-C clears the command line if any input is present, and exits the program ot
 
 Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use. This reference is built directly from the command implementation in src and is also available via `help cmd` at the in-app command line.
 
+```
 )md";
 
 static constexpr std::string_view manualChunk3 = R"md(
+```
 
 ### 3.3) Querying the Pileup
 
@@ -194,9 +196,11 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`sort` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
 
+```
 )md";
 
 static constexpr std::string_view manualChunk4 = R"md(
+```
 
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
 

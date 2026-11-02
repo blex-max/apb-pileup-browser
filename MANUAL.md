@@ -3,7 +3,7 @@
 
 **IMPORTANT**:
 The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
-This is the manual for apb version 0.3.0.
+This is the manual for apb version 0.4.0.
 
 It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
@@ -35,8 +35,7 @@ The locus coordinate is 1-based, as `samtools` CLI commands and the VCF spec - m
 
 The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. Normal typing goes directly to the command line at the bottom of the TUI. `Enter` dispatches the command. This reference is also available via `help nav` at the in-app command line.
 
-Navigation Keys:
-
+```
  M-: Alt | C-: Ctrl | S-: Shift                     
                                                     
  BROWSER PANE                                       
@@ -56,6 +55,7 @@ Navigation Keys:
   C-a / C-e         start / end of line             
   Bksp / M-Bksp     delete char / whole line        
   C-c               clear input, else quit apb      
+```
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
@@ -63,6 +63,7 @@ Ctrl-C clears the command line if any input is present, and exits the program ot
 
 Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use. This reference is built directly from the command implementation in src and is also available via `help cmd` at the in-app command line.
 
+```
  COMMAND REFERENCE
   `help [(nav|cmd|col)]`:
     Show help for given topic, or general help with
@@ -136,6 +137,7 @@ Every command submitted at the command line is interpreted like `<command> [args
     Write the pileup database to an sqlite3 dump
     file.
 
+```
 
 ### 3.3) Querying the Pileup
 
@@ -265,6 +267,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`sort` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
 
+```
  TABLE REFERENCE                                
                                                 
  All of the following columns may be referenced 
@@ -327,6 +330,7 @@ For each read, the database stores the columns detailed below. All columns are q
       will have taken place when the path was   
       provided at the CLI, so e.g. `*` will     
       been expanded.                            
+```
 
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
 
