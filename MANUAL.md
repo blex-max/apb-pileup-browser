@@ -43,22 +43,29 @@ The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mo
   S-Left / S-Right  pan alignment view side-to-side 
   PgUp / PgDn       scroll one page                 
                                                     
- COMMAND LINE                                       
-  Enter             run command                     
-  C-r               recall current query to command 
-                    line for editing.               
-  C-p / C-n         command history                 
+ COMMAND LINE (readline-based)                      
+  Enter             submit command                  
   Left / Right      move command cursor             
+  C-p / C-n         scroll command history          
   C-Left / C-Right  back / forward one word         
   M-Left / M-Right  back / forward one word         
   M-b / M-f         back / forward one word         
   C-a / C-e         start / end of line             
   Home / End        start / end of line             
   Bksp / Del        delete char back / forward      
-  M-Bksp / C-w      delete word back                
-  M-d               delete word forward             
+  M-Bksp / M-d      delete word back / forward      
   C-k / C-u         delete to end / start of line   
   C-c               clear input, else quit apb      
+                                                    
+ QUERY MANAGEMENT                                   
+  C-q               recall current query to command 
+                    line for editing.               
+  C-w               recall where clause of current  
+                    query to command line.          
+  C-o               recall order by clause of       
+                    current query to command line.  
+  C-/               undo last modification to       
+                    query.                          
 ```
 
 Ctrl-C clears the command line if any input is present, and exits the program otherwise.
@@ -95,16 +102,12 @@ Every command submitted at the command line is interpreted like `<command> [args
     Extend the query with an OR condition.
     alias: OR
 
-  `undo`:
-    Undo the last modification to the current query.
-    alias: u
-
   `sort [condition]`:
     Sort reads by ORDER BY expression. Clears order
     by with no args, resetting to default ordering.
     When viewing multiple alignments, reads are
     always sorted by file as the primary key.
-    alias: o, order, order by, ORDER BY
+    alias: o, order, ORDER BY, sort
 
   `clear`:
     Clear current query, resetting both WHERE and
