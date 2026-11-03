@@ -74,6 +74,7 @@ inline constinit std::vector<QueryFragments> queryUndoStack;
 inline constinit sqlite3_stmt* selectStmt = nullptr;
 inline constinit uint64_t nStmtRows = 0;  // rows in current stmt
 inline constinit int32_t stmtRowScrollOffset = 0;
+inline constinit uint64_t totalRows = 0;
 
 // Files (multi-aln only) with no reads in the current query, and why.
 // Displayed after the reads; counted as scrollable rows.
@@ -91,7 +92,7 @@ inline constinit std::vector<EmptyFile> queryEmptyFiles;
 enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // Replace the active query with `clause`.
 // On failure extra details are available from sqlite3_errmsg (conn).
-// FIXME: why is this copying?
+// FIXME: why is this copying? Document or change
 [[nodiscard]] SetQueryStatus set_query (QueryFragments newQuery);
 
 // total scrollable rows: reads, then empty-file labels

@@ -1071,42 +1071,69 @@ void draw_main_to_buffer()
   }
 
   {
-    // draw ambient
-    // FIXME: what if parts overlap??
+    // draw locus label
     const auto& locusData = g_db::locusInfo;
-    auto writeHead = first (g_cmd::contextLine);
-    const auto queryStr = to_display_string (g_db::userQuery);
-    if (!queryStr.empty()) {
-      writeHead.x++;
-      e2::set (writeHead, ' ');
-      writeHead.x++;
-      writeHead.x += e2::write_string (
-          writeHead, last (g_cmd::contextLine).x,
-          to_display_string (g_db::userQuery), {.fg = TB_DIM}
-      );
-      e2::set (writeHead, ' ');
-    }
+    const auto& writeLine = extb::edgeAB (g_browsr::frame);
+    auto writeHead = first (writeLine) + e2::dX (2);
+    const auto writeLim = last (writeLine).x;
 
-    const auto lineEnd = last (g_cmd::contextLine.xspan);
     const auto locusStr =
         fmt::format ("{}:{}", locusData.contig, locusData.pos);
     const auto spanStr =
         fmt::format ("{}-{}", locusData.start, locusData.end);
     // leave space for separator + spacing, hence + padding
-    const auto locusInfoWidth = locusStr.size() + spanStr.size() + 4;
-    writeHead = last (g_cmd::contextLine);
-    writeHead.x -= locusInfoWidth;
-    writeHead.x += e2::write_string (writeHead, lineEnd, locusStr);
-    writeHead.x++;  // space
-    set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
-    writeHead.x += 2;  // past bar, then space
-    writeHead.x += e2::write_string (
-        writeHead, lineEnd,
-        fmt::format ("{}-{}", locusData.start, locusData.end)
-    );
+    const auto locusInfoWidth = locusStr.size() + spanStr.size() + 3;
+    if (size (writeLine) > locusInfoWidth) {
+      writeHead.x += e2::write_string (writeHead, writeLim, locusStr);
+      writeHead.x++;  // space
+      set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
+      writeHead.x += 2;  // past bar, then space
+      writeHead.x += e2::write_string (writeHead, writeLim, spanStr);
+    }
   }
   {
-    // draw cmd data
+    // FIXME: u32 string write overload would be really useful (here and elsewhere).
+    // ditto write string that uses space from the right.
+    /* draw query banner */
+    // FIXME: should this be on the left or right?
+    auto writeHead = first (g_cmd::contextLine);
+    const auto queryStr = to_display_string (g_db::userQuery);
+    std::string queryBanner;
+    if (queryStr.empty()) {
+      queryBanner = fmt::format ("{} reads", g_db::totalRows);
+    }
+    else {
+      queryBanner = fmt::format (
+          "{}: {}/{} reads", to_display_string (g_db::userQuery),
+          g_db::nStmtRows, g_db::totalRows
+      );
+    }
+    if (!queryBanner.empty()) {
+      writeHead.x++;
+      e2::set (writeHead, ' ');
+      writeHead.x++;
+      writeHead.x += e2::write_string (
+          writeHead, last (g_cmd::contextLine).x, queryBanner,
+          {.fg = TB_DIM}
+      );
+      e2::set (writeHead, ' ');
+    }
+  }
+  {
+    e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
+    if (!g_cmd::msgBuf.empty()) {
+      const auto writeLim = last (g_cmd::msgLine);
+      auto writeHead = writeLim - e2::dX (g_cmd::msgBuf.size() + 5);
+      writeHead.x = std::max (0, writeHead.x);
+      e2::set (writeHead, tui_ch::doubleChevron, dim);
+      writeHead.x++;
+      e2::write_string (
+          writeHead, writeLim.x, fmt::format (" {} ", g_cmd::msgBuf), dim
+      );
+    }
+  }
+  {
+    // draw input
     e2::write_string (
         first (g_cmd::inputLine), last (g_cmd::inputLine).x,
         g_cmd::inputBuf.text
@@ -1115,20 +1142,6 @@ void draw_main_to_buffer()
                       e2::dX (static_cast<int> (g_cmd::inputBuf.curs));
     if (cursorCell.x < last (g_cmd::inputLine).x) {
       e2::add_attr (cursorCell, {.fg = TB_REVERSE});
-    }
-
-    e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
-    if (!g_cmd::msgBuf.empty()) {
-      auto writeHead = last (g_cmd::msgLine);
-      writeHead.x -= (g_cmd::msgBuf.size() + 4);
-      e2::set (writeHead, tui_ch::doubleChevron, dim);
-      writeHead.x++;
-      e2::set (writeHead, ' ');
-      writeHead.x++;
-      writeHead.x += e2::write_string (
-          writeHead, last (g_cmd::msgLine).x, g_cmd::msgBuf, dim
-      );
-      e2::set (writeHead, ' ');
     }
   }
 

@@ -107,9 +107,6 @@ void update_where (
 void update_order (QueryFragments& query, std::string_view order)
 {
   const auto safeOrder = sanitise_clause (order);
-  if (safeOrder.empty()) {
-    return;
-  }
   query.orderBy = safeOrder;
 }
 

@@ -248,10 +248,13 @@ static std::string try_apply_query_clause (
     case g_db::SetQueryStatus::success:
       return std::string (successMsg);
     case g_db::SetQueryStatus::guardFail:
+      // FIXME: I bet there are semicolons in tags...
       failReason = "semicolon in query!";
       break;
     case g_db::SetQueryStatus::s3Fail:
-      failReason = sqlite3_errstr (sqlite3_errcode (g_db::conn));
+      // FIXME: report token errors with sqlite3_error_offset + arithmetic
+      // FIXME: in principle, errcode can return null
+      failReason = sqlite3_errstr (sqlite3_extended_errcode (g_db::conn));
       break;
   }
   if (!incomingSql.empty()) {
@@ -264,9 +267,9 @@ static constexpr std::array<std::string_view, 4> whereNames{
     "where", "w", "wh", "WHERE"
 };
 static constexpr Cmd whereCmd{
-    whereNames, "where [clause]",
+    whereNames, "where [condition]",
     "Start a new WHERE clause, overwriting any existing "
-    "clause. Omitting the [clause] argument will clear the current "
+    "condition. Omitting the [condition] argument will clear the current "
     "WHERE clause. For a reference of queryable columns, check the "
     "manual or run `? col`.",
     [] (std::string_view args) -> std::string {
@@ -293,7 +296,7 @@ static constexpr Cmd whereCmd{
 
 static constexpr std::array<std::string_view, 2> andNames{"and", "AND"};
 static constexpr Cmd andCmd{
-    andNames, "and <clause>",
+    andNames, "and <condition>",
     "Extend current WHERE clause with an AND condition.",
     [] (std::string_view args) -> std::string {
       if (args.empty()) {
@@ -321,7 +324,7 @@ static constexpr Cmd andCmd{
 
 static constexpr std::array<std::string_view, 2> orNames{"or", "OR"};
 static constexpr Cmd orCmd{
-    orNames, "or <clause>", "Extend the query with an OR condition.",
+    orNames, "or <condition>", "Extend the query with an OR condition.",
     [] (std::string_view args) -> std::string {
       if (args.empty()) {
         return cmd_format_misuse ("no condition given", orCmd.usage);
@@ -349,7 +352,7 @@ static constexpr std::array<std::string_view, 5> orderNames{
     "sort", "o", "order", "order by", "ORDER BY"
 };
 static constexpr Cmd orderCmd{
-    orderNames, "sort [clause]",
+    orderNames, "sort [condition]",
     "Sort reads by ORDER BY expression. Clears order by with no args, "
     "resetting to default ordering. When viewing multiple "
     "alignments, reads are always sorted by file as the primary key.",
@@ -365,29 +368,25 @@ static constexpr Cmd orderCmd{
 
 static constexpr std::array<std::string_view, 2> countNames{"count", "ct"};
 static constexpr Cmd countCmd{
-    countNames, "count [clause]",
+    countNames, "count <condition>",
     "Count reads matching current query. If provided, the "
     "optional clause will be AND-concatenated onto the "
     "existing WHERE clause for the count query. If no WHERE "
     "clause is present, the optional clause will be used as "
     "the count WHERE clause alone.",
     [] (std::string_view args) -> std::string {
-      auto query = g_db::userQuery;
-      if (!args.empty()) {
-        if (query.where.empty()) {
-          update_where (query, args);
-        }
-        else {
-          update_where (query, args, Conjunctions::AND);
-        }
+      if (args.empty()) {
+        return cmd_format_misuse ("no condition given", countCmd.usage);
       }
+      auto query = g_db::userQuery;
+      update_where (query, args, Conjunctions::AND);
 
       std::string sqlCountQuery{"SELECT COUNT(*) FROM reads"};
       if (!query.where.empty()) {
         sqlCountQuery.append (" WHERE ");
         sqlCountQuery.append (query.where);
-        // add newline to avoid issues from user sql e.g. trailing
-        // -- comment
+        // add newline to avoid issues from user sql
+        // e.g. trailing -- comment
         sqlCountQuery.append ("\n");
       }
       sqlCountQuery.append (";");
