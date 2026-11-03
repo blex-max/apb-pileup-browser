@@ -22,6 +22,22 @@ void del_back (edit_buf_t& b)
   --b.curs;
 }
 
+void del_fwd (edit_buf_t& b)
+{
+  if (b.curs == b.text.size()) {
+    return;
+  }
+  b.text.erase (b.curs, 1);
+}
+
+void del_to_start (edit_buf_t& b)
+{
+  b.text.erase (0, b.curs);
+  b.curs = 0;
+}
+
+void del_to_end (edit_buf_t& b) { b.text.erase (b.curs); }
+
 void clear (edit_buf_t& b)
 {
   b.curs = 0;
@@ -141,7 +157,7 @@ void history_next (command_line_t& c)
   goto_slot (c, c.hist.idx + 1);
 }
 
-std::string submit (command_line_t& c)
+std::string reset (command_line_t& c)
 {
   std::string text = std::move (c.buf.text);
   clear (c.buf);

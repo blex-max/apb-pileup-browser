@@ -26,7 +26,7 @@ static bool handle_nav (const tb_event& ev)
       // execute user command
       if (!g_cmd::cmdBuf.buf.text.empty()) {
         g_cmd::msgBuf =
-            exec_cmd (input::submit (g_cmd::cmdBuf));  // return msg
+            exec_cmd (input::reset (g_cmd::cmdBuf));  // return msg
       }
       break;
 
@@ -40,10 +40,19 @@ static bool handle_nav (const tb_event& ev)
       }
       break;
 
+    case TB_KEY_DELETE:
+      if (ev.mod == 0) {
+        input::del_fwd (g_cmd::cmdBuf.buf);
+      }
+      break;
+
     case TB_KEY_ARROW_LEFT:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
         // side scroll aln pane
         g_browsr::userPanOffset -= sideScrollIncrement;
+      }
+      else if ((ev.mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
+        input::move_word_left (g_cmd::cmdBuf.buf);
       }
       else {
         input::move_left (g_cmd::cmdBuf.buf);
@@ -54,12 +63,16 @@ static bool handle_nav (const tb_event& ev)
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
         g_browsr::userPanOffset += sideScrollIncrement;
       }
+      else if ((ev.mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
+        input::move_word_right (g_cmd::cmdBuf.buf);
+      }
       else {
         input::move_right (g_cmd::cmdBuf.buf);
       }
       break;
 
     case TB_KEY_CTRL_A:
+    case TB_KEY_HOME:
       input::move_start (g_cmd::cmdBuf.buf);
       break;
 
@@ -73,6 +86,7 @@ static bool handle_nav (const tb_event& ev)
       break;
 
     case TB_KEY_CTRL_E:
+    case TB_KEY_END:
       input::move_end (g_cmd::cmdBuf.buf);
       break;
 
@@ -97,34 +111,33 @@ static bool handle_nav (const tb_event& ev)
       input::del_word_left (g_cmd::cmdBuf.buf);
       break;
 
+    case TB_KEY_CTRL_K:
+      input::del_to_end (g_cmd::cmdBuf.buf);
+      break;
+
     case TB_KEY_CTRL_U:
+      input::del_to_start (g_cmd::cmdBuf.buf);
+      break;
+
+    case TB_KEY_CTRL_P:
       input::history_prev (g_cmd::cmdBuf);
       break;
-    case TB_KEY_CTRL_D:
+
+    case TB_KEY_CTRL_N:
       input::history_next (g_cmd::cmdBuf);
       break;
 
-    case TB_KEY_ARROW_DOWN:
-      if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        input::history_next (g_cmd::cmdBuf);
+    case TB_KEY_ARROW_DOWN: {
+      const auto lastRowOnscreen = static_cast<uint32_t> (
+          stmtRowScrollOffset + g_browsr::nUnitsOnscreen
+      );
+      if (lastRowOnscreen < g_db::nScrollRows()) {
+        stmtRowScrollOffset++;
       }
-      else {
-        const auto lastRowOnscreen = static_cast<uint32_t> (
-            stmtRowScrollOffset + g_browsr::nUnitsOnscreen
-        );
-        if (lastRowOnscreen < g_db::nScrollRows()) {
-          stmtRowScrollOffset++;
-        }
-      }
-      break;
+    } break;
 
     case TB_KEY_ARROW_UP:
-      if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        input::history_prev (g_cmd::cmdBuf);
-      }
-      else {
-        stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);
-      }
+      stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);
       break;
 
     case TB_KEY_PGUP: {

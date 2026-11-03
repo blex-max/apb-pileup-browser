@@ -263,9 +263,15 @@ If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pile
 
 The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp) require the terminal to send Option as Meta. In Terminal, enable "Use Option as Meta key" under Settings > Profiles > Keyboard.
 
-By default the macOS terminal app strips the shift modifier from the up and down arrow keys, so Shift-Up and Shift-Down will not step through the command history. To fix this, go to Settings > Profiles > Keyboard and add two entries with the + button. For each, set Key to Cursor Up (or Cursor Down), tick the Shift modifier, set Action to Send Text, and enter `\033[1;2A` for Up or `\033[1;2B` for Down. Alternatively, use the alternative keybinds (Ctrl-U/Ctrl-D) for stepping through the command history.
-
 PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
+
+### Platform Keybind Differences
+
+Some command line and navigation keys depend on your keyboard and terminal.
+
+On a mac laptop keyboard, which has no dedicated Home, End or forward Delete keys, use fn+Left and fn+Right for Home and End, and fn+Delete for forward Delete. Ctrl-A and Ctrl-E also move to the start and end of the line. macOS uses Ctrl-Left and Ctrl-Right to switch Spaces, so these may not reach apb. Use Option-Left and Option-Right, or Alt-b and Alt-f, to move by word instead.
+
+On Linux and Windows terminals, Alt-based keybinds generally work without extra configuration, and Ctrl-Left and Ctrl-Right are the usual way to move by word.
 
 ### Fonts
 
