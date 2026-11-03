@@ -110,23 +110,6 @@ void update_order (QueryFragments& query, std::string_view order)
   query.orderBy = safeOrder;
 }
 
-std::string to_display_string (const QueryFragments& query)
-{
-  std::string out;
-  if (!query.where.empty()) {
-    out.append ("WHERE ");
-    out.append (query.where);
-  }
-  if (!query.orderBy.empty()) {
-    if (!out.empty()) {
-      out.append (" ");
-    }
-    out.append ("ORDER BY ");
-    out.append (query.orderBy);
-  }
-  return out;
-}
-
 std::string PileupMetadata::to_string() const
 {
   return fmt::format (

@@ -34,12 +34,9 @@ void update_where (
     QueryFragments& query, std::string_view cond,
     std::optional<Conjunctions> conjunction = std::nullopt
 );
-// Sanitises order before use. No-op if order is empty.
-// Does not check if resulting string is valid sql.
+// Sanitises order before use. Clears if order is empty.
+// Does not check if result is valid sql.
 void update_order (QueryFragments& query, std::string_view order);
-// As entered at the command line: `WHERE <where> ORDER BY <orderBy>`,
-// omitting empty parts.
-std::string to_display_string (const QueryFragments& query);
 
 // locus metadata as extracted from db.
 // 1-indexed!

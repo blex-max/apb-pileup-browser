@@ -369,11 +369,8 @@ static constexpr Cmd orderCmd{
 static constexpr std::array<std::string_view, 2> countNames{"count", "ct"};
 static constexpr Cmd countCmd{
     countNames, "count <condition>",
-    "Count reads matching current query. If provided, the "
-    "optional clause will be AND-concatenated onto the "
-    "existing WHERE clause for the count query. If no WHERE "
-    "clause is present, the optional clause will be used as "
-    "the count WHERE clause alone.",
+    "Count reads matching <condition>, AND-concatenated onto the current "
+    "WHERE clause if present.",
     [] (std::string_view args) -> std::string {
       if (args.empty()) {
         return cmd_format_misuse ("no condition given", countCmd.usage);

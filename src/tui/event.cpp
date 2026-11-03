@@ -79,9 +79,12 @@ static bool handle_nav (const tb_event& ev)
       break;
 
     case TB_KEY_CTRL_R:
-      set_text (
-          g_cmd::inputBuf, fmt::format ("WHERE {}", g_db::userQuery.where)
-      );
+      if (!g_db::userQuery.where.emtpy()) {
+        set_text (
+            g_cmd::inputBuf,
+            fmt::format ("WHERE {}", g_db::userQuery.where)
+        );
+      }
       break;
 
     case TB_KEY_CTRL_U:

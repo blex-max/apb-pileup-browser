@@ -802,7 +802,6 @@ void draw_main_to_buffer()
     set (body (edgeAB (cFrame)), tui_ch::horzHeavy, dim);
     set (body (edgeDA (cFrame)), tui_ch::vertLine, dim);
     set (body (edgeBC (cFrame)), tui_ch::vertLine, dim);
-    set (body (g_cmd::inputSep), tui_ch::horzLine, dim);
 
     set (g_cmd::inputCaret, ':');
   }

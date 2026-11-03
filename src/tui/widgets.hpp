@@ -62,9 +62,6 @@ inline constexpr auto kWidgetHeight = 3;  // inc. borders
 
 inline constinit extb::Box frame;
 inline constinit extb::HLine contextLine;
-// inline constinit extb::HLine
-//     statusLine;  // for displaying current filter applied to records
-inline constinit extb::HLine inputSep;
 inline constinit extb::HLine inputLine;
 inline constinit extb::GlobalCell inputCaret;
 inline constinit EditBuf inputBuf;
