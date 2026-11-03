@@ -45,15 +45,19 @@ The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mo
                                                     
  COMMAND LINE                                       
   Enter             run command                     
-  C-r               pull current query to command   
-                    line, for editing.              
-  S-Up / S-Down     command history                 
-  C-u / C-d         command history                 
+  C-r               recall current query to command 
+                    line for editing.               
+  C-p / C-n         command history                 
   Left / Right      move command cursor             
+  C-Left / C-Right  back / forward one word         
   M-Left / M-Right  back / forward one word         
   M-b / M-f         back / forward one word         
   C-a / C-e         start / end of line             
-  Bksp / M-Bksp     delete char / whole line        
+  Home / End        start / end of line             
+  Bksp / Del        delete char back / forward      
+  M-Bksp / C-w      delete word back                
+  M-d               delete word forward             
+  C-k / C-u         delete to end / start of line   
   C-c               clear input, else quit apb      
 ```
 
@@ -74,20 +78,20 @@ Every command submitted at the command line is interpreted like `<command> [args
     Exit the browser.
     alias: q, exit
 
-  `where [clause]`:
+  `where [condition]`:
     Start a new WHERE clause, overwriting any
-    existing clause. Omitting the [clause] argument
-    will clear the current WHERE clause. For a
-    reference of queryable columns, check the manual
-    or run `? col`.
+    existing condition. Omitting the [condition]
+    argument will clear the current WHERE clause.
+    For a reference of queryable columns, check the
+    manual or run `? col`.
     alias: w, wh, WHERE
 
-  `and <clause>`:
+  `and <condition>`:
     Extend current WHERE clause with an AND
     condition.
     alias: AND
 
-  `or <clause>`:
+  `or <condition>`:
     Extend the query with an OR condition.
     alias: OR
 
@@ -95,7 +99,7 @@ Every command submitted at the command line is interpreted like `<command> [args
     Undo the last modification to the current query.
     alias: u
 
-  `sort [clause]`:
+  `sort [condition]`:
     Sort reads by ORDER BY expression. Clears order
     by with no args, resetting to default ordering.
     When viewing multiple alignments, reads are
@@ -107,13 +111,10 @@ Every command submitted at the command line is interpreted like `<command> [args
     ORDER BY.
     alias: cl
 
-  `count [clause]`:
-    Count reads matching current query. If provided,
-    the optional clause will be AND-concatenated
-    onto the existing WHERE clause for the count
-    query. If no WHERE clause is present, the
-    optional clause will be used as the count WHERE
-    clause alone.
+  `count <condition>`:
+    Count reads matching <condition>,
+    AND-concatenated onto the current WHERE clause
+    if present.
     alias: ct
 
   `col <field-name>...`:
@@ -391,7 +392,19 @@ If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pile
 
 ### macOS Terminal App Users
 
-By default the macOS terminal app strips the shift modifier from the up and down arrow keys. Change the terminal settings as described here https://world.hey.com/scottguthart/fix-shift-up-and-shift-down-on-mac-s-terminal-app-7e2908a4, or use the alternative keybinds for stepping through the command history. Also note that PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
+The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp) require the terminal to send Option as Meta. In Terminal, enable "Use Option as Meta key" under Settings > Profiles > Keyboard.
+
+### Platform Keybind Differences
+
+Some command line and navigation keys depend on your keyboard and terminal.
+
+On a mac laptop keyboard, which has no dedicated Home, End or forward Delete keys, use fn+Left and fn+Right for Home and End, and fn+Delete for forward Delete. Ctrl-A and Ctrl-E also move to the start and end of the line. macOS uses Ctrl-Left and Ctrl-Right to switch Spaces, so these may not reach apb. Use Option-Left and Option-Right, or Alt-b and Alt-f, to move by word instead. PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
+
+On Linux and Windows terminals, Alt-based keybinds generally work without extra configuration.
+
+### Fonts
+
+Your experience of apb, and many other terminal-based applications, may be improved by installing a modern terminal font designed for legibility. apb recommends `0xProto` (https://github.com/0xType/0xProto) try it (and others) out at https://www.programmingfonts.org/#oxproto.
 
 ---
 
