@@ -4,10 +4,6 @@
 It is chiefly designed for verification and investigation of variant calls, but can be used to inspect the reads at any locus.
 The built-in command line is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
 
-![apb screencap](apb-screencap-0.4.0.png)
-
-The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a tabular view of per-read data; and at the bottom you have a command line at which you can enter querying commands. Commands are typed at the command line caret `:`, and return messages are displayed below at the double chevron. The current query is displayed at the top right of the command line, including the read count. The current locus is displayed at the top left of the alignment viewer. In the alignment viewer, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`. The display is configurable; many additional columns may be viewed in the table viewer, the alignment viewer can display qualities in a number of ways, etc. The browser is navigated by simple readline based keybindings, and there is extensive and clear documentation available in the manual.
-
 **Advantages:**
 - Powerful SQL-based query syntax for intuitive investigation.
 - Highly performant and responsive
@@ -20,6 +16,10 @@ The TUI is split into 3 major regions. On the left you have an alignment viewer;
 - Easily installed, including on compute cluster nodes.
 - UI optimised specifically for inspecting pileup loci over general-purpose genome browsing.
 - Immediately available in the terminal; no spinning up a web instance or navigating a web UI.
+
+![apb screencap](apb-screencap-0.4.0.png)
+
+The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a table of per-read data; and at the bottom you have a command line at which you can enter querying commands. Commands are typed at the command line caret `:`, and return messages are displayed below at the double chevron. The current query is displayed at the top right of the command line, including the read count. The current locus is displayed at the top left of the alignment viewer. In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`. The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, etc. The browser is navigated by simple readline based keybindings, and there is extensive and clear documentation available in the manual.
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!
