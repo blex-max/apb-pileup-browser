@@ -263,15 +263,13 @@ If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pile
 
 The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp) require the terminal to send Option as Meta. In Terminal, enable "Use Option as Meta key" under Settings > Profiles > Keyboard.
 
-PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
-
 ### Platform Keybind Differences
 
 Some command line and navigation keys depend on your keyboard and terminal.
 
-On a mac laptop keyboard, which has no dedicated Home, End or forward Delete keys, use fn+Left and fn+Right for Home and End, and fn+Delete for forward Delete. Ctrl-A and Ctrl-E also move to the start and end of the line. macOS uses Ctrl-Left and Ctrl-Right to switch Spaces, so these may not reach apb. Use Option-Left and Option-Right, or Alt-b and Alt-f, to move by word instead.
+On a mac laptop keyboard, which has no dedicated Home, End or forward Delete keys, use fn+Left and fn+Right for Home and End, and fn+Delete for forward Delete. Ctrl-A and Ctrl-E also move to the start and end of the line. macOS uses Ctrl-Left and Ctrl-Right to switch Spaces, so these may not reach apb. Use Option-Left and Option-Right, or Alt-b and Alt-f, to move by word instead. PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
 
-On Linux and Windows terminals, Alt-based keybinds generally work without extra configuration, and Ctrl-Left and Ctrl-Right are the usual way to move by word.
+On Linux and Windows terminals, Alt-based keybinds generally work without extra configuration.
 
 ### Fonts
 
