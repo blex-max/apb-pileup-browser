@@ -261,7 +261,15 @@ If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pile
 
 ### macOS Terminal App Users
 
-By default the macOS terminal app strips the shift modifier from the up and down arrow keys. Change the terminal settings as described here https://world.hey.com/scottguthart/fix-shift-up-and-shift-down-on-mac-s-terminal-app-7e2908a4, or use the alternative keybinds for stepping through the command history. Also note that PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
+The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp) require the terminal to send Option as Meta. In Terminal, enable "Use Option as Meta key" under Settings > Profiles > Keyboard.
+
+By default the macOS terminal app strips the shift modifier from the up and down arrow keys, so Shift-Up and Shift-Down will not step through the command history. To fix this, go to Settings > Profiles > Keyboard and add two entries with the + button. For each, set Key to Cursor Up (or Cursor Down), tick the Shift modifier, set Action to Send Text, and enter `\033[1;2A` for Up or `\033[1;2B` for Down. Alternatively, use the alternative keybinds (Ctrl-U/Ctrl-D) for stepping through the command history.
+
+PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
+
+### Fonts
+
+Your experience of apb, and many other terminal-based applications, may be improved by installing a modern terminal font designed for legibility. apb recommends `0xProto` (https://github.com/0xType/0xProto) try it (and others) out at https://www.programmingfonts.org/#oxproto.
 
 ---
 

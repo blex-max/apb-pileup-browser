@@ -1132,10 +1132,10 @@ void draw_main_to_buffer()
     // draw input
     e2::write_string (
         first (g_cmd::inputLine), last (g_cmd::inputLine).x,
-        g_cmd::inputBuf.text
+        g_cmd::cmdBuf.buf.text
     );
     auto cursorCell = first (g_cmd::inputLine) +
-                      e2::dX (static_cast<int> (g_cmd::inputBuf.curs));
+                      e2::dX (static_cast<int> (g_cmd::cmdBuf.buf.curs));
     if (cursorCell.x < last (g_cmd::inputLine).x) {
       e2::add_attr (cursorCell, {.fg = TB_REVERSE});
     }

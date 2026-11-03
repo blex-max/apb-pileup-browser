@@ -88,7 +88,6 @@ add_executable(apb
   src/model/hts2apb.cpp
   src/tui/cmd.cpp
   src/tui/event.cpp
-  src/tui/history.cpp
   src/tui/input.cpp
   src/tui/manual.cpp
   src/tui/query.cpp

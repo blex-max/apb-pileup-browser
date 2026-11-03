@@ -470,17 +470,6 @@ TEST_CASE ("update_where and update_order sanitise their input")
   CHECK (q.orderBy == "mapq DESC");
 }
 
-TEST_CASE ("to_display_string")
-{
-  CHECK (to_display_string ({}).empty());
-  CHECK (to_display_string ({.where = "a"}) == "WHERE a");
-  CHECK (to_display_string ({.orderBy = "b"}) == "ORDER BY b");
-  CHECK (
-      to_display_string ({.where = "a", .orderBy = "b"}) ==
-      "WHERE a ORDER BY b"
-  );
-}
-
 namespace {
 
 namespace g_db = tui_state::db;

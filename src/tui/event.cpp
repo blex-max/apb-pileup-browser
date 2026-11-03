@@ -4,7 +4,6 @@
 #include <cstdint>
 
 #include "cmd.hpp"
-#include "history.hpp"
 #include "input.hpp"
 #include "query.hpp"
 #include "state.hpp"
@@ -25,20 +24,19 @@ static bool handle_nav (const tb_event& ev)
   switch (ev.key) {
     case TB_KEY_ENTER:
       // execute user command
-      if (!g_cmd::inputBuf.text.empty()) {
-        history_push (g_cmd::inputHistory, g_cmd::inputBuf.text);
-        g_cmd::msgBuf = exec_cmd (g_cmd::inputBuf.text);  // return msg
-        clear (g_cmd::inputBuf);
+      if (!g_cmd::cmdBuf.buf.text.empty()) {
+        g_cmd::msgBuf =
+            exec_cmd (input::submit (g_cmd::cmdBuf));  // return msg
       }
       break;
 
     case TB_KEY_BACKSPACE:
     case TB_KEY_BACKSPACE2:
       if ((ev.mod & TB_MOD_ALT) != 0) {
-        clear (g_cmd::inputBuf);
+        input::del_word_left (g_cmd::cmdBuf.buf);
       }
       else {
-        del_back (g_cmd::inputBuf);
+        input::del_back (g_cmd::cmdBuf.buf);
       }
       break;
 
@@ -48,7 +46,7 @@ static bool handle_nav (const tb_event& ev)
         g_browsr::userPanOffset -= sideScrollIncrement;
       }
       else {
-        move_left (g_cmd::inputBuf);
+        input::move_left (g_cmd::cmdBuf.buf);
       }
       break;
 
@@ -57,17 +55,17 @@ static bool handle_nav (const tb_event& ev)
         g_browsr::userPanOffset += sideScrollIncrement;
       }
       else {
-        move_right (g_cmd::inputBuf);
+        input::move_right (g_cmd::cmdBuf.buf);
       }
       break;
 
     case TB_KEY_CTRL_A:
-      move_start (g_cmd::inputBuf);
+      input::move_start (g_cmd::cmdBuf.buf);
       break;
 
     case TB_KEY_CTRL_C:
-      if (!g_cmd::inputBuf.text.empty()) {
-        clear (g_cmd::inputBuf);
+      if (!g_cmd::cmdBuf.buf.text.empty()) {
+        input::clear (g_cmd::cmdBuf.buf);
       }
       else {
         tui_state::run = false;
@@ -75,28 +73,40 @@ static bool handle_nav (const tb_event& ev)
       break;
 
     case TB_KEY_CTRL_E:
-      move_end (g_cmd::inputBuf);
+      input::move_end (g_cmd::cmdBuf.buf);
       break;
 
-    case TB_KEY_CTRL_R:
-      if (!g_db::userQuery.where.emtpy()) {
-        set_text (
-            g_cmd::inputBuf,
-            fmt::format ("WHERE {}", g_db::userQuery.where)
-        );
+    case TB_KEY_CTRL_R: {
+      std::string recall;
+      const auto& query = g_db::userQuery;
+      if (!query.where.empty()) {
+        recall.append ("WHERE ");
+        recall.append (query.where);
       }
+      if (!query.orderBy.empty()) {
+        if (!recall.empty()) {
+          recall.append (" ");
+        }
+        recall.append ("ORDER BY ");
+        recall.append (query.orderBy);
+      }
+      input::set_text (g_cmd::cmdBuf.buf, recall);
+    } break;
+
+    case TB_KEY_CTRL_W:
+      input::del_word_left (g_cmd::cmdBuf.buf);
       break;
 
     case TB_KEY_CTRL_U:
-      history_prev (g_cmd::inputHistory, g_cmd::inputBuf);
+      input::history_prev (g_cmd::cmdBuf);
       break;
     case TB_KEY_CTRL_D:
-      history_next (g_cmd::inputHistory, g_cmd::inputBuf);
+      input::history_next (g_cmd::cmdBuf);
       break;
 
     case TB_KEY_ARROW_DOWN:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_next (g_cmd::inputHistory, g_cmd::inputBuf);
+        input::history_next (g_cmd::cmdBuf);
       }
       else {
         const auto lastRowOnscreen = static_cast<uint32_t> (
@@ -110,7 +120,7 @@ static bool handle_nav (const tb_event& ev)
 
     case TB_KEY_ARROW_UP:
       if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        history_prev (g_cmd::inputHistory, g_cmd::inputBuf);
+        input::history_prev (g_cmd::cmdBuf);
       }
       else {
         stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);
@@ -161,13 +171,16 @@ static void handle_key_event (const tb_event& ev)
   if (ev.key == 0 && ev.ch != 0) {
     // annoyingly, outside of handle_nav
     if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'b') {
-      move_word_left (g_cmd::inputBuf);
+      input::move_word_left (g_cmd::cmdBuf.buf);
     }
     else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'f') {
-      move_word_right (g_cmd::inputBuf);
+      input::move_word_right (g_cmd::cmdBuf.buf);
+    }
+    else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'd') {
+      input::del_word_right (g_cmd::cmdBuf.buf);
     }
     else {
-      insert (g_cmd::inputBuf, static_cast<char> (ev.ch));
+      input::insert (g_cmd::cmdBuf.buf, static_cast<char> (ev.ch));
     }
   }
   else {

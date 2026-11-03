@@ -58,15 +58,17 @@ inline constexpr auto navigation = std::to_array<std::string_view> (
      "                                                    ",
      " COMMAND LINE                                       ",
      "  Enter             run command                     ",
-     "  C-r               pull current query to command   ",
-     "                    line, for editing.              ",
+     "  C-r               recall current query to command ",
+     "                    line for editing.               ",
      "  S-Up / S-Down     command history                 ",
      "  C-u / C-d         command history                 ",
      "  Left / Right      move command cursor             ",
      "  M-Left / M-Right  back / forward one word         ",
      "  M-b / M-f         back / forward one word         ",
      "  C-a / C-e         start / end of line             ",
-     "  Bksp / M-Bksp     delete char / whole line        ",
+     "  Bksp              delete char                     ",
+     "  M-Bksp / C-w      delete word back                ",
+     "  M-d               delete word forward             ",
      "  C-c               clear input, else quit apb      "}
 );
 static_assert (

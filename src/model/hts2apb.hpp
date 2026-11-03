@@ -72,7 +72,6 @@ struct insert_pileup_err_t {
 };
 // insert pileup into db for a single alignment file.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
-// FIXME: should not internally handle transactions (for the sake of bindings)
 [[nodiscard]] std::expected<void, insert_pileup_err_t> apb_insert_pileup (
     sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
     const std::function<const char*(int)>& mtid2name

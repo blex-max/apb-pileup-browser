@@ -236,8 +236,6 @@ static constexpr Cmd colCmd{
 // display on failure. Any earlier sql already compiled,
 // so can't be at fault and therefore should not be displayed on
 // failure.
-// FIXME: since only the incoming sql can be at fault (unless program malformed)
-// That should be the only sql shown...
 static std::string try_apply_query_clause (
     QueryFragments query, std::string_view incomingSql,
     std::string_view successMsg

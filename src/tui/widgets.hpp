@@ -10,7 +10,6 @@
 #include "extb/box/box.hpp"
 #include "extb/extb.hpp"
 #include "helpblocks.hpp"
-#include "history.hpp"
 #include "input.hpp"
 
 struct ColMetadata {
@@ -64,8 +63,7 @@ inline constinit extb::Box frame;
 inline constinit extb::HLine contextLine;
 inline constinit extb::HLine inputLine;
 inline constinit extb::GlobalCell inputCaret;
-inline constinit EditBuf inputBuf;
-inline constinit CmdHistory inputHistory;
+inline constinit input::command_line_t cmdBuf;
 inline constinit extb::HLine msgLine;
 inline constinit std::string msgBuf;
 
