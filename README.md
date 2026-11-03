@@ -4,44 +4,9 @@
 It is chiefly designed for verification and investigation of variant calls, but can be used to inspect the reads at any locus.
 The built-in command line is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
 
-A text screencap of the TUI. Line wrapping may break this screencap!
-```
-          ALIGNMENT DISPLAY PANE ↓                                                      PER READ DATA TABLE ↓
-╭──────────────────────────────────────────────────────────────────────────┬───────────────────────────────────────────╮
-│CGTACGTACGTACGCCGTGTACGTAAGTACGTACGTACGTACGTACGTACGTACCGTACGTACGTACGTACGTC│  basequal  │ flag │ mapq │     cigar      │
-├─────────────────────────|────────────────────────────────────────────────│───────────────────────────────────────────┤
-│/data/demo/aln-1                                                          │            │      │      │                │
-│=====================T====̊======                                          │36          │0     │52    │143M3I6M        │
-│                         ^GAA                                             │            │      │      │                │
-│A================================                                         │37          │0     │57    │149M            │
-│===============A===========G========                                      │35          │0     │53    │149M            │
-│============================C=========                                    │37          │0     │58    │149M            │
-│=========================T============                                    │37          │0     │60    │149M            │
-│==========================xx==============s(14)                           │37          │0     │60    │135M2D14M14S    │
-│=============================================                             │37          │0     │55    │149M            │
-│==========================xxx=====================                        │37          │0     │56    │128M3D21M       │
-│=========================T============================                    │36          │0     │52    │20S149M         │
-│==========================̊=================================               │37          │0     │59    │105M4I44M       │
-│                         ^GACT                                            │            │      │      │                │
-│/data/demo/aln-2                                                          │            │      │      │                │
-│============================================G===================          │37          │0     │58    │149M            │
-│==========================̊=====A===================================       │37          │0     │57    │97M3I52M        │
-│                         ^TTC                                             │            │      │      │                │
-│=================================================G=================       │37          │0     │59    │149M            │
-│==========================xxx====================A======================  │37          │0     │59    │95M3D54M        │
-├──────────────────────────────────────────────────────────────────────────┴───────────────────────────────────────────┤
-│ LOCUS: demo-contig:10000001 │ SPAN: 9999854-10000144 │                                                               │
-╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮
-│WHERE (basequal > 30) AND mapq > 50   ← ACTIVE QUERY                                                                  │
-│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│:and base != 'A'                      ← COMMAND LINE                                                                  │
-│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│OK!                                   ← RETURN MESSAGES                                                               │
-╰                                                                                                                      ╯
-```
+![apb screencap](apb-screencap-0.4.0.png)
 
-**The real TUI has richer, better styling which copy-pasting does not preserve.** Explanatory notes are in CAPITALS. 
-`=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
+The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a tabular view of per-read data; and at the bottom you have a command line at which you can enter querying commands. Commands are typed at the command line caret `:`, and return messages are displayed below at the double chevron. The current query is displayed at the top right of the command line, including the read count. The current locus is displayed at the top left of the alignment viewer. In the alignment viewer, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`. The display is configurable; many additional columns may be viewed in the table viewer, the alignment viewer can display qualities in a number of ways, etc. The browser is navigated by simple readline based keybindings, and there is extensive and clear documentation available in the manual.
 
 **Advantages:**
 - Powerful SQL-based query syntax for intuitive investigation.
@@ -98,7 +63,7 @@ For CLI/TUI usage, command syntax, and query examples, you can generate a manual
 You may also read the copy of [MANUAL.md](MANUAL.md) shipped with the repository without building,
 but note that it may not exactly correspond to your version of the tool!
 
-If you are new to the tool, it is strongly recommend that you read the manual and play around with `apb --demo`. The manual is short and it's easy to miss some of the most powerful features otherwise!
+If you are new to the tool, it is strongly recommend that you read the manual and try `apb --demo`. The manual is short and it's easy to miss some of the most powerful features otherwise!
 
 ## Development Roadmap
 
@@ -109,11 +74,10 @@ General suggestions regarding improvements to commands and navigation are also a
 
 - ~Multiple alignment pileups.~ Added in `v0.2.0`.
 - ~Performance improvements at ultra-high depth.~ Added in `v0.3.0`
+- ~Allow saving queries and returning to them within the same session, without having to type them out again.~ Query recall added in `v0.4.0`.
+- ~Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
+  like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.~ Added in `v0.4.0` via `toggle sparkline` command.
 - Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
-- More stats in the status bar; allele counts/VAF, reference span complexity (useful when
-  assessing artefactual variants), etc.
-- Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
-  like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.
 
 ### Speculative Features
 
@@ -131,13 +95,12 @@ These are items that I think might be useful and could implement, but am unlikel
     this 3-col format. e.g. for VCF `bcftools view my.vcf | awk <extract columns and create id> > loci.txt`
   - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
     not familiar with those tools.
-- Allow saving queries and returning to them within the same session, without having to type them out again.
 - Headless querying, to get results for a query known ahead of time without dropping into the TUI.
   - Output format would require consideration.
   - This would allow use of apb programatically.
   - It may also be possible to expose apb as a library to scripting languages.
 - Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
-  e.g. `where cigar_at(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
+  e.g. `where read_contains(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
   This is not plausible in direct SQL. Exact syntax TBD!
 - Display of reads aligned to adjacent bases at the specified locus.
 
