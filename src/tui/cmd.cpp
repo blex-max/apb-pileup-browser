@@ -19,6 +19,7 @@
 #include "generic/db_io.hpp"
 #include "generic/describe.hpp"
 #include "helpblocks.hpp"
+#include "input.hpp"
 #include "query.hpp"
 #include "shared/cleanup.hpp"
 #include "state.hpp"
@@ -346,8 +347,9 @@ static constexpr Cmd orCmd{
     }
 };
 
+// FIXME: this should be order as primary name, sort as secondary...
 static constexpr std::array<std::string_view, 5> orderNames{
-    "sort", "o", "order", "order by", "ORDER BY"
+    "order by", "o", "order", "ORDER BY", "sort"
 };
 static constexpr Cmd orderCmd{
     orderNames, "sort [condition]",
@@ -428,35 +430,6 @@ static constexpr Cmd clearCmd{
       query.orderBy.clear();
 
       return try_apply_query_clause (std::move (query), {}, "Reset query");
-    }
-};
-
-static constexpr std::array<std::string_view, 2> undoNames{"undo", "u"};
-static constexpr Cmd undoCmd{
-    undoNames, "undo", "Undo the last modification to the current query.",
-    [] (std::string_view args) -> std::string {
-      if (const auto res = cmd_validate_args_empty (args, undoCmd.usage);
-          !res) {
-        return res.error();
-      };
-      auto& undoStack = g_db::queryUndoStack;
-
-      if (undoStack.empty()) {
-        return cmd_format_fail ("Undo buffer empty!");
-      }
-      auto query = undoStack.back();
-      undoStack.pop_back();
-
-      if (const auto ret = g_db::set_query (std::move (query));
-          ret != tui_state::db::SetQueryStatus::success) {
-        TUI_UNREACHABLE (
-            "SQL in undo stack failed to compile upon reuse!"
-        );
-      }
-      // set_query always adds to undo queue on success,
-      // so reverse that.
-      undoStack.pop_back();
-      return CMD_GENERIC_SUCCESS;
     }
 };
 
@@ -661,14 +634,13 @@ static constexpr Cmd helpCmd{
 
 static std::span<const Cmd* const> get_cmd_registry()
 {
-  static constexpr std::array<const Cmd*, 12> registry{{
+  static constexpr std::array<const Cmd*, 11> registry{{
       /* all cmds must be added here */
       &helpCmd,
       &quitCmd,
       &whereCmd,
       &andCmd,
       &orCmd,
-      &undoCmd,
       &orderCmd,
       &clearCmd,
       &countCmd,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace input {
@@ -40,7 +41,7 @@ void move_word_left (edit_buf_t& b);
 void move_word_right (edit_buf_t& b);
 void del_word_left (edit_buf_t& b);
 void del_word_right (edit_buf_t& b);
-void set_text (edit_buf_t& b, std::string s);
+void set_text (edit_buf_t& b, std::string_view s);
 
 // history_* save edits made to commands in history
 void history_prev (command_line_t& c);

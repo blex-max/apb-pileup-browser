@@ -64,7 +64,7 @@ void move_right (edit_buf_t& b)
   ++b.curs;
 }
 
-enum class CharClass { space, word, punct };
+enum class CharClass : uint8_t { space, word, punct };
 
 static CharClass classify (char c)
 {
@@ -121,9 +121,9 @@ void del_word_right (edit_buf_t& b)
   b.curs = start;
 }
 
-void set_text (edit_buf_t& b, std::string s)
+void set_text (edit_buf_t& b, std::string_view s)
 {
-  b.text = std::move (s);
+  b.text = s;
   b.curs = b.text.size();
 }
 

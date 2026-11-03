@@ -139,6 +139,7 @@ if(APB_BUILD_TESTS)
     src/tui/state.cpp
     src/tui/tb2_impl.cpp
     src/tui/widgets.cpp
+    src/tui/input.cpp
   )
   target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
   target_include_directories(apb-tests PRIVATE src tests)

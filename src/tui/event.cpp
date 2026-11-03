@@ -7,6 +7,7 @@
 #include "input.hpp"
 #include "query.hpp"
 #include "state.hpp"
+#include "tui/tui_assert.hpp"
 #include "widgets.hpp"
 
 namespace g_db = tui_state::db;
@@ -90,27 +91,6 @@ static bool handle_nav (const tb_event& ev)
       input::move_end (g_cmd::cmdBuf.buf);
       break;
 
-    case TB_KEY_CTRL_R: {
-      std::string recall;
-      const auto& query = g_db::userQuery;
-      if (!query.where.empty()) {
-        recall.append ("WHERE ");
-        recall.append (query.where);
-      }
-      if (!query.orderBy.empty()) {
-        if (!recall.empty()) {
-          recall.append (" ");
-        }
-        recall.append ("ORDER BY ");
-        recall.append (query.orderBy);
-      }
-      input::set_text (g_cmd::cmdBuf.buf, recall);
-    } break;
-
-    case TB_KEY_CTRL_W:
-      input::del_word_left (g_cmd::cmdBuf.buf);
-      break;
-
     case TB_KEY_CTRL_K:
       input::del_to_end (g_cmd::cmdBuf.buf);
       break;
@@ -169,6 +149,60 @@ static bool handle_nav (const tb_event& ev)
       if (lastRowOnscreen < g_db::nScrollRows()) {
         stmtRowScrollOffset += g_browsr::nUnitsOnscreen;
       }
+      break;
+    }
+
+    /* --- query management --- */
+    case TB_KEY_CTRL_Q: {
+      std::string recall;
+      const auto& query = g_db::userQuery;
+      if (!query.where.empty()) {
+        recall.append ("WHERE ");
+        recall.append (query.where);
+      }
+      if (!query.orderBy.empty()) {
+        if (!recall.empty()) {
+          recall.append (" ");
+        }
+        recall.append ("ORDER BY ");
+        recall.append (query.orderBy);
+      }
+      input::set_text (g_cmd::cmdBuf.buf, recall);
+    } break;
+    case TB_KEY_CTRL_W: {
+      const auto& query = g_db::userQuery;
+      if (!query.where.empty()) {
+        std::string recall;
+        recall.append ("WHERE ");
+        recall.append (query.where);
+        input::set_text (g_cmd::cmdBuf.buf, recall);
+      }
+    } break;
+    case TB_KEY_CTRL_O: {
+      const auto& query = g_db::userQuery;
+      if (!query.orderBy.empty()) {
+        std::string recall;
+        recall.append ("ORDER BY ");
+        recall.append (query.orderBy);
+        input::set_text (g_cmd::cmdBuf.buf, recall);
+      }
+    } break;
+    case TB_KEY_CTRL_SLASH: {
+      auto& undoStack = g_db::queryUndoStack;
+      if (undoStack.empty()) {
+        break;
+      }
+      auto query = undoStack.back();
+      undoStack.pop_back();
+      if (const auto ret = g_db::set_query (query);
+          ret != tui_state::db::SetQueryStatus::success) {
+        TUI_UNREACHABLE (
+            "SQL in undo stack failed to compile upon reuse!"
+        );
+      }
+        // set_query always adds to undo queue on success,
+        // so reverse that.
+      undoStack.pop_back();
       break;
     }
 
