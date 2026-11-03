@@ -79,9 +79,9 @@ static bool handle_nav (const tb_event& ev)
       break;
 
     case TB_KEY_CTRL_R:
-      if (const auto q = to_display_string (g_db::userQuery); !q.empty()) {
-        set_text (g_cmd::inputBuf, q);
-      }
+      set_text (
+          g_cmd::inputBuf, fmt::format ("WHERE {}", g_db::userQuery.where)
+      );
       break;
 
     case TB_KEY_CTRL_U:

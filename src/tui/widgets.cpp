@@ -1095,36 +1095,33 @@ void draw_main_to_buffer()
     // FIXME: u32 string write overload would be really useful (here and elsewhere).
     // ditto write string that uses space from the right.
     /* draw query banner */
-    // FIXME: should this be on the left or right?
-    auto writeHead = first (g_cmd::contextLine);
-    const auto queryStr = to_display_string (g_db::userQuery);
-    std::string queryBanner;
-    if (queryStr.empty()) {
-      queryBanner = fmt::format ("{} reads", g_db::totalRows);
+    const auto& userQ = g_db::userQuery;
+    std::string qWhereS = fmt::format (
+        " WHERE {}: {}/{} reads ", userQ.where, g_db::nStmtRows,
+        g_db::totalRows
+    );
+    std::string qOrderS;
+    if (!userQ.orderBy.empty()) {
+      qOrderS = fmt::format (" ORDER BY {} ", userQ.orderBy);
     }
-    else {
-      queryBanner = fmt::format (
-          "{}: {}/{} reads", to_display_string (g_db::userQuery),
-          g_db::nStmtRows, g_db::totalRows
-      );
-    }
-    if (!queryBanner.empty()) {
-      writeHead.x++;
-      e2::set (writeHead, ' ');
+    // size + padding
+    auto writeHead = last (g_cmd::contextLine) -
+                     e2::dX (qWhereS.size() + qOrderS.size() + 1);
+    writeHead.x +=
+        e2::write_string (writeHead, last (g_cmd::contextLine).x, qWhereS);
+    if (!qOrderS.empty()) {
+      e2::set (writeHead, tui_ch::vertLine);
       writeHead.x++;
       writeHead.x += e2::write_string (
-          writeHead, last (g_cmd::contextLine).x, queryBanner,
-          {.fg = TB_DIM}
+          writeHead, last (g_cmd::contextLine).x, qOrderS
       );
-      e2::set (writeHead, ' ');
     }
   }
   {
     e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
     if (!g_cmd::msgBuf.empty()) {
       const auto writeLim = last (g_cmd::msgLine);
-      auto writeHead = writeLim - e2::dX (g_cmd::msgBuf.size() + 5);
-      writeHead.x = std::max (0, writeHead.x);
+      auto writeHead = first (g_cmd::msgLine) + e2::dX (10);
       e2::set (writeHead, tui_ch::doubleChevron, dim);
       writeHead.x++;
       e2::write_string (
