@@ -76,119 +76,136 @@ Every command submitted at the command line is interpreted like `<command> [args
 
 ```
  COMMAND REFERENCE
-  `help [(nav|cmd|col)]`:
-    Show help for given topic, or general help with
-    no args.
-    alias: h, ?
+  `help help [(nav|cmd|col)]`:
+    Show help for given topic,
+    or general help with no args.
+     aliases: h, ?
 
-  `quit`:
+  `quit `:
     Exit the browser.
-    alias: q, exit
+     aliases: q, exit
 
   `where [condition]`:
-    Start a new WHERE clause, overwriting any
-    existing condition. Omitting the [condition]
-    argument will clear the current WHERE clause.
-    For a reference of queryable columns, check the
-    manual or run `? col`.
-    alias: w, wh, WHERE
+    Start a new WHERE clause, overwriting
+    any existing condition. Omitting the
+    [condition] argument will clear the current
+    WHERE clause. For a reference of queryable
+    columns, check the manual or run `? col`.
+     aliases: w, wh, WHERE
 
   `and <condition>`:
-    Extend current WHERE clause with an AND
-    condition.
-    alias: AND
+    Extend current WHERE clause with an AND condition.
+     aliases: AND
 
-  `or <condition>`:
-    Extend the query with an OR condition.
-    alias: OR
-
-  `sort [condition]`:
+  `order by [condition]`:
     Sort reads by ORDER BY expression. Clears order
     by with no args, resetting to default ordering.
     When viewing multiple alignments, reads are
     always sorted by file as the primary key.
-    alias: o, order, ORDER BY, sort
+     aliases: o, order, ORDER BY, sort
 
-  `clear`:
-    Clear current query, resetting both WHERE and
-    ORDER BY.
-    alias: cl
+  `clear `:
+    Clear current query, resetting
+    both WHERE and ORDER BY.
+     aliases: cl
 
   `count <condition>`:
-    Count reads matching <condition>,
-    AND-concatenated onto the current WHERE clause
-    if present.
-    alias: ct
+    Count reads matching <condition>, AND-concatenated
+    onto the current WHERE clause if present.
+     aliases: ct
+
+  `count all <condition>`:
+    Count all reads matching <condition>
+     aliases: cta
 
   `col <field-name>...`:
-    Show/hide read data columns in the table pane.
-    For a list of available columns, check the
-    manual or run `? col`.
-    alias: c
+    Show/hide read data columns in the
+    table pane. For a list of available
+    columns, check the manual or run `? col`.
+     aliases: c
 
   `toggle (quality|insertion|table|sparkline)`:
-    Toggle various aspects of the display. quality
-    and insertion toggle display of their respective
-    tracks in the alignment pane. table toggles
-    display of the table pane. sparkline toggles
-    display of the quality track between Phred ASCII
-    and a quick-look sparkline graph. Accepts any
-    unambiguous substring of the argument to toggle,
-    e.g. `tg qual`.
-    alias: tg
+    Toggle various aspects of the display.
+    - quality:   read quality track in
+                 alignment pane.
+    - insertion: read insertion track in
+                 alignment pane.
+    - table:     browser table pane.
+    - sparkline: switch quality track
+                 between Phred ASCII and a
+                 quick-look sparkline graph.
+    `toggle` accepts any unambiguous substring
+    of the argument, e.g. `tg qual`.
+     aliases: tg
 
   `dump <path>`:
-    Write the pileup database to an sqlite3 dump
-    file.
+    Write the pileup database to an sqlite3 dump file.
 
 ```
 
 ### 3.3) Querying the Pileup
 
-The apb query commands provide a simple wrapper around (sqlite3-based) SQL. Whereas a more generic SQL REPL might be structured around dispatching known, predetermined queries, apb aims to support stepwise pattern discovery. The active query persists across commands and may be extended a piece at a time (using `where`, `and`/`or`, and `sort`). By example, a session might look like the following: check which reads carry a non-reference base, filter those by a base quality threshold, decide that's uninformative and undo, filter by mapping quality instead, and so on. See Section 3.4 (Column Reference) for the full list of queryable columns.
+The apb query commands provide a simple wrapper around (sqlite3-based) SQL. This means you can directly query the pileup to view and count reads by their properites, such as the base, flag, and cigar string (See Section 3.4 (Column Reference) for the full list of queryable columns). This is best explained by example:
 
-### 3.3.1) Query Walkthrough
+Imagine we are inspecting a candidate SNV variant locus. We may start by filtering the pileup to only reads which the caller should consider. Specifics will vary by caller, but a common starting point is "reads which map well, have mapped mates, and aren't duplicates, qc fails, or secondary/supplementary alignments". At the TUI command line:
+```
+where mapq > 0 AND (flag != 3548) = 0;
+```
+The browser will update to show only reads matching that filter, and the status line will now show:
+```
+- WHERE mapq > 0 AND (flag & 3548) != 0: 76/100 reads
+```
+Let's say our candidate SNV is A->T. We can sort the pileup to group and view reads expressing the variant base at the pileup locus:
+```
+order base IS 'T' DESC
+```
+DESC is simply the SQL keyword for descending order (ASC is for ascending, which is the default). DESC puts reads that match our condition to the top of the view. The status line will now show:
+```
+- WHERE mapq > 0 AND (flag & 3548) != 0: 76/100 reads │ ORDER BY base IS 'T' DESC
+```
+The query is now set such that parsing the reads visually is simple in the browser, so we may now explore the pileup for any properties of interest, e.g. if most of the reads supporting the variant are soft-clipped. The browser can be navigated with the commmands detailed in Section 3.1.
 
-Imagine a putative variant locus under manual inspection. Starting broad, we can filter the view to show only reads with a non-reference base at the pileup position. Assume `G` is the reference base:
+After visually exploring the pileup, it can be useful to quantify the locus in more detail. For example, to count the number of reads exhibiting the variant:
 ```
-where base != 'G'
+count base IS 'T'
 ```
-We then filter reads with any of flag bits 9/10/11 set (supplementary, duplicate, or QC fail):
+This will return a message below the command line:
 ```
-and (flag & 3584) = 0
+- base IS 'T' / mapq > 0 AND (flag & 3548) != 0: 24/76 reads
 ```
-Note that flag is a bitmask - see https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, xor and not. The webpage https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute is very useful for finding the corresponding integer given a set of SAM bits.
-
-Now let's sort to see the lowest quality calls first:
+The count returned is the count of reads matching the current WHERE condition AND the condition provided to count, against the total count of reads matching the current WHERE condition. If instead you wanted to count all reads matching a condition and ignoring the current WHERE condition, use `count all [condition]`:
 ```
-sort basequal ASC
+count all base IS 'T'
 ```
-ASC is simply SQLite's shorthand for ascending. DESC is the alternative. If you omit the sort direction term, ASC is the default. Also note that you can order by multiple keys, e.g. `sort basequal DESC, start ASC` would sort by basequal in descending order, and where basequal is equal, alignment start position will be used as a secondary key. You can also sort by non-numeric fields, so `sort base` works fine.
-
-The parser incrementally wraps these commands into a complete SQL statement, which is displayed above the command line:
+returning:
 ```
-where base != 'G' AND (flag & 3584) = 0 ORDER BY basequal ASC
+- base IS 'T': 28/100 reads
 ```
-
-You can remove clauses added in a piecewise manner with the `undo` command.
-
-Note that you can provide more than one condition at a time, so:
+From this we may conclude that four reads exhibit the variant, but are filtered out by our current WHERE clause on `mapq` and `flag`. We may consider relaxing our requirement that the mate must be mapped to see if this brings any of those four reads into view. To do so, we can simply grab the current WHERE clause from the status bar with `Ctrl-w`. This places it in the command line, where we may edit and resubmit:
 ```
-where base != 'G' AND (flag & 3584) = 0
+where mapq > 0 AND (flag != 3544 /* edited from 3548 */ ) = 0;
 ```
-is equivalent to `where base != 'G'`, `and (flag & 3584) = 0` (But see Section 3.3.3).
-
-To count reads matching the current query, use `count`. You may also optionally add a new where clause, which will be AND concatenated with the current query but will not affect the display. For example, `count mapq > 10` tells you how many low-mapping-quality reads there are in the current query without changing the view. If used after `where base != 'G'`, the status bar will show:
-```
-base != 'G' AND mapq > 10: 17 reads
-```
+Editing the query is made easy by using the readline-style editing commands detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb.
 
 **IMPORTANT**:
-Missing values are encoded as NULL, and NULL values always fail comparison in SQL, therefore e.g. `where basequal < 20` excludes rows where basequal is missing. To check for the presence of missing values for a field, use `where <col> IS NULL`. Only values which may be missing per the SAM format spec may be NULL.
+`flag` is a bitmask of read properties defined by the SAM format - see https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute, which both explains the meaning of the flag bits and allows you to calcuate the number (like 3548) which corresponds to a particular set of properties. See https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, and not.
 
-### 3.3.2) Further Examples
+**IMPORTANT**:
+In SQL the `ORDER BY` clause can take multiple keys. This is supported by the `order` command, so we could for example have written `order base IS 'T' DESC, basequal`. This would have sorted the view such that reads exhibiting a 'T' at the pileup locus will appear first, but now within that group, reads will be sorted by the quality of that base, in ascending order (lowest first).
 
-The query syntax is flexible and powerful. Some useful examples:
+**IMPORTANT**:
+Missing values are encoded as NULL, and different operators behave differently with NULL values in SQL. For example, a deleted `base` is NULL - `where base != 'A'` will exclude deletions, as NULL always fails comparisons with `!=`. Whereas, `where base IS NOT 'A'` will include deletions as `base IS NOT NULL` evaluates to false. Similarly, `where basequal < 20` excludes rows where basequal is missing, again as is the case for deleted bases. To check for the presence of missing values for a field, use `where <col> IS NULL`.
+
+### 3.4) Further Querying Examples
+
+Querying is flexible and powerful. Some useful examples:
+
+**QUERYING BY PATH**:
+
+When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
+```
+where instr(path, 'PD12345a') and base != 'A'
+```
 
 **INDELS AT THE PILEUP LOCUS**:
 
@@ -221,14 +238,6 @@ where tags ->> '$.RG' is null
 ```
 Would find reads missing the RG tag.
 
-**READ LENGTH AND ARITHMETIC**:
-
-Arithmetic functions are available. For example:
-```
-where end - start < 100
-```
-would filter the view to reads less than 100 bases long.
-
 **CIGAR QUERYING**:
 
 Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 5-base insertion at any position:
@@ -240,12 +249,13 @@ or for reads containing soft clipping of any length:
 where instr(cigar, 'S')
 ```
 
-**QUERYING BY PATH**:
+**READ LENGTH AND ARITHMETIC**:
 
-When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
+Arithmetic functions are available. For example:
 ```
-where instr(path, 'PD12345a') and base != 'A'
+where end - start < 100
 ```
+would filter the view to reads less than 100 bases long.
 
 **MOTIFS AT THE QUERY POSITION**:
 
@@ -265,34 +275,6 @@ where instr(substr(seq, 1, 10), 'GATC') > 0
 ---
 
 Any and all of these approaches may be combined, and more is possible. See SQLite's expression/function reference - https://sqlite.org/lang_expr.html.
-
-### 3.3.3) SQL operator precedence
-
-In SQL, AND conditions always bind more tightly than OR. This means that the command:
-```
-where flag = [x] AND basequal > [y] OR flag = [w] AND mapq < [z]
-```
-has the meaning:
-```
-(flag = [x] AND basequal > [y]) OR (flag = [w] AND mapq < [z])
-```
-This is intuitive and useful for predetermimed queries, however it would be inconvenient when building queries piecewise in an exploratory manner - e.g.
-```
-where flag = [x] OR flag = [y]
-```
-followed by:
-```
-and mapq > 0 OR basequal > 35
-```
-would, in natural SQL, resolve to:
-```
-flag = [x] OR (flag = [y] and mapq > 0) OR basequal > 35
-```
-As such, when using the piecewise query interface apb adds parentheses wherever operator precedence would otherwise change the meaning of the typed command. In practice, this only affects the `and` command - the `and` command wraps the existing query, and the new condition, in parentheses if either contains an `OR`. Therefore, our example resolves to:
-```
-(flag = [x] OR flag = [y]) AND (mapq > 0 OR basequal > 35)
-```
-i.e. as it was provided at the command line. Any added parentheses are displayed in the status bar to ensure clarity. If you prefer to use natural SQL operator precedence, use the submit-and-edit interface; submit your queries written as natural SQL via the `where` command, and get the current query for editing with `Ctrl-r`.
 
 ### 3.4) Column Reference
 
@@ -371,7 +353,22 @@ The first ten columns (`qname` through `mstart`) can be displayed in tabular for
 
 For advanced users, note that most of these map directly onto fields in htslib's `bam_pileup1_t` and `bam1_t` structs - consult the schema.
 
-## 4) A Word on `dump` Functionality
+---
+
+## Addenda
+
+### SQL operator precedence
+
+In SQL, AND conditions always bind more tightly than OR. This means that the command:
+```
+where flag = [x] AND basequal > [y] OR flag = [w] AND mapq < [z]
+```
+has the meaning:
+```
+(flag = [x] AND basequal > [y]) OR (flag = [w] AND mapq < [z])
+```
+
+### The `dump` Functionality
 
 A dump is a small, self-contained sqlite3 file with just the reads at the specified locus. A few use cases:
 
@@ -381,17 +378,13 @@ A dump is a small, self-contained sqlite3 file with just the reads at the specif
 
 Note that all coordinate data within the dump is 1-based, matching the display.
 
-## 5) A Word on Indexing Systems
+### A Word on Indexing Systems
 
 htslib/samtools/bcftools, and by extension all alignment and VCF data, mix 0-based half-open and 1-based closed coordinate systems. This can be tricky to navigate.
 
 apb uses 1-based closed coordinates throughtout, i.e coordinates start at 1, and coordinate ranges are [x-y] where both x and y are included. 1-based closed coordinates match the human-readable VCF and SAM format specs, and to `samtools` commands e.g. `samtools view ...`. Coordinates from these sources, i.e. a variant locus from a VCF, may be passed directly to the locus CLI argument at startup. Loci from 0-indexed sources, e.g. BED files, may be passed directly to the CLI argument if the `-0` flag is set, but the display and internal data will still be in 1-based closed coordinates. If extracting loci from unspecified or uncertain sources, make sure to confirm the coordinate system! The 1-based coordinates as displayed in apb also match the behaviour of both `IGV` and `jbrowse`.
 
 If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pileup1_t` structs or equivalent (e.g. pysam alignment records), keep in mind that all coordinate data will be shifted by 1, including `qpos`.
-
----
-
-## Addenda
 
 ### macOS Terminal App Users
 
