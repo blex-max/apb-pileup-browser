@@ -68,25 +68,27 @@ Every command submitted at the command line is interpreted like `<command> [args
 static constexpr std::string_view manualChunk3 = R"md(
 ```
 
+`toggle sparkline` switches the quality track in the browser pane between ASCII display of quality scores, and a sparkline graph - i.e. `FAFF-FF<FFI` vs `▇▆▇▇▄▇▇▄▇▇█`.
+
 ### 3.3) Querying the Pileup
 
 The apb query commands provide a simple wrapper around (sqlite3-based) SQL. This means you can directly query the pileup to view and count reads by their properites, such as the base, flag, and cigar string (See Section 3.4 (Column Reference) for the full list of queryable columns). This is best explained by example:
 
 Imagine we are inspecting a candidate SNV variant locus. We may start by filtering the pileup to only reads which the caller should consider. Specifics will vary by caller, but a common starting point is "reads which map well, have mapped mates, and aren't duplicates, qc fails, or secondary/supplementary alignments". At the TUI command line:
 ```
-where mapq > 0 AND (flag != 3548) = 0;
+where mapq > 0 AND (flag & 3848) = 0;
 ```
 The browser will update to show only reads matching that filter, and the status line will now show:
 ```
-- WHERE mapq > 0 AND (flag & 3548) != 0: 76/100 reads
+- WHERE mapq > 0 AND (flag & 3848) = 0: 76/100 reads
 ```
 Let's say our candidate SNV is A->T. We can sort the pileup to group and view reads expressing the variant base at the pileup locus:
 ```
-order base IS 'T' DESC
+order by base IS 'T' DESC
 ```
 DESC is simply the SQL keyword for descending order (ASC is for ascending, which is the default). DESC puts reads that match our condition to the top of the view. The status line will now show:
 ```
-- WHERE mapq > 0 AND (flag & 3548) != 0: 76/100 reads │ ORDER BY base IS 'T' DESC
+- WHERE mapq > 0 AND (flag & 3848) = 0: 76/100 reads │ ORDER BY base IS 'T' DESC
 ```
 The query is now set such that parsing the reads visually is simple in the browser, so we may now explore the pileup for any properties of interest, e.g. if most of the reads supporting the variant are soft-clipped. The browser can be navigated with the commmands detailed in Section 3.1.
 
@@ -96,7 +98,7 @@ count base IS 'T'
 ```
 This will return a message below the command line:
 ```
-- base IS 'T' / mapq > 0 AND (flag & 3548) != 0: 24/76 reads
+- base IS 'T' / mapq > 0 AND (flag & 3848) = 0: 24/76 reads
 ```
 The count returned is the count of reads matching the current WHERE condition AND the condition provided to count, against the total count of reads matching the current WHERE condition. If instead you wanted to count all reads matching a condition and ignoring the current WHERE condition, use `count all [condition]`:
 ```
@@ -108,18 +110,32 @@ returning:
 ```
 From this we may conclude that four reads exhibit the variant, but are filtered out by our current WHERE clause on `mapq` and `flag`. We may consider relaxing our requirement that the mate must be mapped to see if this brings any of those four reads into view. To do so, we can simply grab the current WHERE clause from the status bar with `Ctrl-w`. This places it in the command line, where we may edit and resubmit:
 ```
-where mapq > 0 AND (flag != 3544 /* edited from 3548 */ ) = 0;
+where mapq > 0 AND (flag & 3840 /* edited from 3848 */ ) = 0;
 ```
-Editing the query is made easy by using the readline-style editing commands detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb.
+Editing the query is made easy by using the readline-style editing commands detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb. See the next section for further examples and snippets.
 
 **IMPORTANT**:
-`flag` is a bitmask of read properties defined by the SAM format - see https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute, which both explains the meaning of the flag bits and allows you to calcuate the number (like 3548) which corresponds to a particular set of properties. See https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, and not.
+`flag` is a bitmask of read properties defined by the SAM format - see https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute, which both explains the meaning of the flag bits and allows you to calcuate the number (like 3848) which corresponds to a particular set of properties. See https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, and not.
 
 **IMPORTANT**:
-In SQL the `ORDER BY` clause can take multiple keys. This is supported by the `order` command, so we could for example have written `order base IS 'T' DESC, basequal`. This would have sorted the view such that reads exhibiting a 'T' at the pileup locus will appear first, but now within that group, reads will be sorted by the quality of that base, in ascending order (lowest first).
+In SQL the `ORDER BY` clause can take multiple keys. This is supported by the `order by` command, so we could for example have written `order by base IS 'T' DESC, basequal`. This would have sorted the view such that reads exhibiting a 'T' at the pileup locus will appear first, but now within that group, reads will be sorted by the quality of that base, in ascending order (lowest first).
 
 **IMPORTANT**:
 Missing values are encoded as NULL, and different operators behave differently with NULL values in SQL. For example, a deleted `base` is NULL - `where base != 'A'` will exclude deletions, as NULL always fails comparisons with `!=`. Whereas, `where base IS NOT 'A'` will include deletions as `base IS NOT NULL` evaluates to false. Similarly, `where basequal < 20` excludes rows where basequal is missing, again as is the case for deleted bases. To check for the presence of missing values for a field, use `where <col> IS NULL`.
+
+**IMPORTANT**:
+In SQL, AND conditions always bind more tightly than OR. This means that:
+```
+WHERE a AND b AND c OR d
+```
+is equivalent to:
+```
+WHERE (a AND b AND c) OR d
+```
+If you want to bind two conditions together, use brackets:
+```
+WHERE a AND b AND (c OR d)
+```
 
 ### 3.4) Further Querying Examples
 
@@ -203,7 +219,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 ### 3.4) Column Reference
 
-For each read, the database stores the columns detailed below. All columns are queryable in `where`/`and`/`or`/`sort` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
+For each read, the database stores the columns detailed below. All columns are queryable in `where`/`order by`/`count` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
 
 ```
 )md";
@@ -222,17 +238,6 @@ For advanced users, note that most of these map directly onto fields in htslib's
 ---
 
 ## Addenda
-
-### SQL operator precedence
-
-In SQL, AND conditions always bind more tightly than OR. This means that the command:
-```
-where flag = [x] AND basequal > [y] OR flag = [w] AND mapq < [z]
-```
-has the meaning:
-```
-(flag = [x] AND basequal > [y]) OR (flag = [w] AND mapq < [z])
-```
 
 ### The `dump` Functionality
 

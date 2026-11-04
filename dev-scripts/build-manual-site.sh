@@ -2,7 +2,7 @@
 set -euo pipefail
 # Usage: build-manual-site.sh TAG SITE_DIR [APB_BINARY]
 # Adds the HTML manual for TAG to SITE_DIR (a checkout of the gh-pages branch),
-# refreshes latest/, and regenerates the root version index. Needs pandoc.
+# refreshes latest/ if TAG is the newest version, and regenerates the root version index. Needs pandoc.
 tag=${1:?usage: $0 TAG SITE_DIR [APB_BINARY]}
 site=${2:?usage: $0 TAG SITE_DIR [APB_BINARY]}
 apb=${3:-build/apb}
@@ -19,8 +19,12 @@ trap 'rm -f "$tmp"' EXIT
 pandoc -f markdown "$tmp" -s --toc --metadata title="apb" --metadata pagetitle="apb $tag manual" \
   -V maxwidth=42em -o "$site/$tag/index.html"
 
-rm -rf "$site/latest"
-cp -r "$site/$tag" "$site/latest"
+# only the newest version becomes latest
+newest=$(for d in "$site"/v*/; do basename "$d"; done | sort -V | tail -n1)
+if [[ "$tag" == "$newest" ]]; then
+  rm -rf "$site/latest"
+  cp -r "$site/$tag" "$site/latest"
+fi
 touch "$site/.nojekyll"
 
 {

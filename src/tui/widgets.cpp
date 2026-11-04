@@ -1106,8 +1106,10 @@ void draw_main_to_buffer()
     // size + padding
     auto writeHead = last (g_cmd::contextLine) -
                      e2::dX (qWhereS.size() + qOrderS.size() + 1);
-    writeHead.x +=
-        e2::write_string (writeHead, last (g_cmd::contextLine).x, qWhereS);
+    writeHead.x = std::max (1, writeHead.x);
+    writeHead.x += e2::write_string (
+        writeHead, last (body (g_cmd::contextLine)).x, qWhereS
+    );
     if (!qOrderS.empty()) {
       e2::set (writeHead, tui_ch::vertLine);
       writeHead.x++;

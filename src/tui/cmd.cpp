@@ -331,39 +331,6 @@ static constexpr Cmd whereCmd{
     }
 };
 
-static constexpr auto andNames =
-    std::to_array<std::string_view> ({"and", "AND"});
-static constexpr auto andDesc = std::to_array<std::string_view> (
-    {"Extend current WHERE clause with an AND condition."}
-);
-static constexpr Cmd andCmd{
-    andNames, "<condition>", andDesc,
-    [] (std::string_view args) -> std::string {
-      if (args.empty()) {
-        return cmd_format_misuse (
-            "no condition given", andCmd.names[0], andCmd.usageArgs
-        );
-      }
-
-      if (g_db::userQuery.where.empty()) {
-        return cmd_format_fail ("WHERE clause empty; cannot add term");
-      }
-
-      if (cmd_find_substr (args, "ORDER BY")) {
-        return cmd_format_fail ("AND clause cannot contain ORDER BY");
-      }
-
-      auto query = g_db::userQuery;
-
-      extend_where_and (query, args);
-
-      // validates clause
-      return try_apply_query_clause (
-          std::move (query), args, CMD_GENERIC_SUCCESS
-      );
-    }
-};
-
 static constexpr auto orderNames = std::to_array<std::string_view> (
     {"order by", "o", "order", "ORDER BY", "sort"}
 );
@@ -615,7 +582,7 @@ static constexpr auto helpDesc = std::to_array<std::string_view> ({
     "or general help with no args.",
 });
 static constexpr Cmd helpCmd{
-    helpNames, "help [(nav|cmd|col)]", helpDesc,
+    helpNames, "[(nav|cmd|col)]", helpDesc,
     [] (std::string_view args) -> std::string {
       const auto tokens = split_whitespace (args);
       const auto nargRet = cmd_validate_ntok (tokens, 0, 1, helpCmd);
@@ -676,7 +643,6 @@ static constexpr std::span<const Cmd* const> get_cmd_registry()
       &helpCmd,
       &quitCmd,
       &whereCmd,
-      &andCmd,
       &orderCmd,
       &clearCmd,
       &countCmd,

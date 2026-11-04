@@ -22,8 +22,6 @@ void set_where (QueryFragments& query, std::string_view clause);
 
 // Appends "AND `cond`" to .where, both of which
 // must be non-empty (asserted).
-// An existing clause containing `--` is always wrapped, so a
-// comment errors rather than swallowing cond.
 // Sanitises cond before use.
 // Does not check if result is valid sql.
 void extend_where_and (QueryFragments& query, std::string_view cond);
