@@ -638,7 +638,7 @@ static constexpr Cmd helpCmd{
 
 static constexpr std::span<const Cmd* const> get_cmd_registry()
 {
-  static constexpr std::array<const Cmd*, 11> registry{{
+  static constexpr auto registry = std::to_array<const Cmd*> ({
       /* all cmds must be added here */
       &helpCmd,
       &quitCmd,
@@ -650,7 +650,7 @@ static constexpr std::span<const Cmd* const> get_cmd_registry()
       &colCmd,
       &toggleCmd,
       &dumpCmd,
-  }};
+  });
   return registry;
 }
 
