@@ -1170,26 +1170,32 @@ void draw_overlay_to_buffer()
   set (vertexD (frame), tui_ch::bottomLeftRoundCorner);
   set (vertexC (frame), tui_ch::bottomRightRoundCorner);
 
-  auto xEnd = last (box.xspan) - 1;  // leave a gap before the border
-
-  auto writeHead = vertexA (frame);
-  writeHead.x += 1;
-  writeHead.x += e2::write_string (
-      writeHead, xEnd, " q: close overlay ", {.fg = TB_DIM}
-  );
-  writeHead.x += 3;
   const auto lnN = height (box);
-  if (lnN < std::ssize (content)) {
-    e2::write_string (
-        writeHead, xEnd, "Up / Down: scroll", {.fg = TB_DIM}
-    );
-  }
-
   const auto maxLnOff =
       std::max (0, static_cast<int> (std::ssize (content)) - lnN);
   const auto lnOff = static_cast<size_t> (
       std::clamp (g_overlay::contentLnOffset, 0, maxLnOff)
   );
+
+  auto writeHead = vertexA (frame) + e2::dX (1);
+  auto xEnd = last (box.xspan) - 1;  // leave a gap before the border
+  writeHead.x += e2::write_string (
+      writeHead, xEnd, " q: close overlay ", {.fg = TB_DIM}
+  );
+  writeHead.x += 3;
+  if (lnN < std::ssize (content)) {
+    e2::write_string (
+        writeHead, xEnd, "Up / Down: scroll", {.fg = TB_DIM}
+    );
+    if (lnOff < maxLnOff) {
+      writeHead = vertexC (frame) - e2 ::dX (7);
+      writeHead.x += e2::write_string (
+          writeHead, vertexC (frame).x, "scroll", {.fg = TB_DIM}
+      );
+      e2::set (writeHead, tui_ch::downArrow);
+    }
+  }
+
   auto lnY = extb::vertexA (box);
   for (int i = 0; i < lnN && i < std::ssize (content); ++i) {
     e2::write_string (lnY, xEnd, content[static_cast<size_t> (i) + lnOff]);

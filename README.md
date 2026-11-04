@@ -57,6 +57,7 @@ cmake --build build
 The compiled binary can be found at `build/apb`.
 
 ## Usage 
+
 For CLI/TUI usage, command syntax, and query examples, you can generate a manual specific to your version with `apb --manual > MANUAL.md`
 (Check `apb --help` for exact instructions for manual generation).
 
@@ -78,6 +79,14 @@ General suggestions regarding improvements to commands and navigation are also a
 - ~Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
   like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.~ Added in `v0.4.0` via `toggle sparkline` command.
 - Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
+- Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
+  e.g. `where read_contains(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
+  This is not plausible in direct SQL. Exact syntax TBD!
+- Various convenience features when writing queries at the command line, e.g. for doing `flag` comparisons without having to use bitwise operators.
+- Headless querying, to get results for a query known ahead of time without dropping into the TUI.
+  - Output format requires consideration.
+  - This would allow use of apb programatically.
+  - It may also be possible to expose apb as a library to scripting languages.
 
 ### Speculative Features
 
@@ -95,13 +104,6 @@ These are items that I think might be useful and could implement, but am unlikel
     this 3-col format. e.g. for VCF `bcftools view my.vcf | awk <extract columns and create id> > loci.txt`
   - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
     not familiar with those tools.
-- Headless querying, to get results for a query known ahead of time without dropping into the TUI.
-  - Output format would require consideration.
-  - This would allow use of apb programatically.
-  - It may also be possible to expose apb as a library to scripting languages.
-- Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
-  e.g. `where read_contains(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
-  This is not plausible in direct SQL. Exact syntax TBD!
 - Display of reads aligned to adjacent bases at the specified locus.
 
 ## Development

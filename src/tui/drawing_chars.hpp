@@ -27,6 +27,7 @@ enum indicator : uint16_t {
   insRingAbove = 0x030A,
 
   doubleChevron = 0x00BB,
+  downArrow = 0x2193,
 };
 
 enum block : uint16_t {

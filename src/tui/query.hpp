@@ -8,35 +8,28 @@
 #include <string_view>
 #include <vector>
 
+std::string_view sanitise_clause (std::string_view clause);
+
 // User-supplied query components input at command line
 struct QueryFragments {
   std::string where;
   std::string orderBy;
 };
 
-enum class Conjunctions : uint8_t {
-  AND,
-  OR,
-};
-// Without conjunction, replaces where with cond.
-// With conjunction, appends `<conjunction> cond` to where, which
-// must be non-empty. Operands are parenthesised only where
-// AND/OR precedence would change their meaning: for AND, the
-// existing clause and cond are each wrapped if they have a
-// top-level OR; for OR nothing is wrapped. So:
-// `where flag = [x] OR flag = [y]`, then `and mapq > 0 OR basequal > 35`
-// gives `(flag = [x] OR flag = [y]) AND (mapq > 0 OR basequal > 35)`.
+// Replaces .where with `clause`, sanitising `clause`.
+// Does not check if result is valid sql.
+void set_where (QueryFragments& query, std::string_view clause);
+
+// Appends "AND `cond`" to .where, both of which
+// must be non-empty (asserted).
 // An existing clause containing `--` is always wrapped, so a
 // comment errors rather than swallowing cond.
-// Sanitises cond before use. No-op if cond is empty.
-// Does not check if resulting string is valid sql.
-void update_where (
-    QueryFragments& query, std::string_view cond,
-    std::optional<Conjunctions> conjunction = std::nullopt
-);
+// Sanitises cond before use.
+// Does not check if result is valid sql.
+void extend_where_and (QueryFragments& query, std::string_view cond);
 // Sanitises order before use. Clears if order is empty.
 // Does not check if result is valid sql.
-void update_order (QueryFragments& query, std::string_view order);
+void set_order (QueryFragments& query, std::string_view order);
 
 // locus metadata as extracted from db.
 // 1-indexed!

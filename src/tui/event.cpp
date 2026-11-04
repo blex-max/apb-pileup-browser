@@ -168,6 +168,7 @@ static bool handle_nav (const tb_event& ev)
         recall.append (query.orderBy);
       }
       input::set_text (g_cmd::cmdBuf.buf, recall);
+      input::move_end (g_cmd::cmdBuf.buf);
     } break;
     case TB_KEY_CTRL_W: {
       const auto& query = g_db::userQuery;
@@ -176,6 +177,7 @@ static bool handle_nav (const tb_event& ev)
         recall.append ("WHERE ");
         recall.append (query.where);
         input::set_text (g_cmd::cmdBuf.buf, recall);
+        input::move_end (g_cmd::cmdBuf.buf);
       }
     } break;
     case TB_KEY_CTRL_O: {
@@ -185,6 +187,7 @@ static bool handle_nav (const tb_event& ev)
         recall.append ("ORDER BY ");
         recall.append (query.orderBy);
         input::set_text (g_cmd::cmdBuf.buf, recall);
+        input::move_end (g_cmd::cmdBuf.buf);
       }
     } break;
     case TB_KEY_CTRL_SLASH: {
@@ -200,8 +203,8 @@ static bool handle_nav (const tb_event& ev)
             "SQL in undo stack failed to compile upon reuse!"
         );
       }
-        // set_query always adds to undo queue on success,
-        // so reverse that.
+      // set_query always adds to undo queue on success,
+      // so reverse that.
       undoStack.pop_back();
       break;
     }

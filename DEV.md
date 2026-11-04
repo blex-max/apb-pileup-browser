@@ -15,15 +15,12 @@ See the roadmap in [README.md](README.md).
   demo database could be distributed within the src.
 - On a failure to parse an aux tag, the qname of the read with the corrupt data should be reported.
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
-- There's some wasted computation since all user input will naively redraw the entire screen and
-  redo the entire query. This only noticable at high depth, but in any case it would be more economical/
-  to only recompute and redraw whatever is specifically necessary per frame.
 
 ## Development Adages
 
 Things to keep in mind (for myself as much as anyone) when working on `apb`:
 
-- Good error handling is paramount.
+- Good error handling is valuable.
   - Prefer Err/Status types and/or expected<T, E> over exceptions.
     Exceptions have complex implications and are not really justified in a code base of this size.
   - Prefer tightly-scoped error types over shared error types - the shared type
@@ -37,7 +34,7 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
     different approaches.
 
 - Things will go wrong when released to the public, make them go wrong well.
-  - `APB_ASSERT()` and `APB_UNREACHABLE()` exist for this purpose, and prevent
+  - There are various apb macros for this purpose, which prevent
     crashes from breaking the user terminal.
   - It's preferable to crash than to potentially mislead the user by presenting
     wrong or corrupted data.
