@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v0.4.0 (release pending)
+## v0.4.0
 
 ### Highlights:
 
