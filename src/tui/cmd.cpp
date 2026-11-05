@@ -338,7 +338,7 @@ static constexpr Cmd countCmd{
       else {
         msg.append (fmt::format (" / {}: ", curWhere));
       }
-      msg.append (fmt::format ("{} / {} reads", sqlite3_column_int64 (o_stmt, 0), g_db::nStmtRows));
+      msg.append (fmt::format ("{}/{} reads", sqlite3_column_int64 (o_stmt, 0), g_db::nStmtRows));
       return {true, msg};
     }
 };
@@ -381,7 +381,7 @@ static constexpr Cmd countAllCmd{
         return {false, fail_with_args()};
       }
 
-      return {true, fmt::format ("{}: {} / {} reads", args, sqlite3_column_int64 (o_stmt, 0), g_db::totalRows)};
+      return {true, fmt::format ("{}: {}/{} reads", args, sqlite3_column_int64 (o_stmt, 0), g_db::totalRows)};
     }
 };
 

@@ -12,7 +12,7 @@ apb is subject to change pending user feedback until the 1.0 release. Some aspec
 
 Given one or more alignment files and a genomic locus apb retrieves all reads aligned to that locus and loads the reads into a fast, queryable database. The TUI then displays the aligned reads alongside user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command line at which you can enter commands to query the reads or change the display. The display and command line can be navigated via simple arrow key navigation.
 
-**IMPORTANT**:
+**IMPORTANT**:  
 apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line.
 
 ## 2) CLI Usage
@@ -190,19 +190,24 @@ For each read, the database stores the columns detailed below. All columns are q
       integer > 0                               
       1-based offset into `seq`/`qual` to       
       pileup locus position. In deletions, this 
-      is the anchor base.                       
+      is the first base after the deletion.     
   `cigar`:                                      
       text                                      
       CIGAR string of alignment operations.     
   `mtid`:                                       
       text / NULL                               
       reference name of the mate/next read.     
-      NULL if mate is unmapped. = if mate is on 
-      same contig.                              
+      = if mate is on same contig. Usually = if 
+      mate is unmapped. Usually NULL if read    
+      unpaired (use `flag` to check if mate is  
+      unmapped).                                
   `mstart`:                                     
       integer > 0 / NULL                        
       mate/next read's leftmost mapping         
-      position. NULL if mate is unmapped.       
+      position. Usually identical to `start`    
+      if mate is unmapped. Usually NULL if read 
+      unpaired. (use `flag` to check if mate is 
+      unmapped).                                
   `tags`:                                       
       text (JSON) / NULL                        
       aux tags as JSON; able to be individually 
@@ -233,13 +238,15 @@ For advanced users, note that most of these map directly onto fields in htslib's
 
 ### 3.4) Querying the Pileup
 
-The apb query commands provide a simple wrapper around (sqlite3-based) SQL. This means you can directly query the pileup to view and count reads by their properites, such as the base, flag, and cigar string. This is best explained by example:
+The apb query commands provide a simple wrapper around (sqlite3-based) SQL. This means you can directly query the pileup to view and count reads by their properites, such as the base, flag, and cigar string. apb provides three major commands for querying - `where`, for filtering the pileup to reads matching a condition; `order by`, for sorting or grouping reads in the view; and `count`, for quantifying reads. This is best explained by example:
+
+If this is your first time using apb, you may find it useful to walk through the following example in the demo mode, which can be accessed at the CLI by `apb --demo`. The numbers will not exactly match the examples as the examples are only illustrative.
 
 Imagine we are inspecting a candidate SNV variant locus. We may start by filtering the pileup to only reads which the caller should consider. Specifics will vary by caller, but a common starting point is "reads which map well, have mapped mates, and aren't duplicates, qc fails, or secondary/supplementary alignments". At the command line we enter:
 ```
 where mapq > 0 AND (flag & 3848) = 0;
 ```
-The browser will update to show only reads matching that filter, and the status line will now show:
+This is an SQL WHERE clause - essentially a filter. The browser will update to show only reads matching that filter, and the status line will now show:
 ```
 - WHERE mapq > 0 AND (flag & 3848) = 0: 76/100 reads
 ```
@@ -247,7 +254,7 @@ Let's say our candidate SNV is A->T. We can sort the reads to group reads expres
 ```
 order by base IS 'T' DESC
 ```
-DESC is simply the SQL keyword for descending order (ASC is for ascending, which is the default). DESC puts reads that match our condition to the top of the view. The status line will now show:
+This is an SQL ORDER BY clause - essentially a sort. DESC is simply the SQL keyword for descending order (ASC is for ascending, which is the default). DESC puts reads that match our condition to the top of the sort for each alignment file in the pileup. The status line will now show:
 ```
 - WHERE mapq > 0 AND (flag & 3848) = 0: 76/100 reads │ ORDER BY base IS 'T' DESC
 ```
@@ -275,16 +282,16 @@ where mapq > 0 AND (flag & 3840 /* edited from 3848 */ ) = 0;
 ```
 Editing the query is made easy by using the readline-style editing commands detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb. See the next section for further examples and snippets.
 
-**IMPORTANT**:
+**IMPORTANT**:  
 `flag` is a bitmask of read properties defined by the SAM format - see https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute, which both explains the meaning of the flag bits and allows you to calcuate the number (like 3848) which corresponds to a particular set of properties. See https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, and not.
 
-**IMPORTANT**:
+**IMPORTANT**:  
 In SQL the `ORDER BY` clause can take multiple keys. This is supported by the `order by` command, so we could for example have written `order by base IS 'T' DESC, basequal`. This would have sorted the view such that reads exhibiting a 'T' at the pileup locus will appear first, but now within that group, reads will be sorted by the quality of that base, in ascending order (lowest first).
 
-**IMPORTANT**:
+**IMPORTANT**:  
 Missing values are encoded as NULL, and different operators behave differently with NULL values in SQL. For example, a deleted `base` is NULL - `where base != 'A'` will exclude deletions, as NULL always evaluates to false in comparisons using `!=`, i.e. `NULL != 'A'` is false. Whereas, `where base IS NOT 'A'` will include deletions as `NULL IS NOT 'A'` evaluates to true. To check for the presence of missing values for a field, use `where <col> IS NULL`.
 
-**IMPORTANT**:
+**IMPORTANT**:  
 In SQL, AND conditions always bind more tightly than OR. This means that:
 ```
 WHERE a AND b AND c OR d
@@ -342,9 +349,9 @@ Would find reads missing the RG tag.
 
 #### CIGAR Querying
 
-Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 5-base insertion at any position:
+Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 3-base insertion at any position:
 ```
-where instr(cigar, '5I')
+where instr(cigar, '3I')
 ```
 or for reads containing soft clipping of any length:
 ```

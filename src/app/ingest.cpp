@@ -437,16 +437,16 @@ void ingest_demo_auto (sqlite3* conn)
   constexpr std::string_view demoContig = "demo-contig";
   constexpr hts_pos_t demoPos = 10'000'000;
 
-  auto demoData = generate_demo_data (300, 300, demoPos);
+  auto demoData = generate_demo_data (300, 900, demoPos);
   Defer data_cleanup ([&demoData]() { demoData.destroy(); });
   std::array<std::span<bam_pileup1_t>, 3> demoAlns{
       std::span<bam_pileup1_t>{
-          begin (demoData.p), begin (demoData.p) + 100
+          begin (demoData.p), begin (demoData.p) + 300
       },
       std::span<bam_pileup1_t>{
-          begin (demoData.p) + 100, begin (demoData.p) + 200
+          begin (demoData.p) + 300, begin (demoData.p) + 600
       },
-      std::span<bam_pileup1_t>{begin (demoData.p) + 200, end (demoData.p)}
+      std::span<bam_pileup1_t>{begin (demoData.p) + 600, end (demoData.p)}
   };
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
@@ -458,8 +458,20 @@ void ingest_demo_auto (sqlite3* conn)
     std::sort (begin (plp), end (plp), [] (const auto& a, const auto& b) {
       return a.b->core.pos < b.b->core.pos;
     });
-    std::string alnPath{"/data/samples/demo-aln-"};
-    alnPath.append (std::to_string (i));
+    std::string alnPath{"/data/samples/PD12345"};
+    alnPath += static_cast<char> ('a' + i);
+    alnPath.append (".bam");
+    // one read group per file
+    const auto readGroup = "sample" + std::to_string (i + 1);
+    for (auto& p1 : plp) {
+      APB_ASSERT (
+          const auto ret = bam_aux_update_str (
+              p1.b, "RG", static_cast<int> (readGroup.size() + 1),
+              readGroup.c_str()
+          );
+          ret == 0, ret
+      );
+    }
 
     int alnId;
     if (const auto ret = apb_insert_aln (conn, alnPath, true); !ret) {
