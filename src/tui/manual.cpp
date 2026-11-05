@@ -13,16 +13,17 @@
 
 // NOTE: write in single line paragraphs. The reader should use a word-wrapping pager.
 
-static constexpr std::string_view manualChunk1 = R"md(
+static constexpr std::string_view manualChunk1 =
+    R"md(
 # apb Manual - A Pileup Browser
 
-**IMPORTANT**:
-The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
-This is the manual for apb version )md" APB_VERSION R"md(.
+This is the manual for apb version )md" APB_VERSION
+    R"md(. This manual is generated directly from the apb binary.
+If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool.
 
-It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
+If you are reading this manual from a file on disk (rather than the webpage hosted with the apb GitHub repo), it is recommended to read this manual using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
-All content/usage is subject to change pending user feedback until the 1.0 release.
+apb is subject to change pending user feedback until the 1.0 release. Some aspects of the tool are unpolished and quirky - I will continue to work on those. In the meantime please send any feedback via GitHub issues at https://github.com/blex-max/apb-pileup-browser, where you will also find the README for installation instructions, the project roadmap, and other background.
 
 ## 1) Overview
 
@@ -156,14 +157,14 @@ WHERE a AND b AND (c OR d)
 
 Querying is flexible and powerful. Some useful examples:
 
-**QUERYING BY PATH**:
+#### Querying by Path
 
 When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
 ```
 where instr(path, 'PD12345a') and base != 'A'
 ```
 
-**INDELS AT THE PILEUP LOCUS**:
+#### Indels at the Pileup Locus
 
 This is made quite simple by the `indel` column. For example, to search for an 3-base insertion anchored at the pileup:
 ```
@@ -178,7 +179,7 @@ Note that these commands search for indels anchored at the pileup base, i.e. beg
 where is_del
 ```
 
-**AUX TAGS**:
+#### Aux Tags
 
 Aux tags may be queried with `->>`. For example, to subset a query to a read group via the RG tag:
 ```
@@ -194,7 +195,7 @@ where tags ->> '$.RG' is null
 ```
 Would find reads missing the RG tag.
 
-**CIGAR QUERYING**:
+#### CIGAR Querying
 
 Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 5-base insertion at any position:
 ```
@@ -205,7 +206,7 @@ or for reads containing soft clipping of any length:
 where instr(cigar, 'S')
 ```
 
-**READ LENGTH AND ARITHMETIC**:
+#### Read Length and Arithmetic
 
 Arithmetic functions are available. For example:
 ```
@@ -213,7 +214,7 @@ where end - start < 100
 ```
 would filter the view to reads less than 100 bases long.
 
-**MOTIFS AT THE QUERY POSITION**:
+#### Motifs at the Query Position
 
 This is a slightly more advanced example. `qpos` is the 1-based offset into `seq` for the base at the pileup position, matching SQLite's own 1-based `substr()` indexing, so to search for the 4-mer `GATC` starting at the query position:
 ```

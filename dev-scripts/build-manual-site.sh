@@ -6,6 +6,7 @@ set -euo pipefail
 tag=${1:?usage: $0 TAG SITE_DIR [APB_BINARY]}
 site=${2:?usage: $0 TAG SITE_DIR [APB_BINARY]}
 apb=${3:-build/apb}
+here=$(cd "$(dirname "$0")" && pwd)
 
 if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "refusing tag '$tag': expected vX.Y.Z" >&2
@@ -16,8 +17,10 @@ mkdir -p "$site/$tag"
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 "$apb" --manual > "$tmp"
-pandoc -f markdown "$tmp" -s --toc --metadata title="apb" --metadata pagetitle="apb $tag manual" \
-  -V maxwidth=42em -o "$site/$tag/index.html"
+pandoc -f markdown+autolink_bare_uris "$tmp" -s --toc \
+  --lua-filter "$here/manual.lua" --css "$here/manual.css" --embed-resources \
+  --metadata subtitle="$tag" --metadata pagetitle="apb $tag manual" \
+  -o "$site/$tag/index.html"
 
 # only the newest version becomes latest
 newest=$(for d in "$site"/v*/; do basename "$d"; done | sort -V | tail -n1)
@@ -36,14 +39,17 @@ touch "$site/.nojekyll"
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>apb manuals</title>
 <style>
-  html { color-scheme: light dark; }
-  body { max-width: 42em; margin: 0 auto; padding: 50px; font-family: sans-serif; }
+EOF
+  cat "$here/manual.css"
+  cat <<'EOF'
 </style>
 </head>
 <body>
-<h1>apb manuals</h1>
+<header id="title-block-header">
+<h1 class="title">apb manuals</h1>
+</header>
 <p>The manual is generated from each release's binary.</p>
-<ul>
+<ul class="versions">
 <li><a href="latest/">latest</a></li>
 EOF
   for d in "$site"/v*/; do basename "$d"; done | sort -rV |
