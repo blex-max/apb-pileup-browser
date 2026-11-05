@@ -1,19 +1,15 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
 <head>
   <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.13" />
+  <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>apb v0.4.0 manual</title>
   <style>
-
+code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: 1.5em;}
-div.column{flex: auto;}
-@media screen {
-div.columns{gap: min(4vw, 1.5em);}
-div.column{overflow-x: auto;}
-}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
 div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 
 ul.task-list[class]{list-style: none;}
@@ -23,6 +19,7 @@ width: 0.8em;
 margin: 0 0.8em 0.2em -1.6em;
 vertical-align: middle;
 }
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
 </style>
   <style type="text/css">
 
@@ -455,19 +452,24 @@ in-app command line.</p>
       integer &gt; 0                               
       1-based offset into `seq`/`qual` to       
       pileup locus position. In deletions, this 
-      is the anchor base.                       
+      is the first base after the deletion.     
   `cigar`:                                      
       text                                      
       CIGAR string of alignment operations.     
   `mtid`:                                       
       text / NULL                               
       reference name of the mate/next read.     
-      NULL if mate is unmapped. = if mate is on 
-      same contig.                              
+      = if mate is on same contig. Usually = if 
+      mate is unmapped. Usually NULL if read    
+      unpaired.                                 
+      (use `flag` to check if mate is unmapped) 
   `mstart`:                                     
       integer &gt; 0 / NULL                        
       mate/next read&#39;s leftmost mapping         
-      position. NULL if mate is unmapped.       
+      position. Usually identical to `start`    
+      if mate is unmapped. Usually NULL if read 
+      unpaired.                                 
+      (use `flag` to check if mate is unmapped) 
   `tags`:                                       
       text (JSON) / NULL                        
       aux tags as JSON; able to be individually 
@@ -504,23 +506,34 @@ consult the schema.</p>
 <p>The apb query commands provide a simple wrapper around
 (sqlite3-based) SQL. This means you can directly query the pileup to
 view and count reads by their properites, such as the base, flag, and
-cigar string. This is best explained by example:</p>
+cigar string. apb provides three major commands for querying -
+<code>where</code>, for filtering the pileup to reads matching a
+condition; <code>order by</code>, for sorting or grouping reads in the
+view; and <code>count</code>, for quantifying reads. This is best
+explained by example:</p>
+<p>If this is your first time using apb, you may find it useful to walk
+through the following example in the demo mode, which can be accessed at
+the CLI by <code>apb --demo</code>. The numbers will not exactly match
+the examples as the examples are only illustrative.</p>
 <p>Imagine we are inspecting a candidate SNV variant locus. We may start
 by filtering the pileup to only reads which the caller should consider.
 Specifics will vary by caller, but a common starting point is “reads
 which map well, have mapped mates, and aren’t duplicates, qc fails, or
 secondary/supplementary alignments”. At the command line we enter:</p>
 <pre><code>where mapq &gt; 0 AND (flag &amp; 3848) = 0;</code></pre>
-<p>The browser will update to show only reads matching that filter, and
-the status line will now show:</p>
+<p>This is an SQL WHERE clause - essentially a filter. The browser will
+update to show only reads matching that filter, and the status line will
+now show:</p>
 <pre><code>- WHERE mapq &gt; 0 AND (flag &amp; 3848) = 0: 76/100 reads</code></pre>
 <p>Let’s say our candidate SNV is A-&gt;T. We can sort the reads to
 group reads expressing the variant base at the pileup locus and view
 them in the alignment pane:</p>
 <pre><code>order by base IS &#39;T&#39; DESC</code></pre>
-<p>DESC is simply the SQL keyword for descending order (ASC is for
-ascending, which is the default). DESC puts reads that match our
-condition to the top of the view. The status line will now show:</p>
+<p>This is an SQL ORDER BY clause - essentially a sort. DESC is simply
+the SQL keyword for descending order (ASC is for ascending, which is the
+default). DESC puts reads that match our condition to the top of the
+sort for each alignment file in the pileup. The status line will now
+show:</p>
 <pre><code>- WHERE mapq &gt; 0 AND (flag &amp; 3848) = 0: 76/100 reads │ ORDER BY base IS &#39;T&#39; DESC</code></pre>
 <p>The alignment pane now shows only reads matching our WHERE condition,
 grouped by our ORDER BY condition. We may now explore the pileup
@@ -631,9 +644,9 @@ available:</p>
 <p>Would find reads missing the RG tag.</p>
 <h4 id="cigar-querying">CIGAR Querying</h4>
 <p>Pattern matching is available on all text fields, such as the CIGAR
-string. E.g. to filter for reads containing a 5-base insertion at any
+string. E.g. to filter for reads containing a 3-base insertion at any
 position:</p>
-<pre><code>where instr(cigar, &#39;5I&#39;)</code></pre>
+<pre><code>where instr(cigar, &#39;3I&#39;)</code></pre>
 <p>or for reads containing soft clipping of any length:</p>
 <pre><code>where instr(cigar, &#39;S&#39;)</code></pre>
 <h4 id="read-length-and-arithmetic">Read Length and Arithmetic</h4>
