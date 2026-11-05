@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>apb v0.4.0 manual</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 42em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">apb</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#apb-manual---a-pileup-browser"
+id="toc-apb-manual---a-pileup-browser">apb Manual - A Pileup Browser</a>
+<ul>
+<li><a href="#overview" id="toc-overview">1) Overview</a></li>
+<li><a href="#cli-usage" id="toc-cli-usage">2) CLI Usage</a></li>
+<li><a href="#tui-usage" id="toc-tui-usage">3) TUI Usage</a>
+<ul>
+<li><a href="#basic-navigation" id="toc-basic-navigation">3.1) Basic
+Navigation</a></li>
+<li><a href="#command-reference" id="toc-command-reference">3.2) Command
+Reference</a></li>
+<li><a href="#column-reference" id="toc-column-reference">3.3) Column
+Reference</a></li>
+<li><a href="#querying-the-pileup" id="toc-querying-the-pileup">3.4)
+Querying the Pileup</a></li>
+<li><a href="#further-querying-examples"
+id="toc-further-querying-examples">3.5) Further Querying
+Examples</a></li>
+</ul></li>
+<li><a href="#addenda" id="toc-addenda">Addenda</a>
+<ul>
+<li><a href="#the-dump-functionality"
+id="toc-the-dump-functionality">The <code>dump</code>
+Functionality</a></li>
+<li><a href="#a-word-on-indexing-systems"
+id="toc-a-word-on-indexing-systems">A Word on Indexing Systems</a></li>
+<li><a href="#macos-terminal-app-users"
+id="toc-macos-terminal-app-users">macOS Terminal App Users</a></li>
+<li><a href="#platform-keybind-differences"
+id="toc-platform-keybind-differences">Platform Keybind
+Differences</a></li>
+<li><a href="#fonts" id="toc-fonts">Fonts</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="apb-manual---a-pileup-browser">apb Manual - A Pileup
+Browser</h1>
+<p><strong>IMPORTANT</strong>: The apb manual is generated directly from
+the binary. Please check the helptext for instructions as to how to
+generate the manual for your version of the tool. This is the manual for
+apb version 0.4.0.</p>
+<p>It is recommended to read this manual using a line/word-wrapping
+pager, such as <code>less</code>. If you have a sufficiently recent
+version of less, you can use <code>less --wordwrap</code> for an
+improved experience.</p>
+<p>All content/usage is subject to change pending user feedback until
+the 1.0 release.</p>
+<h2 id="overview">1) Overview</h2>
+<p>Given one or more alignment files and a genomic locus apb retrieves
+all reads aligned to that locus and loads the reads into a fast,
+queryable database. The TUI then displays the aligned reads alongside
+user-selected data for each read (e.g. mapping quality, leftmost
+alignment position, etc.), and provides a command line at which you can
+enter commands to query the reads or change the display. The display and
+command line can be navigated via simple arrow key navigation.</p>
+<p><strong>IMPORTANT</strong>: apb displays all coordinate data in
+1-based closed coordinates. This includes the LOCUS argument passed at
+the command line.</p>
+<h2 id="cli-usage">2) CLI Usage</h2>
+<p>See the helptext from <code>apb --help</code> for the canonical guide
+to the CLI. Some additional context is given here.</p>
+<p><code>apb LOCUS FILE...</code> opens one or more alignment files
+(SAM/BAM/CRAM) at a locus (<code>chr1:12345</code>), loads the pileup,
+and launches the TUI. A locus is specified in the form
+<code>contig:coordinate</code> - only a single coordinate needs to be
+provided, rather than a length-1 range as in many <code>samtools</code>
+commands. If a reference is provided via <code>--ref PATH</code>, the
+reference will be shown and the alignment view will be enriched to
+indicate divergence from reference in the displayed reads.</p>
+<p><code>apb --demo</code> runs against synthetic data generated by apb
+and does not require any file input. It is useful for learning apb, but
+note that since the data is artifically generated it is somewhat
+unrealistic.</p>
+<p><code>apb --db DB</code> reopens a database file previously produced
+by <code>--dump</code> (or the in-TUI <code>dump</code> command), and
+does not take any other file input.</p>
+<h2 id="tui-usage">3) TUI Usage</h2>
+<p>On starting apb you will enter the TUI. The TUI is split into 3 major
+regions. On the left you have an alignment viewer; on the right you have
+a table of per-read data. Information about the pileup locus is
+displayed at the top left of the alignment viewer. At the bottom you
+have a command line at which you can enter commands to query the reads
+and control the display. Commands are typed at the command promt
+<code>&gt;</code>, and return messages are displayed below at the double
+chevron. Queries will be displayed at the top right of the command line,
+including the count of reads matching the query. In the alignment pane,
+<code>=</code> matches the reference, <code>x</code> is a deletion, and
+a ring over a base marks an insertion, displayed beneath at
+<code>^</code>.</p>
+<h3 id="basic-navigation">3.1) Basic Navigation</h3>
+<p>The alignment view (i.e. the reads) are scrolled up/down with the
+arrow keys. Mouse scroll may also work if your terminal is configured to
+send mouse scrolling as arrow keys, which is reasonably common. Normal
+typing goes directly to the command line at the bottom of the TUI.
+<code>Enter</code> dispatches the command. This reference is also
+available via <code>help nav</code> at the in-app command line.</p>
+<pre><code> M-: Alt | C-: Ctrl | S-: Shift                     
+                                                    
+ BROWSER PANE                                       
+  Up / Down         scroll one row                  
+  S-Left / S-Right  pan alignment view side-to-side 
+  PgUp / PgDn       scroll one page                 
+                                                    
+ COMMAND LINE (readline-based)                      
+  Enter             submit command                  
+  Left / Right      move cursor                     
+  C-Left / C-Right                                  
+  M-Left / M-Right                                  
+  M-b / M-f         back / forward one word         
+  C-a / C-e                                         
+  Home / End        start / end of line             
+  Bksp / Del        delete char back / forward      
+  M-Bksp / M-d      delete word back / forward      
+  C-k / C-u         delete to end / start of line   
+  C-p / C-n         scroll command history          
+  C-c               clear input, else quit apb      
+                                                    
+ QUERY MANAGEMENT                                   
+  C-q               recall current query to command 
+                    line for editing.               
+  C-w               recall where clause of current  
+                    query to command line.          
+  C-o               recall order by clause of       
+                    current query to command line.  
+  C-/               undo last modification to       
+                    query.                          </code></pre>
+<p>Ctrl-C clears the command line if any input is present, and exits the
+program otherwise.</p>
+<h3 id="command-reference">3.2) Command Reference</h3>
+<p>Every command submitted at the command line is interpreted like
+<code>&lt;command&gt; [args]</code>. Shorthand aliases are provided for
+many commands for quick use. This reference is built directly from the
+command implementation in src and is also available via
+<code>help cmd</code> at the in-app command line.</p>
+<pre><code> COMMAND REFERENCE
+  `help [(nav|cmd|col)]`:
+    Show help for given topic,
+    or general help with no args.
+     aliases: h, ?
+
+  `where [condition]`:
+    Start a new WHERE clause, overwriting
+    any existing condition. Omitting the
+    [condition] argument will clear the current
+    WHERE clause. For a reference of queryable
+    columns, check the manual or run `? col`.
+     aliases: w, wh, WHERE
+
+  `order by [condition]`:
+    Sort reads by ORDER BY expression. Clears order
+    by with no args, resetting to default ordering.
+    When viewing multiple alignments, reads are
+    always sorted by file as the primary key.
+     aliases: o, order, ORDER BY, sort
+
+  `count &lt;condition&gt;`:
+    Count reads matching &lt;condition&gt;, AND-concatenated
+    onto the current WHERE clause if present.
+     aliases: ct
+
+  `count all &lt;condition&gt;`:
+    Count all reads matching &lt;condition&gt;
+     aliases: cta
+
+  `clear `:
+    Clear current query, resetting
+    both WHERE and ORDER BY.
+     aliases: cl
+
+  `col &lt;field-name&gt;...`:
+    Show/hide read data columns in the
+    table pane. For a list of available
+    columns, check the manual or run `? col`.
+     aliases: c
+
+  `toggle (quality|insertion|table|sparkline)`:
+    Toggle various aspects of the display.
+    - quality:   read quality track in
+                 alignment pane.
+    - insertion: read insertion track in
+                 alignment pane.
+    - table:     browser table pane.
+    - sparkline: switch quality track
+                 between Phred ASCII and a
+                 quick-look sparkline graph.
+    `toggle` accepts any unambiguous substring
+    of the argument, e.g. `tg qual`.
+     aliases: tg
+
+  `dump &lt;path&gt;`:
+    Write the pileup database to an sqlite3 dump file.
+</code></pre>
+<h3 id="column-reference">3.3) Column Reference</h3>
+<p>For each read, the database stores the columns detailed below. All
+columns are queryable in
+<code>where</code>/<code>order by</code>/<code>count</code> commands. If
+the content of a column is not clearly displayed by the alignment view,
+the column can be displayed alongside the reads in tabular format. This
+reference table is also available via <code>help col</code> at the
+in-app command line.</p>
+<pre><code>
+ TABLE REFERENCE                                
+                                                
+ The following columns are available for        
+ querying. `qname` through `mstart` may be      
+ displayed in the table pane with the `col`     
+ command.                                       
+                                                
+  `path`:                                       
+      text / NULL                               
+      Path to alignment file.                   
+  `seq`:                                        
+      text / NULL                               
+      the read sequence.                        
+  `qual`:                                       
+      text / NULL                               
+      the read Phred base qualities.            
+  `base`:                                       
+      character / NULL                          
+      Nucleotide at the pileup position. NULL   
+      if base is deleted, or seq is missing.    
+  `indel`:                                      
+      integer                                   
+      indel length to the next mapped           
+      nucleotide in the read.                   
+      (0 = no indel, &gt;0 insertion, &lt;0 deletion) 
+  `qname`:                                      
+      text / NULL                               
+      read/template name.                       
+  `flag`:                                       
+      integer (bitfield)                        
+      SAM bitwise FLAG.                         
+  `start`:                                      
+      integer &gt; 0                               
+      1-based leftmost mapping position of      
+      read.                                     
+  `end`:                                        
+      integer &gt;= start                          
+      1-based rightmost mapping position of     
+      read.                                     
+  `mapq`:                                       
+      integer 0-255                             
+      read mapping quality.                     
+  `basequal`:                                   
+      integer / NULL                            
+      Phred base quality at the pileup          
+      position. NULL if base is deleted, or     
+      qual is missing.                          
+  `qpos`:                                       
+      integer &gt; 0                               
+      1-based offset into `seq`/`qual` to       
+      pileup locus position. In deletions, this 
+      is the anchor base.                       
+  `cigar`:                                      
+      text                                      
+      CIGAR string of alignment operations.     
+  `mtid`:                                       
+      text / NULL                               
+      reference name of the mate/next read.     
+      NULL if mate is unmapped. = if mate is on 
+      same contig.                              
+  `mstart`:                                     
+      integer &gt; 0 / NULL                        
+      mate/next read&#39;s leftmost mapping         
+      position. NULL if mate is unmapped.       
+  `tags`:                                       
+      text (JSON) / NULL                        
+      aux tags as JSON; able to be individually 
+      queried using -&gt;&gt; operator. NULL if tags  
+      are missing.                              
+  `is_del`:                                     
+      integer 1-0 (true/false)                  
+      1 if `base` is a deletion.                
+  `is_head`:                                    
+      integer 1-0 (true/false)                  
+      1 if `qpos` is the read&#39;s first aligned   
+      base.                                     
+  `is_tail`:                                    
+      integer 1-0 (true/false)                  
+      1 if `qpos` is the read&#39;s last aligned    
+      base.                                     
+  `is_refskip`:                                 
+      integer 1-0 (true/false)                  
+      1 if `qpos` is a reference skip.          </code></pre>
+<p>For a guide to the symbols used in the quality string, see
+https://en.wikipedia.org/wiki/Phred_quality_score#Symbols. Note that
+<code>toggle sparkline</code> switches the quality track in the browser
+pane between ASCII display of quality scores, and a sparkline graph -
+i.e. <code>FAFF-FF&lt;FFI</code> vs <code>▆▅▆▆▁▆▆▄▆▆▆</code>.</p>
+<p><code>indel</code> may require further explanation. Essentially, if
+the base at the pileup position is followed by an indel, then
+<code>indel</code> will contain the size of that indel event. A deletion
+is represented by a negative size (bases lost), and an insertion is
+represented by a positive size (bases gained).</p>
+<p>For advanced users, note that most of these map directly onto fields
+in htslib’s <code>bam_pileup1_t</code> and <code>bam1_t</code> structs -
+consult the schema.</p>
+<h3 id="querying-the-pileup">3.4) Querying the Pileup</h3>
+<p>The apb query commands provide a simple wrapper around
+(sqlite3-based) SQL. This means you can directly query the pileup to
+view and count reads by their properites, such as the base, flag, and
+cigar string. This is best explained by example:</p>
+<p>Imagine we are inspecting a candidate SNV variant locus. We may start
+by filtering the pileup to only reads which the caller should consider.
+Specifics will vary by caller, but a common starting point is “reads
+which map well, have mapped mates, and aren’t duplicates, qc fails, or
+secondary/supplementary alignments”. At the command line we enter:</p>
+<pre><code>where mapq &gt; 0 AND (flag &amp; 3848) = 0;</code></pre>
+<p>The browser will update to show only reads matching that filter, and
+the status line will now show:</p>
+<pre><code>- WHERE mapq &gt; 0 AND (flag &amp; 3848) = 0: 76/100 reads</code></pre>
+<p>Let’s say our candidate SNV is A-&gt;T. We can sort the reads to
+group reads expressing the variant base at the pileup locus and view
+them in the alignment pane:</p>
+<pre><code>order by base IS &#39;T&#39; DESC</code></pre>
+<p>DESC is simply the SQL keyword for descending order (ASC is for
+ascending, which is the default). DESC puts reads that match our
+condition to the top of the view. The status line will now show:</p>
+<pre><code>- WHERE mapq &gt; 0 AND (flag &amp; 3848) = 0: 76/100 reads │ ORDER BY base IS &#39;T&#39; DESC</code></pre>
+<p>The alignment pane now shows only reads matching our WHERE condition,
+grouped by our ORDER BY condition. We may now explore the pileup
+visually for any properties of interest, e.g. if most of the reads
+supporting the variant are soft-clipped.</p>
+<p>After exploring the pileup, it can be useful to quantify the locus in
+more detail. For example, to count the number of reads exhibiting the
+variant:</p>
+<pre><code>count base IS &#39;T&#39;</code></pre>
+<p>This will return a message below the command line:</p>
+<pre><code>- base IS &#39;T&#39; / mapq &gt; 0 AND (flag &amp; 3848) = 0: 24/76 reads</code></pre>
+<p>The count returned is the count of reads matching the current WHERE
+condition AND the condition provided to count, against the total count
+of reads matching the current WHERE condition. If instead you wanted to
+count all reads matching a condition and ignoring the current WHERE
+condition, use <code>count all [condition]</code>:</p>
+<pre><code>count all base IS &#39;T&#39;</code></pre>
+<p>returning:</p>
+<pre><code>- base IS &#39;T&#39;: 28/100 reads</code></pre>
+<p>From this we may conclude that four reads exhibit the variant, but
+are filtered out by our current WHERE clause on <code>mapq</code> and
+<code>flag</code>. We may consider relaxing our requirement that the
+mate must be mapped to see if this brings any of those four reads into
+view. To do so, we can simply grab the current WHERE clause from the
+status bar with <code>Ctrl-w</code>. This places it in the command line,
+where we may edit and resubmit:</p>
+<pre><code>where mapq &gt; 0 AND (flag &amp; 3840 /* edited from 3848 */ ) = 0;</code></pre>
+<p>Editing the query is made easy by using the readline-style editing
+commands detailed in Section 3.1. This concludes the example, but is by
+no means the limit of what you can do with apb. See the next section for
+further examples and snippets.</p>
+<p><strong>IMPORTANT</strong>: <code>flag</code> is a bitmask of read
+properties defined by the SAM format - see
+https://broadinstitute.github.io/picard/explain-flags.html from the
+Broad Institute, which both explains the meaning of the flag bits and
+allows you to calcuate the number (like 3848) which corresponds to a
+particular set of properties. See
+https://www.w3schools.com/programming/prog_operators_bitwise.php for a
+quick introduction to bitmask syntax. SQLite supports the bitwise and,
+or, and not.</p>
+<p><strong>IMPORTANT</strong>: In SQL the <code>ORDER BY</code> clause
+can take multiple keys. This is supported by the <code>order by</code>
+command, so we could for example have written
+<code>order by base IS 'T' DESC, basequal</code>. This would have sorted
+the view such that reads exhibiting a ‘T’ at the pileup locus will
+appear first, but now within that group, reads will be sorted by the
+quality of that base, in ascending order (lowest first).</p>
+<p><strong>IMPORTANT</strong>: Missing values are encoded as NULL, and
+different operators behave differently with NULL values in SQL. For
+example, a deleted <code>base</code> is NULL -
+<code>where base != 'A'</code> will exclude deletions, as NULL always
+evaluates to false in comparisons using <code>!=</code>,
+i.e. <code>NULL != 'A'</code> is false. Whereas,
+<code>where base IS NOT 'A'</code> will include deletions as
+<code>NULL IS NOT 'A'</code> evaluates to true. To check for the
+presence of missing values for a field, use
+<code>where &lt;col&gt; IS NULL</code>.</p>
+<p><strong>IMPORTANT</strong>: In SQL, AND conditions always bind more
+tightly than OR. This means that:</p>
+<pre><code>WHERE a AND b AND c OR d</code></pre>
+<p>is equivalent to:</p>
+<pre><code>WHERE (a AND b AND c) OR d</code></pre>
+<p>If you want to bind two conditions together, use brackets:</p>
+<pre><code>WHERE a AND b AND (c OR d)</code></pre>
+<h3 id="further-querying-examples">3.5) Further Querying Examples</h3>
+<p>Querying is flexible and powerful. Some useful examples:</p>
+<p><strong>QUERYING BY PATH</strong>:</p>
+<p>When viewing multiple alignment pileups, use <code>instr()</code> to
+subset your query to a specific file, e.g.:</p>
+<pre><code>where instr(path, &#39;PD12345a&#39;) and base != &#39;A&#39;</code></pre>
+<p><strong>INDELS AT THE PILEUP LOCUS</strong>:</p>
+<p>This is made quite simple by the <code>indel</code> column. For
+example, to search for an 3-base insertion anchored at the pileup:</p>
+<pre><code>where indel = 3</code></pre>
+<p>deletions are represented by negative numbers, so for a 3-base
+deletion:</p>
+<pre><code>where indel = -3</code></pre>
+<p>Note that these commands search for indels anchored at the pileup
+base, i.e. beginning immediately after the pileup locus. If you want to
+search for deleted bases at the pileup locus itself, use:</p>
+<pre><code>where is_del</code></pre>
+<p><strong>AUX TAGS</strong>:</p>
+<p>Aux tags may be queried with <code>-&gt;&gt;</code>. For example, to
+subset a query to a read group via the RG tag:</p>
+<pre><code>where base != &#39;G&#39; and tags -&gt;&gt; &#39;$.RG&#39; = &#39;sample1&#39;</code></pre>
+<p>For numeric tags, all comparison an arithmetic operators are
+available:</p>
+<pre><code>where tags -&gt;&gt; &#39;$.NM&#39; &gt; 2</code></pre>
+<p>A read missing a tag returns null, so:</p>
+<pre><code>where tags -&gt;&gt; &#39;$.RG&#39; is null</code></pre>
+<p>Would find reads missing the RG tag.</p>
+<p><strong>CIGAR QUERYING</strong>:</p>
+<p>Pattern matching is available on all text fields, such as the CIGAR
+string. E.g. to filter for reads containing a 5-base insertion at any
+position:</p>
+<pre><code>where instr(cigar, &#39;5I&#39;)</code></pre>
+<p>or for reads containing soft clipping of any length:</p>
+<pre><code>where instr(cigar, &#39;S&#39;)</code></pre>
+<p><strong>READ LENGTH AND ARITHMETIC</strong>:</p>
+<p>Arithmetic functions are available. For example:</p>
+<pre><code>where end - start &lt; 100</code></pre>
+<p>would filter the view to reads less than 100 bases long.</p>
+<p><strong>MOTIFS AT THE QUERY POSITION</strong>:</p>
+<p>This is a slightly more advanced example. <code>qpos</code> is the
+1-based offset into <code>seq</code> for the base at the pileup
+position, matching SQLite’s own 1-based <code>substr()</code> indexing,
+so to search for the 4-mer <code>GATC</code> starting at the query
+position:</p>
+<pre><code>where substr(seq, qpos, 4) = &#39;GATC&#39;</code></pre>
+<p><code>LIKE</code> (<code>_</code>/<code>%</code>) and
+<code>GLOB</code> (<code>?</code>/<code>*</code>/<code>[ACG]</code>)
+both work as wildcards. To search for two possible trinucleotide motifs
+at the query position:</p>
+<pre><code>where substr(seq, qpos, 3) glob &#39;A[CG]T&#39;</code></pre>
+<p>You can also search for motifs within a window of the
+<code>seq</code> string. This command searches for <code>GATC</code>
+within the first 10 bases of the read:</p>
+<pre><code>where instr(substr(seq, 1, 10), &#39;GATC&#39;) &gt; 0</code></pre>
+<hr />
+<p>Any and all of these approaches may be combined, and more is
+possible. See SQLite’s expression/function reference -
+https://sqlite.org/lang_expr.html.</p>
+<hr />
+<h2 id="addenda">Addenda</h2>
+<h3 id="the-dump-functionality">The <code>dump</code> Functionality</h3>
+<p>A dump is a small, self-contained sqlite3 file with just the reads at
+the specified locus. A few use cases:</p>
+<ul>
+<li>Application of complex SQL and downstream use -
+<code>sqlite3 my.db</code> allows for more complex analysis if needed
+(<code>GROUP BY</code>, aggregates and summaries, etc.).</li>
+<li>Sharing - Dumps tend to be quite small files. Sending the dump
+allows the reciever to view the pileup you’re looking at without needing
+the original alignment files or reference genome (or even
+<code>apb</code> if they’re happy just to use
+<code>sqlite3</code>).</li>
+<li>Debugging (for developers) - a dump is a snapshot of data loaded.
+Mostly relevant if you’re developing apb itself rather than just using
+it.</li>
+</ul>
+<p>Note that all coordinate data within the dump is 1-based, matching
+the display.</p>
+<h3 id="a-word-on-indexing-systems">A Word on Indexing Systems</h3>
+<p>htslib/samtools/bcftools, and by extension all alignment and VCF
+data, mix 0-based half-open and 1-based closed coordinate systems. This
+can be tricky to navigate.</p>
+<p>apb uses 1-based closed coordinates throughtout, i.e coordinates
+start at 1, and coordinate ranges are [x-y] where both x and y are
+included. 1-based closed coordinates match the human-readable VCF and
+SAM format specs, and to <code>samtools</code> commands
+e.g. <code>samtools view ...</code>. Coordinates from these sources,
+i.e. a variant locus from a VCF, may be passed directly to the locus CLI
+argument at startup. Loci from 0-indexed sources, e.g. BED files, may be
+passed directly to the CLI argument if the <code>-0</code> flag is set,
+but the display and internal data will still be in 1-based closed
+coordinates. If extracting loci from unspecified or uncertain sources,
+make sure to confirm the coordinate system! The 1-based coordinates as
+displayed in apb also match the behaviour of both <code>IGV</code> and
+<code>jbrowse</code>.</p>
+<p>If you are using apb to compare to data as seen in htslib
+<code>bam1_t</code> and <code>bam_pileup1_t</code> structs or equivalent
+(e.g. pysam alignment records), keep in mind that all coordinate data
+will be shifted by 1, including <code>qpos</code>.</p>
+<h3 id="macos-terminal-app-users">macOS Terminal App Users</h3>
+<p>The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp)
+require the terminal to send Option as Meta. In Terminal, enable “Use
+Option as Meta key” under Settings &gt; Profiles &gt; Keyboard.</p>
+<h3 id="platform-keybind-differences">Platform Keybind Differences</h3>
+<p>Some command line and navigation keys depend on your keyboard and
+terminal.</p>
+<p>On a mac laptop keyboard, which has no dedicated Home, End or forward
+Delete keys, use fn+Left and fn+Right for Home and End, and fn+Delete
+for forward Delete. Ctrl-A and Ctrl-E also move to the start and end of
+the line. macOS uses Ctrl-Left and Ctrl-Right to switch Spaces, so these
+may not reach apb. Use Option-Left and Option-Right, or Alt-b and Alt-f,
+to move by word instead. PgUp and PgDn can be sent using the fn modifier
+key with the up and down arrow keys if using a mac laptop keyboard.</p>
+<p>On Linux and Windows terminals, Alt-based keybinds generally work
+without extra configuration.</p>
+<h3 id="fonts">Fonts</h3>
+<p>Your experience of apb, and many other terminal-based applications,
+may be improved by installing a modern terminal font designed for
+legibility. apb recommends <code>0xProto</code>
+(https://github.com/0xType/0xProto) try it (and others) out at
+https://www.programmingfonts.org/#oxproto.</p>
+<hr />
+<p>See the README or the project GitHub
+(https://github.com/blex-max/apb-pileup-browser) for installation
+instructions, the project roadmap, and other background.</p>
+</body>
+</html>
