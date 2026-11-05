@@ -62,7 +62,7 @@ inline constexpr auto kWidgetHeight = 3;  // inc. borders
 inline constinit extb::Box frame;
 inline constinit extb::HLine contextLine;
 inline constinit extb::HLine inputLine;
-inline constinit extb::GlobalCell inputCaret;
+inline constinit extb::GlobalCell promptChar;
 inline constinit input::command_line_t cmdBuf;
 inline constinit extb::HLine msgLine;
 inline constinit std::string msgBuf;

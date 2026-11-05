@@ -269,7 +269,7 @@ bool size_main_widgets()
     // };
 
     // cmd input
-    g_cmd::inputCaret = e2::GlobalCell{first (screenX) + 1, y};
+    g_cmd::promptChar = e2::GlobalCell{first (screenX) + 1, y};
     g_cmd::inputLine = e2::HLine{
         // skip border, leave space for caret ':'
         construct_relative (screenX, 2, size (screenX) - 1), y++
@@ -803,7 +803,7 @@ void draw_main_to_buffer()
     set (body (edgeDA (cFrame)), tui_ch::vertLine, dim);
     set (body (edgeBC (cFrame)), tui_ch::vertLine, dim);
 
-    set (g_cmd::inputCaret, ':');
+    set (g_cmd::promptChar, '>');
   }
 
   /* --- draw query data --- */

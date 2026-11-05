@@ -48,6 +48,6 @@ void history_prev (command_line_t& c);
 void history_next (command_line_t& c);
 
 // records buffer to history, clears buf and resets history browsing.
-std::string reset (command_line_t& c);
+void reset (command_line_t& c);
 
 }  // namespace input

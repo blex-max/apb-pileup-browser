@@ -8,26 +8,11 @@
 #include <string_view>
 #include <vector>
 
-std::string_view sanitise_clause (std::string_view clause);
-
 // User-supplied query components input at command line
 struct QueryFragments {
   std::string where;
   std::string orderBy;
 };
-
-// Replaces .where with `clause`, sanitising `clause`.
-// Does not check if result is valid sql.
-void set_where (QueryFragments& query, std::string_view clause);
-
-// Appends "AND `cond`" to .where, both of which
-// must be non-empty (asserted).
-// Sanitises cond before use.
-// Does not check if result is valid sql.
-void extend_where_and (QueryFragments& query, std::string_view cond);
-// Sanitises order before use. Clears if order is empty.
-// Does not check if result is valid sql.
-void set_order (QueryFragments& query, std::string_view order);
 
 // locus metadata as extracted from db.
 // 1-indexed!
@@ -77,11 +62,10 @@ struct EmptyFile {
 };
 inline constinit std::vector<EmptyFile> queryEmptyFiles;
 
-enum class SetQueryStatus : uint8_t { success, guardFail, s3Fail };
 // Replace the active query with `clause`.
 // On failure extra details are available from sqlite3_errmsg (conn).
-// FIXME: why is this copying? Document or change
-[[nodiscard]] SetQueryStatus set_query (QueryFragments newQuery);
+// Returns sqlite3 integer code
+[[nodiscard]] int set_query (const QueryFragments& newQuery);
 
 // total scrollable rows: reads, then empty-file labels
 inline uint64_t nScrollRows()

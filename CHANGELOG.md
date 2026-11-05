@@ -21,8 +21,10 @@
 - Parsing improved to allow direct SQL to be provided at the command line, e.g.: WHERE ... ORDER BY ...
 - `track` and `show-table` replaced by `toggle` (`tg`), which toggles display properties, including `quality`, `insertion`, `table` and `sparkline`.
 - `count` now requires a condition, as counts are always displayed for the current query.
+- `count all` command added to count reads matching <condition> ignoring current WHERE filter.
 - `sort` is now `order by` (aliases `order`, `o`, `ORDER BY`, `sort`).
 - `Ctrl-u` undo's the last modification made to the query.
+- `quit` command has been removed in favour of `Ctrl-c`
 - Improved demo data.
 - Improved manual.
 

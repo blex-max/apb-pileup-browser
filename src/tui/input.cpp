@@ -157,16 +157,14 @@ void history_next (command_line_t& c)
   goto_slot (c, c.hist.idx + 1);
 }
 
-std::string reset (command_line_t& c)
+void reset (command_line_t& c)
 {
-  std::string text = std::move (c.buf.text);
-  clear (c.buf);
-  if (!text.empty()) {
-    c.hist.entries.push_back (text);
+  if (!c.buf.text.empty()) {
+    c.hist.entries.push_back (c.buf.text);
   }
+  clear (c.buf);
   c.hist.work.clear();
   c.hist.idx = c.hist.entries.size();
-  return text;
 }
 
 }  // namespace input

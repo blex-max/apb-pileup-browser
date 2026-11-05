@@ -18,7 +18,7 @@ int run_tui (sqlite3* conn, bool verboseLog)
   g_db::conn = conn;
   g_db::locusInfo = get_locus_data (g_db::conn);
   TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
-  if (g_db::set_query ({}) != g_db::SetQueryStatus::success) {
+  if (g_db::set_query ({}) != SQLITE_OK) {
     TUI_UNREACHABLE (
         "Failed to set initial query", sqlite3_errmsg (g_db::conn)
     );

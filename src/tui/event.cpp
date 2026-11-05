@@ -26,8 +26,16 @@ static bool handle_nav (const tb_event& ev)
     case TB_KEY_ENTER:
       // execute user command
       if (!g_cmd::cmdBuf.buf.text.empty()) {
-        g_cmd::msgBuf =
-            exec_cmd (input::reset (g_cmd::cmdBuf));  // return msg
+        auto cmdResult = exec_cmd (g_cmd::cmdBuf.buf.text);
+        switch (cmdResult.first) {
+          case ExecStatus::success:
+            input::reset (g_cmd::cmdBuf);
+          case ExecStatus::fail:
+          case ExecStatus::unknown:
+            break;
+        }
+        // return msg
+        g_cmd::msgBuf = cmdResult.second;
       }
       break;
 
@@ -197,8 +205,7 @@ static bool handle_nav (const tb_event& ev)
       }
       auto query = undoStack.back();
       undoStack.pop_back();
-      if (const auto ret = g_db::set_query (query);
-          ret != tui_state::db::SetQueryStatus::success) {
+      if (const auto ret = g_db::set_query (query); ret != SQLITE_OK) {
         TUI_UNREACHABLE (
             "SQL in undo stack failed to compile upon reuse!"
         );

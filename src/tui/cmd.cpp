@@ -21,7 +21,6 @@
 #include "helpblocks.hpp"
 #include "query.hpp"
 #include "shared/cleanup.hpp"
-#include "state.hpp"
 #include "tui_assert.hpp"
 #include "widgets.hpp"
 
@@ -29,33 +28,48 @@ namespace g_db = tui_state::db;
 namespace g_ui = tui_state::ui;
 
 // view type into the command registry
+using CmdResult = std::pair<bool, std::string>;
 struct Cmd {
   std::span<const std::string_view> names;
   std::string_view usageArgs;
   std::span<const std::string_view> desc;
-  std::string (*cmd) (std::string_view);
+  CmdResult (*cmd) (std::string_view);
 };
 
 
 // --- HELPERS --- //
 
-#define CMD_GENERIC_SUCCESS "OK!"
+static std::pair<std::string_view, std::string_view>
+cmd_split_first_space (std::string_view s)
+{
+  const auto start = s.find_first_not_of (' ');
+  if (start == std::string_view::npos) {
+    return {};
+  }
+  s.remove_prefix (start);
+  auto pos = s.find (' ');
+  if (pos == std::string_view::npos) {
+    return {s, {}};  // no args
+  }
+  return {s.substr (0, pos), s.substr (pos + 1)};
+}
 
-static std::string cmd_format_misuse (
-    std::string_view misuseMsg, std::string_view cmdName,
-    std::string_view cmdUsage
+static std::vector<std::string_view> cmd_split_whitespace (
+    std::string_view s
 )
 {
-  return fmt::format (
-      "Misuse - {}. Usage: {} {}", misuseMsg, cmdName, cmdUsage
-  );
-}
-static std::string cmd_format_fail (std::string_view failMsg)
-{
-  return fmt::format ("Failed - {}", failMsg);
+  std::vector<std::string_view> out;
+  auto [f, rest] = cmd_split_first_space (s);
+  while (!f.empty()) {
+    out.push_back (f);
+    const auto tmp = cmd_split_first_space (rest);
+    f = tmp.first;
+    rest = tmp.second;
+  }
+  return out;
 }
 
-// does candidate contain test
+// does s contain test
 static std::optional<size_t> cmd_find_substr (
     std::string_view s, std::string_view test
 )
@@ -72,74 +86,28 @@ static std::optional<size_t> cmd_find_substr (
   return static_cast<size_t> (it - s.begin());
 }
 
-static std::pair<std::string_view, std::string_view> split_first_space (
-    std::string_view s
-)
-{
-  const auto start = s.find_first_not_of (' ');
-  if (start == std::string_view::npos) {
-    return {};
-  }
-  s.remove_prefix (start);
-  auto pos = s.find (' ');
-  if (pos == std::string_view::npos) {
-    return {s, {}};  // no args
-  }
-  return {s.substr (0, pos), s.substr (pos + 1)};
-}
+#define CMD_FMT_MISUSE(msg, cmd)                                        \
+  fmt::format (                                                         \
+      "Misuse - {}. Usage: {} {}", msg, (cmd).names[0], (cmd).usageArgs \
+  )
 
-static std::vector<std::string_view> split_whitespace (std::string_view s)
-{
-  std::vector<std::string_view> out;
-  auto [f, rest] = split_first_space (s);
-  while (!f.empty()) {
-    out.push_back (f);
-    const auto tmp = split_first_space (rest);
-    f = tmp.first;
-    rest = tmp.second;
-  }
-  return out;
-}
+#define CMD_FMT_FAIL(msg) fmt::format ("Failed - {}", msg)
 
+#define CMD_ARGS_EMPTY_OR_FAIL(args, cmd)                       \
+  do {                                                          \
+    if (!(args).empty()) {                                      \
+      return {false, CMD_FMT_MISUSE ("expected no args", cmd)}; \
+    }                                                           \
+  } while (false)
 
-static std::expected<void, std::string> cmd_validate_args_empty (
-    const std::string_view args, const Cmd& cmd
-)
-{
-  if (!args.empty()) {
-    return std::unexpected<std::string> (
-        cmd_format_misuse ("expected no args", cmd.names[0], cmd.usageArgs)
-    );
-  }
-  return {};
-}
-static std::expected<void, std::string> cmd_validate_ntok (
-    const std::span<const std::string_view> argTok, uint8_t minNTok,
-    uint8_t maxNTok, const Cmd& cmd
-)
-{
-  TUI_ASSERT (maxNTok >= minNTok, maxNTok, minNTok);
-  TUI_ASSERT (!cmd.usageArgs.empty());
+#define CMD_CLEAN_SQL(sql_sv, cmd)                        \
+  do {                                                    \
+    while (!(sql_sv).empty() && (sql_sv).back() == ';') { \
+      (sql_sv).remove_suffix (1);                         \
+    }                                                     \
+  } while (false)
 
-  if (maxNTok == 0 && !argTok.empty()) {
-    return std::unexpected<std::string> (
-        cmd_format_misuse ("too many args", cmd.names[0], cmd.usageArgs)
-    );
-  }
-
-  if (argTok.size() > maxNTok) {
-    return std::unexpected<std::string> (
-        cmd_format_misuse ("too many args", cmd.names[0], cmd.usageArgs)
-    );
-  }
-  if (argTok.size() < minNTok) {
-    return std::unexpected<std::string> (
-        cmd_format_misuse ("too few args", cmd.names[0], cmd.usageArgs)
-    );
-  }
-
-  return {};
-}
+#define CMD_GENERIC_SUCCESS "OK!"
 
 static constexpr std::span<const Cmd* const> get_cmd_registry();
 std::vector<std::string> build_cmd_ref_table()
@@ -170,56 +138,24 @@ std::vector<std::string> build_cmd_ref_table()
   return lines;
 }
 
-// incomingSql: the user sql that has been added to query, for
-// display on failure. Any earlier sql already compiled,
-// so can't be at fault and therefore should not be displayed on
-// failure.
-static std::string try_apply_query_clause (
-    QueryFragments query, std::string_view incomingSql,
-    std::string_view successMsg
-)
-{
-  std::string failReason;
-  switch (g_db::set_query (std::move (query))) {
-    case g_db::SetQueryStatus::success:
-      return std::string (successMsg);
-    case g_db::SetQueryStatus::guardFail:
-      // FIXME: I bet there are semicolons in tags...
-      failReason = "semicolon in query!";
-      break;
-    case g_db::SetQueryStatus::s3Fail:
-      // FIXME: report token errors with sqlite3_error_offset + arithmetic
-      // FIXME: in principle, errcode can return null
-      failReason = sqlite3_errstr (sqlite3_extended_errcode (g_db::conn));
-      break;
-  }
-  if (!incomingSql.empty()) {
-    failReason = fmt::format ("{} - {}", failReason, incomingSql);
-  }
-  return cmd_format_fail (failReason);
-}
+#define CMD_TRY_APPLY_QUERY(query, incomingSql, successMsg)         \
+  do {                                                              \
+    if (const auto rc = g_db::set_query (query); rc != SQLITE_OK) { \
+      std::string failReason =                                      \
+          sqlite3_errstr (sqlite3_extended_errcode (g_db::conn));   \
+      if (!(incomingSql).empty()) {                                 \
+        failReason.append (fmt::format (" - {}", incomingSql));     \
+      }                                                             \
+      return {false, CMD_FMT_FAIL (failReason)};                    \
+    }                                                               \
+    return {true, successMsg};                                      \
+  } while (false)
 
 // --- COMMANDS --- //
 // clang-format off
 
 // NOTE: names[0] is the canonical name, the rest are aliases
 // NOTE: usage text roughly follows docopt
-
-static constexpr auto quitNames =
-    std::to_array<std::string_view> ({"quit", "q", "exit"});
-static constexpr auto quitDesc =
-    std::to_array<std::string_view> ({"Exit the browser."});
-static constexpr Cmd quitCmd{
-    quitNames, "", quitDesc,
-    [] (std::string_view args) -> std::string {
-      if (const auto ret = cmd_validate_args_empty (args, quitCmd);
-          !ret) {
-        return ret.error();
-      }
-      tui_state::run = false;
-      return "Bye!";
-    }
-};
 
 static constexpr auto colNames =
     std::to_array<std::string_view> ({"col", "c"});
@@ -230,12 +166,10 @@ static constexpr auto colDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd colCmd{
     colNames, "<field-name>...", colDesc,
-    [] (std::string_view args) -> std::string {
-      const auto tokens = split_whitespace (args);
-      const auto nargRet =
-          cmd_validate_ntok (tokens, 1, UINT8_MAX, colCmd);
-      if (!nargRet) {
-        return nargRet.error();
+    [] (std::string_view args) -> CmdResult {
+      const auto tokens = cmd_split_whitespace (args);
+      if (tokens.size() < 1) {
+        return {false, CMD_FMT_MISUSE("takes one or more arguments", colCmd)};
       }
 
       // check dups
@@ -247,10 +181,10 @@ static constexpr Cmd colCmd{
         }
       }
       if (!dups.empty()) {
-        return cmd_format_misuse (
+        return {false, CMD_FMT_MISUSE (
             fmt::format ("duplicated arg/s {}", fmt::join (dups, ", ")),
-            colCmd.names[0], colCmd.usageArgs
-        );
+            colCmd
+        )};
       }
 
       auto& tableCols = g_ui::tableCols;
@@ -272,13 +206,13 @@ static constexpr Cmd colCmd{
           }
         }
         if (!tokMatch) {
-          return cmd_format_fail (
+          return {false, CMD_FMT_FAIL (
               fmt::format (
                   "Column \"{}\" not known or "
                   "unavailable for display",
                   tok
               )
-          );
+          )};
         }
       }
 
@@ -294,7 +228,7 @@ static constexpr Cmd colCmd{
         outMsg += fmt::format ("Hiding: {}", fmt::join (nowHidden, ", "));
       }
 
-      return outMsg;
+      return {true, outMsg};
     }
 };
 
@@ -309,7 +243,8 @@ static constexpr auto whereDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd whereCmd{
     whereNames, "[condition]", whereDesc,
-    [] (std::string_view args) -> std::string {
+    [] (std::string_view args) -> CmdResult {
+      CMD_CLEAN_SQL(args, whereCmd);
       // copy in case sql compile fails
       auto query = g_db::userQuery;
       query.where.clear();
@@ -317,17 +252,15 @@ static constexpr Cmd whereCmd{
       if (!args.empty()) {
         constexpr std::string_view orderBy{" ORDER BY "};
         if (const auto pos = cmd_find_substr (args, orderBy); pos) {
-          set_where (query, args.substr (0, *pos));
-          set_order (query, args.substr (*pos + orderBy.size()));
+          query.where = args.substr (0, *pos);
+          query.orderBy = args.substr (*pos + orderBy.size());
         }
         else {
-          set_where (query, args);
+          query.where = args;
         }
       }
 
-      return try_apply_query_clause (
-          std::move (query), args, CMD_GENERIC_SUCCESS
-      );
+      CMD_TRY_APPLY_QUERY(query, args, CMD_GENERIC_SUCCESS);
     }
 };
 
@@ -342,13 +275,12 @@ static constexpr auto orderDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd orderCmd{
     orderNames, "[condition]", orderDesc,
-    [] (std::string_view args) -> std::string {
+    [] (std::string_view args) -> CmdResult {
+      CMD_CLEAN_SQL(args, orderCmd);
       auto query = g_db::userQuery;
-      set_order (query, args);
+      query.orderBy = args;
 
-      return try_apply_query_clause (
-          std::move (query), args, CMD_GENERIC_SUCCESS
-      );
+      CMD_TRY_APPLY_QUERY(query, args, CMD_GENERIC_SUCCESS);
     }
 };
 
@@ -360,54 +292,46 @@ static constexpr auto countDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd countCmd{
     countNames, "<condition>", countDesc,
-    [] (std::string_view args) -> std::string {
-      const auto clause = sanitise_clause(args);
-      if (clause.empty()) {
-        return cmd_format_misuse (
-            "no condition given", countCmd.names[0], countCmd.usageArgs
-        );
+    [] (std::string_view args) -> CmdResult {
+      CMD_CLEAN_SQL(args, countCmd);
+      if (args.empty()) {
+        return {false, CMD_FMT_MISUSE (
+            "no condition given", countCmd
+        )};
       }
       auto query = g_db::userQuery;
       const auto curWhere = query.where;
-      if (query.where.empty()) {
-        set_where(query, clause);
+
+      std::string sqlCountQuery{"SELECT COUNT(*) FROM reads WHERE "};
+      if (!curWhere.empty()) {
+        sqlCountQuery.append (fmt::format("({}) AND ({});", curWhere, args));
       }
       else {
-        extend_where_and (query, clause);
+        sqlCountQuery.append(fmt::format("{};", args));
       }
-
-      std::string sqlCountQuery{"SELECT COUNT(*) FROM reads "};
-      if (!query.where.empty()) {
-        sqlCountQuery.append ("WHERE ");
-        sqlCountQuery.append (query.where);
-        // add newline to avoid issues from user sql
-        // e.g. trailing -- comment
-        sqlCountQuery.append ("\n");
-      }
-      sqlCountQuery.append (";");
 
       // only the new args can be at fault; the rest already compiled
-      const auto fail_with_args = [&clause]() {
+      const auto fail_with_args = [&args]() {
         std::string reason = sqlite3_errmsg (g_db::conn);
-        if (!clause.empty()) {
-          reason = fmt::format ("{} - {}", reason, clause);
+        if (!args.empty()) {
+          reason = fmt::format ("{} - {}", reason, args);
         }
-        return cmd_format_fail (reason);
+        return CMD_FMT_FAIL (reason);
       };
 
       sqlite3_stmt* o_stmt = nullptr;
       if (sqlite3_prepare_v2 (
               g_db::conn, sqlCountQuery.data(), -1, &o_stmt, NULL
           ) != SQLITE_OK) {
-        return fail_with_args();
+        return {false, fail_with_args()};
       }
       Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
       if (const int rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
-        return fail_with_args();
+        return {false, fail_with_args()};
       }
 
-      auto msg = std::string{clause};
+      auto msg = std::string{args};
       if (curWhere.empty()) {
         msg.append (": ");
       }
@@ -415,7 +339,7 @@ static constexpr Cmd countCmd{
         msg.append (fmt::format (" / {}: ", curWhere));
       }
       msg.append (fmt::format ("{} / {} reads", sqlite3_column_int64 (o_stmt, 0), g_db::nStmtRows));
-      return msg;
+      return {true, msg};
     }
 };
 
@@ -426,38 +350,38 @@ static constexpr auto countAllDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd countAllCmd{
     countAllNames, "<condition>", countAllDesc,
-    [] (std::string_view args) -> std::string {
-      const auto clause = sanitise_clause(args);
-      if (clause.empty()) {
-        return cmd_format_misuse (
-            "no condition given", countAllCmd.names[0], countAllCmd.usageArgs
-        );
+    [] (std::string_view args) -> CmdResult {
+      CMD_CLEAN_SQL(args, countAllCmd);
+      if (args.empty()) {
+        return {false, CMD_FMT_MISUSE (
+            "no condition given", countAllCmd
+        )};
       }
 
-      std::string sqlCountQuery = fmt::format("SELECT COUNT(*) FROM reads WHERE {}\n;", clause);
+      std::string sqlCountQuery = fmt::format("SELECT COUNT(*) FROM reads WHERE {}\n;", args);
 
       // only the new args can be at fault; the rest already compiled
-      const auto fail_with_args = [&clause]() {
+      const auto fail_with_args = [&args]() {
         std::string reason = sqlite3_errmsg (g_db::conn);
-        if (!clause.empty()) {
-          reason = fmt::format ("{} - {}", reason, clause);
+        if (!args.empty()) {
+          reason = fmt::format ("{} - {}", reason, args);
         }
-        return cmd_format_fail (reason);
+        return CMD_FMT_FAIL (reason);
       };
 
       sqlite3_stmt* o_stmt = nullptr;
       if (sqlite3_prepare_v2 (
               g_db::conn, sqlCountQuery.data(), -1, &o_stmt, NULL
           ) != SQLITE_OK) {
-        return fail_with_args();
+        return {false, fail_with_args()};
       }
       Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
 
       if (const int rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
-        return fail_with_args();
+        return {false, fail_with_args()};
       }
 
-      return fmt::format ("{}: {} / {} reads", clause, sqlite3_column_int64 (o_stmt, 0), g_db::totalRows);
+      return {true, fmt::format ("{}: {} / {} reads", args, sqlite3_column_int64 (o_stmt, 0), g_db::totalRows)};
     }
 };
 
@@ -469,17 +393,16 @@ static constexpr auto clearDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd clearCmd{
     clearNames, "", clearDesc,
-    [] (std::string_view args) -> std::string {
-      if (const auto res = cmd_validate_args_empty (args, clearCmd);
-          !res) {
-        return res.error();
-      };
+    [] (std::string_view args) -> CmdResult {
+      if (!args.empty()) {
+          return {false, CMD_FMT_MISUSE ("expected no args", clearCmd)};
+      }
 
       auto query = g_db::userQuery;
       query.where.clear();
       query.orderBy.clear();
 
-      return try_apply_query_clause (std::move (query), {}, "Reset query");
+      CMD_TRY_APPLY_QUERY(query, args, "Reset query");
     }
 };
 
@@ -500,15 +423,13 @@ static constexpr auto toggleDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd toggleCmd{
     toggleNames, "(quality|insertion|table|sparkline)", toggleDesc,
-    [] (std::string_view args) -> std::string {
-      const auto tokens = split_whitespace (args);
-      if (const auto expectedNTok =
-              cmd_validate_ntok (tokens, 1, 1, toggleCmd);
-          !expectedNTok) {
-        return expectedNTok.error();
+    [] (std::string_view args) -> CmdResult {
+      const auto tokens = cmd_split_whitespace (args);
+      if (tokens.size() != 1) {
+        return {false, CMD_FMT_MISUSE("takes a single argument", toggleCmd)};
       }
       // get single arg
-      const auto& tok = tokens[0];
+      const auto& tok = tokens.back();
 
       // NOTE: all unambiguous from the first char (so far)
       static constexpr std::array<std::string_view, 4> opts{
@@ -531,13 +452,12 @@ static constexpr Cmd toggleCmd{
           else {
             TUI_UNREACHABLE ("toggle command malformed, unknown opt", opt);
           }
-          return CMD_GENERIC_SUCCESS;
+          return {true, CMD_GENERIC_SUCCESS};
         }
       }
-      return cmd_format_misuse (
-          fmt::format ("Unknown option: \"{}\"", tok), toggleCmd.names[0],
-          toggleCmd.usageArgs
-      );
+      return {false, CMD_FMT_MISUSE (
+          fmt::format ("Unknown option: \"{}\"", tok), toggleCmd
+      )};
     }
 };
 
@@ -548,22 +468,20 @@ static constexpr auto dumpDesc = std::to_array<std::string_view> (
 );
 static constexpr Cmd dumpCmd{
     dumpNames, "<path>", dumpDesc,
-    [] (std::string_view args) -> std::string {
-      const auto tokens = split_whitespace (args);
-      if (const auto expectedNTok =
-              cmd_validate_ntok (tokens, 1, 1, dumpCmd);
-          !expectedNTok) {
-        return expectedNTok.error();
+    [] (std::string_view args) -> CmdResult {
+      const auto tokens = cmd_split_whitespace (args);
+      if (tokens.size() != 1) {
+        return {false, CMD_FMT_MISUSE("takes a single argument", dumpCmd)};
       }
 
       const std::string path{tokens[0]};
       if (const auto ret = dump_to_disk (g_db::conn, path); !ret) {
-        return apb_describe_sqlite_failure (
+        return {false, apb_describe_sqlite_failure (
             "Failed to dump database to disk", ret.error().rc,
             ret.error().msg
-        );
+        )};
       }
-      return fmt::format ("Dumped database to {}", path);
+      return {true, fmt::format ("Dumped database to {}", path)};
     }
 };
 
@@ -583,11 +501,10 @@ static constexpr auto helpDesc = std::to_array<std::string_view> ({
 });
 static constexpr Cmd helpCmd{
     helpNames, "[(nav|cmd|col)]", helpDesc,
-    [] (std::string_view args) -> std::string {
-      const auto tokens = split_whitespace (args);
-      const auto nargRet = cmd_validate_ntok (tokens, 0, 1, helpCmd);
-      if (!nargRet) {
-        return nargRet.error();
+    [] (std::string_view args) -> CmdResult {
+      const auto tokens = cmd_split_whitespace (args);
+      if (tokens.size() > 1) {
+        return {false, CMD_FMT_MISUSE("too many args", helpCmd)};
       }
 
       helpblocks::TextBlockRef content;
@@ -620,17 +537,16 @@ static constexpr Cmd helpCmd{
         }
       }
       else {
-        return cmd_format_misuse (
-            fmt::format ("unknown topic {}", tokens[0]), helpCmd.names[0],
-            helpCmd.usageArgs
-        );
+        return {false, CMD_FMT_MISUSE (
+            fmt::format ("unknown topic {}", tokens[0]), helpCmd
+        )};
       }
 
       if (!size_and_set_overlay_widget (content)) {
-        return cmd_format_fail ("terminal too small to display help pane");
+        return {false, CMD_FMT_FAIL ("terminal too small to display help pane")};
       }
       g_ui::showOverlay = true;
-      return {};
+      return {true, {}};
     }
 };
 
@@ -641,12 +557,11 @@ static constexpr std::span<const Cmd* const> get_cmd_registry()
   static constexpr auto registry = std::to_array<const Cmd*> ({
       /* all cmds must be added here */
       &helpCmd,
-      &quitCmd,
       &whereCmd,
       &orderCmd,
-      &clearCmd,
       &countCmd,
       &countAllCmd,
+      &clearCmd,
       &colCmd,
       &toggleCmd,
       &dumpCmd,
@@ -676,21 +591,34 @@ static auto get_cmd_name_map()
   return nameMap;
 }
 
-std::string exec_cmd (std::string_view call)
+std::pair<ExecStatus, std::string> exec_cmd (std::string_view call)
 {
   for (const auto& [name, cmd] : get_cmd_name_map()) {
     if (call == name) {
-      return cmd->cmd ("");
+      const auto res = cmd->cmd ("");
+      if (res.first) {
+        return {ExecStatus::success, res.second};
+      }
+      return {ExecStatus::fail, res.second};
     }
     if (call.starts_with (std::string{name} + " ")) {
       auto args = call.substr (name.size() + 1);
-      args.remove_prefix (
-          std::min (args.find_first_not_of (" \t"), args.size())
-      );
-      return cmd->cmd (args);
+      // trim leading and trailing whitespace
+      // NOTE: input does not accept tabs, only space
+      while (!args.empty() && args.front() == ' ') {
+        args.remove_prefix (1);
+      }
+      while (!args.empty() && args.back() == ' ') {
+        args.remove_suffix (1);
+      }
+      const auto res = cmd->cmd (args);
+      if (res.first) {
+        return {ExecStatus::success, res.second};
+      }
+      return {ExecStatus::fail, res.second};
     }
   }
-  return fmt::format ("Unknown command: {}", call);
+  return {ExecStatus::unknown, fmt::format ("Unknown command: {}", call)};
 }
 
 #ifndef DOCTEST_CONFIG_DISABLE

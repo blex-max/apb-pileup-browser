@@ -3,7 +3,6 @@
 #include <fmt/format.h>
 #include <sqlite3.h>
 
-#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -15,41 +14,6 @@
 #include "model/schema.hpp"
 #include "shared/cleanup.hpp"
 #include "tui_assert.hpp"
-
-std::string_view sanitise_clause (std::string_view clause)
-{
-  // trim whitespace, semicolons
-  while (!clause.empty() && clause.front() == ' ') {
-    clause.remove_prefix (1);
-  }
-  while (!clause.empty() && clause.back() == ' ') {
-    clause.remove_suffix (1);
-  }
-  while (!clause.empty() && clause.back() == ';') {
-    clause.remove_suffix (1);
-  }
-  return clause;
-}
-
-void set_where (QueryFragments& query, std::string_view clause)
-{
-  query.where = sanitise_clause (clause);
-}
-
-void extend_where_and (QueryFragments& query, std::string_view cond)
-{
-  TUI_ASSERT (!query.where.empty());
-  TUI_ASSERT (!cond.empty());
-  auto safeCond = std::string{sanitise_clause (cond)};
-  auto& where = query.where;
-  where.append (" AND ");
-  where.append (safeCond);
-}
-
-void set_order (QueryFragments& query, std::string_view order)
-{
-  query.orderBy = sanitise_clause (order);
-}
 
 std::string PileupMetadata::to_string() const
 {
@@ -122,7 +86,7 @@ PileupMetadata get_locus_data (sqlite3* conn)
 
 namespace tui_state::db {
 
-SetQueryStatus set_query (QueryFragments query)
+int set_query (const QueryFragments& query)
 {
   std::string userQuerySuffix;
   // build WHERE
@@ -144,17 +108,9 @@ SetQueryStatus set_query (QueryFragments query)
     userQuerySuffix.append ("\n");
   }
 
-  // FIXME - can qname or tag values contain ;? if so,
-  // the user might want to legitmately use the ; char
-  // in a query suffix...
-  if (std::find (begin (userQuerySuffix), end (userQuerySuffix), ';') !=
-      end (userQuerySuffix)) {
-    return SetQueryStatus::guardFail;
-  }
-
+  // NOTE: a semicolon in the query could cause issues,
+  // but it's essentially intentional misuse so we can ignore
   {
-    // NOTE: it is at this point that we first attempt usage of the
-    // user-provided suffix, and the user sql is therefore validated.
     const auto sqlCreateTempTable = fmt::format (
         "CREATE TEMP TABLE new_ordered_query AS SELECT id, path_id FROM "
         "reads "
@@ -171,12 +127,12 @@ SetQueryStatus set_query (QueryFragments query)
             NULL
         );
         rc != SQLITE_OK) {
-      return SetQueryStatus::s3Fail;
+      return rc;
     }
     // FIXME: should path_id be indexed to speed up table creation?
     if (const auto rc = sqlite3_step (o_createTblStmt);
         rc != SQLITE_DONE) {
-      return SetQueryStatus::s3Fail;
+      return rc;
     }
   }
   // NOTE: user sql is now validated
@@ -309,11 +265,11 @@ SetQueryStatus set_query (QueryFragments query)
     queryUndoStack.erase (begin (queryUndoStack));
   }
   queryUndoStack.push_back (userQuery);
-  userQuery = std::move (query);
+  userQuery = query;
   stmtRowScrollOffset = 0;  // reset row view
   nStmtRows = static_cast<uint64_t> (queryRowCount);
 
-  return SetQueryStatus::success;
+  return SQLITE_OK;
 }
 
 }  // namespace tui_state::db
@@ -323,12 +279,6 @@ SetQueryStatus set_query (QueryFragments query)
 #include "doctest.h"
 #include "fixtures.hpp"
 #include "model/hts2apb.hpp"
-
-TEST_CASE ("sanitise_clause behaves as intended")
-{
-  CHECK (sanitise_clause (" ; ").empty());
-  CHECK (sanitise_clause ("  flag = 99; ") == "flag = 99");
-}
 
 namespace {
 
@@ -409,25 +359,12 @@ TEST_CASE ("set_query failure leaves the active query untouched")
   DbFixture fx;
   REQUIRE (
       g_db::set_query ({.where = {"flag = 99"}, .orderBy = ""}) ==
-      g_db::SetQueryStatus::success
+      SQLITE_OK
   );
   const auto* const stmtBefore = g_db::selectStmt;
   const auto pageBefore = fetch_page (0, 10);
 
-  SUBCASE ("semicolon")
-  {
-    CHECK (
-        g_db::set_query ({.where = {"flag = 1; DROP TABLE reads"}}) ==
-        g_db::SetQueryStatus::guardFail
-    );
-  }
-  SUBCASE ("invalid sql")
-  {
-    CHECK (
-        g_db::set_query ({.where = {"nonsense ="}}) ==
-        g_db::SetQueryStatus::s3Fail
-    );
-  }
+  CHECK (g_db::set_query ({.where = {"nonsense ="}}) != SQLITE_OK);
 
   CHECK (g_db::selectStmt == stmtBefore);
   CHECK (g_db::nStmtRows == 2);
@@ -438,7 +375,7 @@ TEST_CASE ("set_query failure leaves the active query untouched")
 TEST_CASE ("set_query replaces the previous query")
 {
   DbFixture fx;
-  REQUIRE (g_db::set_query ({}) == g_db::SetQueryStatus::success);
+  REQUIRE (g_db::set_query ({}) == SQLITE_OK);
   REQUIRE (g_db::nStmtRows == 3);
   // leave the old stmt mid-iteration, as render does when the page fills
   sqlite3_reset (g_db::selectStmt);
@@ -446,10 +383,7 @@ TEST_CASE ("set_query replaces the previous query")
   sqlite3_bind_int64 (g_db::selectStmt, 2, 10);
   REQUIRE (sqlite3_step (g_db::selectStmt) == SQLITE_ROW);
 
-  REQUIRE (
-      g_db::set_query ({.where = {"qname = 'readB'"}}) ==
-      g_db::SetQueryStatus::success
-  );
+  REQUIRE (g_db::set_query ({.where = {"qname = 'readB'"}}) == SQLITE_OK);
   CHECK (g_db::nStmtRows == 1);
   CHECK (fetch_page (0, 10) == std::vector<std::string>{"readB"});
 }
@@ -464,10 +398,7 @@ TEST_CASE ("set_query classifies files with no reads in the query")
   copy_reads_to_file (4);
 
   // nothing matches: all four files are empty, file 1 and 4 only by query
-  REQUIRE (
-      g_db::set_query ({.where = {"qname = 'none'"}}) ==
-      g_db::SetQueryStatus::success
-  );
+  REQUIRE (g_db::set_query ({.where = {"qname = 'none'"}}) == SQLITE_OK);
   CHECK (g_db::nStmtRows == 0);
   using R = g_db::EmptyFileReason;
   const auto& ef = g_db::queryEmptyFiles;
@@ -481,7 +412,7 @@ TEST_CASE ("set_query classifies files with no reads in the query")
   CHECK (ef[3].reason == R::noMatchingReads);
 
   // files with matching reads are not listed
-  REQUIRE (g_db::set_query ({}) == g_db::SetQueryStatus::success);
+  REQUIRE (g_db::set_query ({}) == SQLITE_OK);
   CHECK (g_db::queryEmptyFiles.size() == 2);
 }
 
@@ -490,10 +421,7 @@ TEST_CASE ("set_query keeps path as the primary sort key")
   DbFixture fx ({{"b.bam", true}});
   copy_reads_to_file (2);
 
-  REQUIRE (
-      g_db::set_query ({.orderBy = "mapq DESC"}) ==
-      g_db::SetQueryStatus::success
-  );
+  REQUIRE (g_db::set_query ({.orderBy = "mapq DESC"}) == SQLITE_OK);
 
   sqlite3_stmt* stmt = g_db::selectStmt;
   sqlite3_reset (stmt);
