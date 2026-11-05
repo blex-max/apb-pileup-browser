@@ -1,19 +1,18 @@
 
 # apb Manual - A Pileup Browser
 
-**IMPORTANT**:  
-The apb manual is generated directly from the binary. Please check the helptext for instructions as to how to generate the manual for your version of the tool.
-This is the manual for apb version 0.4.0.
+This is the manual for apb version 0.4.0. This manual is generated directly from the apb binary.
+If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool.
 
-It is recommended to read this manual using a line/word-wrapping pager, such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
+If you are reading this manual from a file on disk (rather than the webpage hosted with the apb GitHub repo), it is recommended to read this manual using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
-All content/usage is subject to change pending user feedback until the 1.0 release.
+apb is subject to change pending user feedback until the 1.0 release. Some aspects of the tool are unpolished and quirky - I will continue to work on those. In the meantime please send any feedback via GitHub issues at https://github.com/blex-max/apb-pileup-browser, where you will also find the README for installation instructions, the project roadmap, and other background.
 
 ## 1) Overview
 
 Given one or more alignment files and a genomic locus apb retrieves all reads aligned to that locus and loads the reads into a fast, queryable database. The TUI then displays the aligned reads alongside user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command line at which you can enter commands to query the reads or change the display. The display and command line can be navigated via simple arrow key navigation.
 
-**IMPORTANT**:  
+**IMPORTANT**:
 apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line.
 
 ## 2) CLI Usage
@@ -276,16 +275,16 @@ where mapq > 0 AND (flag & 3840 /* edited from 3848 */ ) = 0;
 ```
 Editing the query is made easy by using the readline-style editing commands detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb. See the next section for further examples and snippets.
 
-**IMPORTANT**:  
+**IMPORTANT**:
 `flag` is a bitmask of read properties defined by the SAM format - see https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute, which both explains the meaning of the flag bits and allows you to calcuate the number (like 3848) which corresponds to a particular set of properties. See https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, and not.
 
-**IMPORTANT**:  
+**IMPORTANT**:
 In SQL the `ORDER BY` clause can take multiple keys. This is supported by the `order by` command, so we could for example have written `order by base IS 'T' DESC, basequal`. This would have sorted the view such that reads exhibiting a 'T' at the pileup locus will appear first, but now within that group, reads will be sorted by the quality of that base, in ascending order (lowest first).
 
-**IMPORTANT**:  
+**IMPORTANT**:
 Missing values are encoded as NULL, and different operators behave differently with NULL values in SQL. For example, a deleted `base` is NULL - `where base != 'A'` will exclude deletions, as NULL always evaluates to false in comparisons using `!=`, i.e. `NULL != 'A'` is false. Whereas, `where base IS NOT 'A'` will include deletions as `NULL IS NOT 'A'` evaluates to true. To check for the presence of missing values for a field, use `where <col> IS NULL`.
 
-**IMPORTANT**:  
+**IMPORTANT**:
 In SQL, AND conditions always bind more tightly than OR. This means that:
 ```
 WHERE a AND b AND c OR d
@@ -303,14 +302,14 @@ WHERE a AND b AND (c OR d)
 
 Querying is flexible and powerful. Some useful examples:
 
-**QUERYING BY PATH**:
+#### Querying by Path
 
 When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
 ```
 where instr(path, 'PD12345a') and base != 'A'
 ```
 
-**INDELS AT THE PILEUP LOCUS**:
+#### Indels at the Pileup Locus
 
 This is made quite simple by the `indel` column. For example, to search for an 3-base insertion anchored at the pileup:
 ```
@@ -325,7 +324,7 @@ Note that these commands search for indels anchored at the pileup base, i.e. beg
 where is_del
 ```
 
-**AUX TAGS**:
+#### Aux Tags
 
 Aux tags may be queried with `->>`. For example, to subset a query to a read group via the RG tag:
 ```
@@ -341,7 +340,7 @@ where tags ->> '$.RG' is null
 ```
 Would find reads missing the RG tag.
 
-**CIGAR QUERYING**:
+#### CIGAR Querying
 
 Pattern matching is available on all text fields, such as the CIGAR string. E.g. to filter for reads containing a 5-base insertion at any position:
 ```
@@ -352,7 +351,7 @@ or for reads containing soft clipping of any length:
 where instr(cigar, 'S')
 ```
 
-**READ LENGTH AND ARITHMETIC**:
+#### Read Length and Arithmetic
 
 Arithmetic functions are available. For example:
 ```
@@ -360,7 +359,7 @@ where end - start < 100
 ```
 would filter the view to reads less than 100 bases long.
 
-**MOTIFS AT THE QUERY POSITION**:
+#### Motifs at the Query Position
 
 This is a slightly more advanced example. `qpos` is the 1-based offset into `seq` for the base at the pileup position, matching SQLite's own 1-based `substr()` indexing, so to search for the 4-mer `GATC` starting at the query position:
 ```
