@@ -23,7 +23,8 @@
 - `count` now requires a condition, as counts are always displayed for the current query.
 - `count all` command added to count reads matching <condition> ignoring current WHERE filter.
 - `sort` is now `order by` (aliases `order`, `o`, `ORDER BY`, `sort`).
-- `Ctrl-u` undo's the last modification made to the query.
+- `Ctrl-/` undoes the last modification made to the query.
+- `back` command has been removed in favour of `Ctrl-/` undo.
 - `quit` command has been removed in favour of `Ctrl-c`
 - Improved demo data.
 - Improved manual.

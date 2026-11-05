@@ -1,6 +1,7 @@
 #include "input.hpp"
 
 #include <cctype>
+#include <cstdint>
 #include <string>
 #include <utility>
 

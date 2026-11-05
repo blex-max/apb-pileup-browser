@@ -79,7 +79,7 @@ static constexpr std::string_view manualChunk4 = R"md(
 ```
 
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
-Note that `toggle sparkline` switches the quality track in the browser pane between ASCII display of quality scores, and a sparkline graph - i.e. `FAFF-FF<FFI` vs `▇▆▇▇▄▇▇▄▇▇█`.
+Note that `toggle sparkline` switches the quality track in the browser pane between ASCII display of quality scores, and a sparkline graph - i.e. `FAFF-FF<FFI` vs `▆▅▆▆▁▆▆▄▆▆▆`.
 
 `indel` may require further explanation. Essentially, if the base at the pileup position is followed by an indel, then `indel` will contain the size of that indel event. A deletion is represented by a negative size (bases lost), and an insertion is represented by a positive size (bases gained).
 

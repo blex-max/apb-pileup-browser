@@ -1080,8 +1080,8 @@ void draw_main_to_buffer()
         fmt::format ("{}:{}", locusData.contig, locusData.pos);
     const auto spanStr =
         fmt::format ("{}-{}", locusData.start, locusData.end);
-    // leave space for separator + spacing, hence + padding
-    const auto locusInfoWidth = locusStr.size() + spanStr.size() + 3;
+    // + 2 lead offset, + 3 separator/spacing; corner covered by `>`
+    const auto locusInfoWidth = locusStr.size() + spanStr.size() + 5;
     if (size (writeLine) > locusInfoWidth) {
       writeHead.x += e2::write_string (writeHead, writeLim, locusStr);
       writeHead.x++;  // space

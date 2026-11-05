@@ -40,7 +40,7 @@
 static constexpr std::string_view cliHelp =
     R"txt(usage: apb [options] LOCUS ALN...
 
- apb is an terminal-based genome browser designed for
+ apb is a terminal-based genome browser designed for
  viewing and querying reads at specific loci. It features
  an easy-to-navigate interface and powerful SQL-based query
  syntax.
@@ -84,7 +84,7 @@ options:
 
  On startup your cursor will be focused at the in-app
  command line at the bottom of the TUI. In the TUI,
- type q and press enter or press Ctrl-C twice to quit.
+ press Ctrl-C twice to quit.
 
  See README.md for project background and development
  information.
