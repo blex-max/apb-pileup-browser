@@ -199,15 +199,15 @@ For each read, the database stores the columns detailed below. All columns are q
       reference name of the mate/next read.     
       = if mate is on same contig. Usually = if 
       mate is unmapped. Usually NULL if read    
-      unpaired (use `flag` to check if mate is  
-      unmapped).                                
+      unpaired.                                 
+      (use `flag` to check if mate is unmapped) 
   `mstart`:                                     
       integer > 0 / NULL                        
       mate/next read's leftmost mapping         
       position. Usually identical to `start`    
       if mate is unmapped. Usually NULL if read 
-      unpaired. (use `flag` to check if mate is 
-      unmapped).                                
+      unpaired.                                 
+      (use `flag` to check if mate is unmapped) 
   `tags`:                                       
       text (JSON) / NULL                        
       aux tags as JSON; able to be individually 
