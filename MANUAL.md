@@ -56,8 +56,6 @@ The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mo
   C-c               clear input, else quit apb      
                                                     
  QUERY MANAGEMENT                                   
-  C-q               recall current query to command 
-                    line for editing.               
   C-w               recall where clause of current  
                     query to command line.          
   C-o               recall order by clause of       
