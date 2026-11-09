@@ -19,7 +19,11 @@ The built-in command line is capable of highly complex queries, but is tuned to 
 
 ![apb screencap](apb-screencap-0.4.0.png)
 
-The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a table of per-read data; and at the bottom you have a command line at which you can enter querying commands. Commands are typed at the command line caret `:`, and return messages are displayed below at the double chevron. The current query is displayed at the top right of the command line, including the read count. The current locus is displayed at the top left of the alignment viewer. In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`. The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, etc. The browser is navigated by simple readline based keybindings, and there is extensive and clear documentation available in the manual.
+The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a table of per-read data. Information about the pileup locus is displayed at the top left of the alignment viewer. At the bottom you have a command line at which you can enter commands to query the reads and control the display. Commands are typed at the command promt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the command line (`WHERE`), including the count of reads matching the query.  
+
+In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
+
+The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, etc. The browser is navigated by simple readline based keybindings, and there is extensive and clear documentation available in the manual.  
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!

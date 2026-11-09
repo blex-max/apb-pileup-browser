@@ -243,7 +243,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 A dump is a small, self-contained sqlite3 file with just the reads at the specified locus. A few use cases:
 
-- Application of complex SQL and downstream use - `sqlite3 my.db` allows for more complex analysis if needed (`GROUP BY`, aggregates and summaries, etc.).
+- Application of complex SQL and downstream use - `sqlite3 my.db` allows for complex querying (`GROUP BY`, aggregates, summaries, etc.) and programmatic use of apb (`apb --dump my.db --ref my.ref my.bam > my.db && sqlite3 -header -csv my.db < query.sql > results.csv`).
 - Sharing - Dumps tend to be quite small files. Sending the dump allows the reciever to view the pileup you're looking at without needing the original alignment files or reference genome (or even `apb` if they're happy just to use `sqlite3`).
 - Debugging (for developers) - a dump is a snapshot of data loaded. Mostly relevant if you're developing apb itself rather than just using it.
 
@@ -265,7 +265,7 @@ The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp) require the termi
 
 Some command line and navigation keys depend on your keyboard and terminal.
 
-On a mac laptop keyboard, which has no dedicated Home, End or forward Delete keys, use fn+Left and fn+Right for Home and End, and fn+Delete for forward Delete. Ctrl-A and Ctrl-E also move to the start and end of the line. macOS uses Ctrl-Left and Ctrl-Right to switch Spaces, so these may not reach apb. Use Option-Left and Option-Right, or Alt-b and Alt-f, to move by word instead. PgUp and PgDn can be sent using the fn modifier key with the up and down arrow keys if using a mac laptop keyboard.
+On a mac laptop keyboard, use `fn-Left` and `fn-Right` for Home and End, `fn+up` and `fn-Down` for Page Up and Page Down, and `fn-Delete` for forward Delete. macOS uses `Ctrl-Left` and `Ctrl-Right` to switch Spaces, so these may not reach apb. If so, use `Option-Left` and `Option-Right`, or `Option-b` and `Option-f`, to move by word instead.
 
 On Linux and Windows terminals, Alt-based keybinds generally work without extra configuration.
 
