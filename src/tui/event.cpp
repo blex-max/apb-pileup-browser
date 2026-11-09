@@ -161,23 +161,6 @@ static bool handle_nav (const tb_event& ev)
     }
 
     /* --- query management --- */
-    case TB_KEY_CTRL_Q: {
-      std::string recall;
-      const auto& query = g_db::userQuery;
-      if (!query.where.empty()) {
-        recall.append ("WHERE ");
-        recall.append (query.where);
-      }
-      if (!query.orderBy.empty()) {
-        if (!recall.empty()) {
-          recall.append (" ");
-        }
-        recall.append ("ORDER BY ");
-        recall.append (query.orderBy);
-      }
-      input::set_text (g_cmd::cmdBuf.buf, recall);
-      input::move_end (g_cmd::cmdBuf.buf);
-    } break;
     case TB_KEY_CTRL_W: {
       const auto& query = g_db::userQuery;
       if (!query.where.empty()) {

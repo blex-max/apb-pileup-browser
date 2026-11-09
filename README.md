@@ -23,7 +23,7 @@ The TUI is split into 3 major regions. On the left you have an alignment viewer;
 
 In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
 
-The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, etc. The browser is navigated by simple readline based keybindings, and there is extensive and clear documentation available in the manual.  
+The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, etc. The browser is navigated by simple keybindings, and there is extensive and clear documentation available in the manual.  
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!
