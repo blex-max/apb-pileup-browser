@@ -77,6 +77,10 @@ Every command submitted at the command line is interpreted like `<command> [args
     or general help with no args.
      aliases: h, ?
 
+  `quit `:
+    Exit the browser.
+     aliases: q, exit
+
   `where [condition]`:
     Start a new WHERE clause, overwriting
     any existing condition. Omitting the
