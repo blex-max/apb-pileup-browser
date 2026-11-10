@@ -261,8 +261,7 @@ void handle_event (const tb_event& ev)
   if (ev.type == TB_EVENT_KEY) {
     apb_log::log_push (
         fmt::format (
-            "Recieved key event: {} - tb2 key code: {}; tb2 mod bits {} "
-            "({}); "
+            "Recieved key event: {} - tb2 key code: {}; tb2 mod bits {}; "
             "codepoint: {}",
             apb_read_tb2_global_in(), ev.key, ev.mod, ev.ch
         )
@@ -277,7 +276,7 @@ void handle_event (const tb_event& ev)
   }
   else if (ev.type == TB_EVENT_RESIZE) {
     apb_log::log_push (
-        ftm::format ("Recieved resize event: w: {} h: {}", ev.w, ev.h)
+        fmt::format ("Recieved resize event: w: {} h: {}", ev.w, ev.h)
     );
     g_ui::tooSmall = !size_main_widgets();
     if (g_ui::showOverlay &&
