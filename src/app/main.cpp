@@ -27,6 +27,7 @@
 #include "model/hts2apb.hpp"
 #include "shared/apb_assert.hpp"
 #include "shared/cleanup.hpp"
+#include "shared/log.hpp"
 #include "shared/stringify.hpp"
 #include "shared/version.hpp"
 #include "tui/manual.hpp"
@@ -61,15 +62,15 @@ options:
                       (invalid with --demo/--db)
   --demo              view demo data, in place of
                       LOCUS/ALN.
-  --db DB             load from a dumped db, in place of
-                      LOCUS/ALN. DB path to db dump.
+  --db PATH           load from a dumped db at PATH, in
+                      place of LOCUS/ALN/REF.
                       (mutually exclusive with --demo)
   --dump PATH         convert pileup to sqlite3 database,
-                      dump to disk, and exit.
+                      dump to disk at PATH, and exit.
                       (invalid with --db)
   --manual            Print the apb manual to stdout and exit.
-  --log               print extra startup/shutdown diagnostics
-                      to stderr.
+  --log PATH          Log addtional information to PATH.
+                      Useful for debugging.
   -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
                       file) instead of 1-based. Not valid
                       with --demo/--db.
@@ -102,7 +103,8 @@ struct ApbCliArgs {
   std::optional<std::filesystem::path> dumpPath = std::nullopt;
   std::optional<std::filesystem::path> dbPath = std::nullopt;
 
-  bool verboseLog = false;
+  std::optional<std::filesystem::path> logPath = std::nullopt;
+
   bool zeroBased = false;
   bool limitHeapSize = true;
 };
@@ -149,16 +151,21 @@ int main (int argc, char** argv)
     return EXIT_FAILURE;
   }
   const ApbCliArgs& args = *argRet;
-  const bool verboseLog = args.verboseLog;
+  if (args.logPath) {
+    apb_log::init (args.logPath.value(), '\n');
+  }
+  Defer log_deinit ([]() { apb_log::deinit(); });
+
 
   /* config */
   // must configure before sqlite3 is initialised (which will happen
   // when database is initalised).
   if (const auto rc = sqlite3_config (SQLITE_CONFIG_MEMSTATUS, 1);
-      verboseLog && rc != SQLITE_OK) {
-    std::cerr << "Could not enable sqlite3 memory reporting. Memory "
-                 "stats will be invalid"
-              << std::endl;
+      rc != SQLITE_OK) {
+    apb_log::log_push (
+        "Could not enable sqlite3 memory reporting. Memory "
+        "stats will be invalid"
+    );
   }
 
   sqlite3* conn = nullptr;
@@ -233,7 +240,7 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
-  return run_tui (conn, verboseLog);
+  return run_tui (conn);
 }
 
 // returns expected type/str since any failure
@@ -299,7 +306,7 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         OPT_VAL_OR_EXIT ("--dump", argsOut.dumpPath);
       }
       else if (arg == "--log") {
-        argsOut.verboseLog = true;
+        OPT_VAL_OR_EXIT ("--log", argsOut.logPath);
       }
       else if (arg == "--db") {
         if (argsOut.mode == ApbMode::db) {

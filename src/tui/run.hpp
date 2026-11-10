@@ -5,4 +5,4 @@
 // run apb TUI.
 // prints errors to stderr.
 // returns exit_success/exit_failure.
-[[nodiscard]] int run_tui (sqlite3* conn, bool verboseLog);
+[[nodiscard]] int run_tui (sqlite3* conn);

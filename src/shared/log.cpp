@@ -1,21 +1,25 @@
 #include "log.hpp"
 
+#include <fmt/format.h>
+
 #include <cstdint>
 #include <cstring>
 #include <ctime>
 #include <fstream>
 #include <ios>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 
-#include "shared/cleanup.hpp"
 
 namespace apb_log {
 
 static bool logInit = false;
 static std::ofstream logOut;
+// assuming a sentence is on average roughly 100 characters
+// `logSzCh` of 5000 means 50 messages per buffer.
 static constexpr uint16_t logSzCh = 5000;
 static char logBuf1[logSzCh];
 static char logBuf2[logSzCh];
@@ -38,7 +42,8 @@ void init (const std::optional<std::string>& logPath, char sep)
   time (&rawTime);
   std::string unfmtTime{ctime (&rawTime)};
   // remove newline added by ctime
-  log_push (unfmtTime.substr (0, unfmtTime.length() - 1));
+  log_push (unfmtTime.substr (0, unfmtTime.length() - 1), false);
+  log_push (": apb log");
 }
 
 static void swap()
@@ -58,18 +63,17 @@ static void swap()
   }
 }
 
-LogStatusCode log_push (const std::string_view msg, bool writeSep)
+bool log_push (const std::string_view msg, bool writeSep)
 {
   if (!logInit) {
-    return LogStatusCode::uninit;
+    return false;
   }
   if (msg.length() + 1 > logSzCh) {
-    return LogStatusCode::msgTooLarge;
+    return false;
   }
-  bool flushed = false;
+
   if (msg.length() + 1 /* +1 sep */ > (logSzCh - *curIdx)) {
     swap();
-    flushed = true;
   }
   std::memcpy (&curBuf[*curIdx], msg.data(), msg.length());
   *curIdx += msg.length();
@@ -77,18 +81,20 @@ LogStatusCode log_push (const std::string_view msg, bool writeSep)
     curBuf[*curIdx] = sepCh;
     (*curIdx)++;
   }
-  return (flushed) ? LogStatusCode::flushed : LogStatusCode::none;
+  return true;
 };
 
-void dump()
+void crash_dump()
 {
-  /*
-    dump logs to disk. For use in the event of a crash.
-    Assumes preBuf has already been writted out if logging
-    to file.
-  */
-  Defer switch_deinit ([]() { logInit = false; });
+  /* Assumes preBuf has already been writted out if logging to file */
+
+  if (!logInit) {
+    return;
+  }
   if (logOut.is_open()) {
+    std::cerr << fmt::format (
+        "Attempting to dump crash log to log output"
+    );
     logOut.write (curBuf, *curIdx);
     logOut.flush();
     logOut.close();
@@ -105,6 +111,9 @@ void dump()
     time (&rawTime);
     std::string timeStr{ctime (&rawTime)};
 
+    std::cerr << fmt::format (
+        "Attempting to dump crash log to {}", crashLogPath
+    );
     dumpOut.write (crashHdr.data(), crashHdr.size());
     dumpOut.write (timeStr.c_str(), timeStr.size());
     dumpOut.write (preBuf, *preIdx);
@@ -112,6 +121,7 @@ void dump()
     dumpOut.flush();
     dumpOut.close();
   }
+  logInit = false;
 }
 
 void deinit()
@@ -121,6 +131,7 @@ void deinit()
     logOut.flush();
     logOut.close();
   }
+  logInit = false;
 }
 
 }  // namespace apb_log

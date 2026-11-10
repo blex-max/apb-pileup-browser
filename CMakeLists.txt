@@ -95,6 +95,7 @@ add_executable(apb
   src/tui/state.cpp
   src/tui/tb2_impl.cpp
   src/tui/widgets.cpp
+  src/shared/log.cpp
 )
 target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS} DOCTEST_CONFIG_DISABLE)
 target_compile_options(apb
@@ -140,6 +141,7 @@ if(APB_BUILD_TESTS)
     src/tui/tb2_impl.cpp
     src/tui/widgets.cpp
     src/tui/input.cpp
+    src/shared/log.cpp
   )
   target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
   target_include_directories(apb-tests PRIVATE src tests)

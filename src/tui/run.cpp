@@ -5,6 +5,7 @@
 #include "event.hpp"
 #include "query.hpp"
 #include "shared/cleanup.hpp"
+#include "shared/log.hpp"
 #include "state.hpp"
 #include "tui_assert.hpp"
 #include "widgets.hpp"
@@ -13,7 +14,7 @@ namespace e2 = extb;
 namespace g_ui = tui_state::ui;
 namespace g_db = tui_state::db;
 
-int run_tui (sqlite3* conn, bool verboseLog)
+int run_tui (sqlite3* conn)
 {
   g_db::conn = conn;
   g_db::locusInfo = get_locus_data (g_db::conn);
@@ -155,13 +156,12 @@ int run_tui (sqlite3* conn, bool verboseLog)
   }
   tb_cleanup.invoke();
 
-  if (verboseLog) {
-    std::cerr << fmt::format (
-                     "sqlite3 max memory usage: {} bytes",
-                     sqlite3_memory_highwater (0)
-                 )
-              << std::endl;
-  }
+  apb_log::log_push (
+      fmt::format (
+          "sqlite3 max memory usage: {} bytes",
+          sqlite3_memory_highwater (0)
+      )
+  );
 
   std::cerr << "Bye!" << std::endl;
   return EXIT_SUCCESS;

@@ -11,15 +11,11 @@ inline constexpr std::string_view crashLogPath = "apb-crash-log.txt";
 
 void init (const std::optional<std::string>& logPath, char sep);
 
-enum class LogStatusCode : uint8_t {
-  none,
-  flushed,
-  msgTooLarge,
-  uninit,
-};
-LogStatusCode log_push (const std::string_view msg, bool writeSep = true);
+bool log_push (const std::string_view msg, bool writeSep = true);
 
-void dump();
+// attempts to dump logs to disk,
+// for use in the event of a crash.
+void crash_dump();
 
 void deinit();
 

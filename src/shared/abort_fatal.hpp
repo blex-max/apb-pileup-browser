@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include "shared/log.hpp"
 
 // Report a fatal error to stderr and abort. `varNames` (as captured
 // by #__VA_ARGS__, e.g. "a, b") is paired with each of `values`,
@@ -48,5 +49,6 @@ template <typename... Args>
   }
   std::cerr << " - please report to maintainer\n\nnow aborting"
             << std::endl;
+  apb_log::crash_dump();
   std::abort();
 }

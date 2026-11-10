@@ -7,7 +7,8 @@
 #include "input.hpp"
 #include "query.hpp"
 #include "state.hpp"
-#include "tui/tui_assert.hpp"
+#include "tb2_impl.hpp"
+#include "tui_assert.hpp"
 #include "widgets.hpp"
 
 namespace g_db = tui_state::db;
@@ -210,6 +211,7 @@ static void handle_key_event (const tb_event& ev)
 {
   if (ev.key == 0 && ev.ch != 0) {
     // annoyingly, outside of handle_nav
+    // FIXME: why???
     if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'b') {
       input::move_word_left (g_cmd::cmdBuf.buf);
     }
@@ -257,6 +259,14 @@ static void nav_overlay (const tb_event& ev)
 void handle_event (const tb_event& ev)
 {
   if (ev.type == TB_EVENT_KEY) {
+    apb_log::log_push (
+        fmt::format (
+            "Recieved key event: {} - tb2 key code: {}; tb2 mod bits {} "
+            "({}); "
+            "codepoint: {}",
+            apb_read_tb2_global_in(), ev.key, ev.mod, ev.ch
+        )
+    );
     if (!g_ui::showOverlay) {
       handle_key_event (ev);
     }
@@ -266,6 +276,9 @@ void handle_event (const tb_event& ev)
     }
   }
   else if (ev.type == TB_EVENT_RESIZE) {
+    apb_log::log_push (
+        ftm::format ("Recieved resize event: w: {} h: {}", ev.w, ev.h)
+    );
     g_ui::tooSmall = !size_main_widgets();
     if (g_ui::showOverlay &&
         !size_and_set_overlay_widget (g_overlay::content)) {

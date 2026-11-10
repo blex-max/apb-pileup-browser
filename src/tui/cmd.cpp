@@ -21,6 +21,7 @@
 #include "helpblocks.hpp"
 #include "query.hpp"
 #include "shared/cleanup.hpp"
+#include "state.hpp"
 #include "tui_assert.hpp"
 #include "widgets.hpp"
 
@@ -156,6 +157,19 @@ std::vector<std::string> build_cmd_ref_table()
 
 // NOTE: names[0] is the canonical name, the rest are aliases
 // NOTE: usage text roughly follows docopt
+
+static constexpr auto quitNames =
+    std::to_array<std::string_view> ({"quit", "q", "exit"});
+static constexpr auto quitDesc =
+    std::to_array<std::string_view> ({"Exit the browser."});
+static constexpr Cmd quitCmd{
+    quitNames, "", quitDesc,
+    [] (std::string_view args) -> CmdResult {
+      CMD_ARGS_EMPTY_OR_FAIL (args, quitCmd);
+      tui_state::run = false;
+      return {true, CMD_GENERIC_SUCCESS};
+    }
+};
 
 static constexpr auto colNames =
     std::to_array<std::string_view> ({"col", "c"});
@@ -557,6 +571,7 @@ static constexpr std::span<const Cmd* const> get_cmd_registry()
   static constexpr auto registry = std::to_array<const Cmd*> ({
       /* all cmds must be added here */
       &helpCmd,
+      &quitCmd,
       &whereCmd,
       &orderCmd,
       &countCmd,
