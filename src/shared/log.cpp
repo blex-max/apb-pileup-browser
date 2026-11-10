@@ -17,6 +17,7 @@
 namespace apb_log {
 
 static bool logInit = false;
+static bool flushOnPush = false;
 static std::ofstream logOut;
 // assuming a sentence is on average roughly 100 characters
 // `logSzCh` of 5000 means 50 messages per buffer.
@@ -31,7 +32,9 @@ static auto* curIdx = &logIdx1;
 static auto* preIdx = &logIdx2;
 static char sepCh;
 
-void init (const std::optional<std::string>& logPath, char sep)
+void init (
+    const std::optional<std::string>& logPath, char sep, bool autoflush
+)
 {
   if (logPath) {
     logOut.open (logPath.value().c_str(), std::ios::app);
@@ -44,6 +47,7 @@ void init (const std::optional<std::string>& logPath, char sep)
   // remove newline added by ctime
   log_push (unfmtTime.substr (0, unfmtTime.length() - 1), false);
   log_push (": apb log");
+  flushOnPush = autoflush;
 }
 
 static void swap()
@@ -81,6 +85,13 @@ bool log_push (const std::string_view msg, bool writeSep)
     curBuf[*curIdx] = sepCh;
     (*curIdx)++;
   }
+  if (flushOnPush && logOut.is_open()) {
+    // will never swap
+    logOut.write (curBuf, *curIdx);
+    logOut.flush();
+    *curIdx = 0;
+  }
+
   return true;
 };
 

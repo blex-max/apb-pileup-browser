@@ -46,44 +46,44 @@ int run_tui (sqlite3* conn)
     // Most tb_init failure codes lose their errno text
     // before we see them; word manually.
     switch (rc) {
-      case TB_ERR_INIT_ALREADY:
-      case TB_ERR_MEM:
-        TUI_UNREACHABLE ("tb_init failed", rc, tb_strerror (rc));
-      case TB_ERR_INIT_OPEN:
-        std::cerr << fmt::format (
-                         "Error: could not open the terminal ({}). "
-                         "Is apb running in an interactive terminal?",
-                         tb_strerror (rc)
-                     )
-                  << std::endl;
-        return EXIT_FAILURE;
-      case TB_ERR_NO_TERM:
-      case TB_ERR_UNSUPPORTED_TERM:
+    case TB_ERR_INIT_ALREADY:
+    case TB_ERR_MEM:
+      TUI_UNREACHABLE ("tb_init failed", rc, tb_strerror (rc));
+    case TB_ERR_INIT_OPEN:
+      std::cerr << fmt::format (
+                       "Error: could not open the terminal ({}). "
+                       "Is apb running in an interactive terminal?",
+                       tb_strerror (rc)
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
+    case TB_ERR_NO_TERM:
+    case TB_ERR_UNSUPPORTED_TERM:
         // FIXME: what values of TERM does apb support?? Document.
-        std::cerr << fmt::format (
-                         "Error: {}. Try a different terminal, or "
-                         "set TERM to something apb supports (e.g. "
-                         "xterm).",
-                         tb_strerror (rc)
-                     )
-                  << std::endl;
-        return EXIT_FAILURE;
-      default:
-        std::cerr << fmt::format (
-                         "Error: failed to initialise the terminal "
-                         "(code {}). Try again, or in a different "
-                         "terminal - if this persists, please "
-                         "report it to the maintainer.",
-                         rc
-                     )
-                  << std::endl;
-        return EXIT_FAILURE;
+      std::cerr << fmt::format (
+                       "Error: {}. Try a different terminal, or "
+                       "set TERM to something apb supports (e.g. "
+                       "xterm).",
+                       tb_strerror (rc)
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
+    default:
+      std::cerr << fmt::format (
+                       "Error: failed to initialise the terminal "
+                       "(code {}). Try again, or in a different "
+                       "terminal - if this persists, please "
+                       "report it to the maintainer.",
+                       rc
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
     }
   }
   // NOTE: cleanup should be invoked before
   // writing to stderr.
   Defer tb_cleanup ([]() { tui_state::tui_shutdown(); });
-  tb_set_input_mode (TB_INPUT_ALT);
+  tb_set_input_mode (TB_INPUT_ESC);
   tb_clear();
 
   {
@@ -123,7 +123,7 @@ int run_tui (sqlite3* conn)
     tb_poll_event (&ev);
     // NOTE: input still processed if ui
     // too small, to allow quitting.
-    handle_event (ev);
+    handle_event (&ev);
     {
       if (g_ui::tooSmall) {
         // hold until a resize succeeds

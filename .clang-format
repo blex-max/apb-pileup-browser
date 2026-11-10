@@ -11,6 +11,8 @@ ColumnLimit: 75 # allows splitscreen on my tiny screens in my massive font
 
 MaxEmptyLinesToKeep: 2
 
+IndentCaseLabels: false
+
 SpaceBeforeParens: NonEmptyParentheses
 
 PointerAlignment: Left

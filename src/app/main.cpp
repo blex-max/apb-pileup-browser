@@ -107,6 +107,8 @@ struct ApbCliArgs {
 
   bool zeroBased = false;
   bool limitHeapSize = true;
+
+  bool hiddenFlushLogOnWrite = false;
 };
 
 static std::expected<ApbCliArgs, std::string> parse_args (
@@ -122,23 +124,23 @@ static bool init_db (sqlite3*& conn)
     rc = apb_create_schema (conn);
   }
   switch (rc) {
-    case SQLITE_OK:
-      return true;
+  case SQLITE_OK:
+    return true;
     // more cases may be added if they're outside of apb's control
-    case SQLITE_NOMEM:
+  case SQLITE_NOMEM:
       // FIXME: nomem might be worth failing gracefully on throughout,
       // since running out of memory on a cluster interactive session
       // or head node is not implausible.
-      std::cerr << "Error: failed to initialise database BEFORE "
-                   "attempting to load pileup with out of memory error. "
-                   "Are you in a memory constrained environment?"
-                << std::endl;
-      return false;
-    default:
-      APB_UNREACHABLE (
-          "failed to initialise apb database", rc, sqlite3_errstr (rc),
-          sqlite3_errmsg (conn)
-      );
+    std::cerr << "Error: failed to initialise database BEFORE "
+                 "attempting to load pileup with out of memory error. "
+                 "Are you in a memory constrained environment?"
+              << std::endl;
+    return false;
+  default:
+    APB_UNREACHABLE (
+        "failed to initialise apb database", rc, sqlite3_errstr (rc),
+        sqlite3_errmsg (conn)
+    );
   }
 }
 
@@ -152,7 +154,7 @@ int main (int argc, char** argv)
   }
   const ApbCliArgs& args = *argRet;
   if (args.logPath) {
-    apb_log::init (args.logPath.value(), '\n');
+    apb_log::init (args.logPath.value(), '\n', args.hiddenFlushLogOnWrite);
   }
   Defer log_deinit ([]() { apb_log::deinit(); });
 
@@ -172,56 +174,56 @@ int main (int argc, char** argv)
   Defer db_shutdown ([&conn]() { sqlite3_close_v2 (conn); });
 
   switch (args.mode) {
-    case ApbMode::locus:
-      APB_ASSERT (!args.locus.empty());
-      APB_ASSERT (!args.alnPaths.empty());
-      if (!init_db (conn)) {
-        return EXIT_FAILURE;
-      }
-      if (const auto ret = ingest_sam_auto (
-              conn, args.alnPaths, args.locus, args.refPath,
-              args.zeroBased, args.limitHeapSize
-          );
-          !ret) {
-        std::cerr << "Error: " << ret.error() << std::endl;
-        return EXIT_FAILURE;
-      }
-      break;
-    case ApbMode::demo: {
-      if (!init_db (conn)) {
-        return EXIT_FAILURE;
-      }
-      ingest_demo_auto (conn);
-      break;
+  case ApbMode::locus:
+    APB_ASSERT (!args.locus.empty());
+    APB_ASSERT (!args.alnPaths.empty());
+    if (!init_db (conn)) {
+      return EXIT_FAILURE;
     }
-    case ApbMode::db: {
-      APB_ASSERT (args.dbPath);
-      APB_ASSERT (!args.dbPath.value().empty());
-      auto loadRet = load_from_disk (args.dbPath.value().string());
-      if (!loadRet) {
-        std::cerr << "Error: "
-                  << apb_describe_load_failure (
-                         args.dbPath.value().string(), loadRet.error()
-                     )
-                  << std::endl;
-        return EXIT_FAILURE;
-      }
-      conn = *loadRet;
+    if (const auto ret = ingest_sam_auto (
+            conn, args.alnPaths, args.locus, args.refPath, args.zeroBased,
+            args.limitHeapSize
+        );
+        !ret) {
+      std::cerr << "Error: " << ret.error() << std::endl;
+      return EXIT_FAILURE;
+    }
+    break;
+  case ApbMode::demo: {
+    if (!init_db (conn)) {
+      return EXIT_FAILURE;
+    }
+    ingest_demo_auto (conn);
+    break;
+  }
+  case ApbMode::db: {
+    APB_ASSERT (args.dbPath);
+    APB_ASSERT (!args.dbPath.value().empty());
+    auto loadRet = load_from_disk (args.dbPath.value().string());
+    if (!loadRet) {
+      std::cerr << "Error: "
+                << apb_describe_load_failure (
+                       args.dbPath.value().string(), loadRet.error()
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
+    }
+    conn = *loadRet;
       // load_from_disk only checks the metadata row exists
-      if (!get_locus_data (conn).valid()) {
-        std::cerr << fmt::format (
-                         "Error: database at {} appears to be "
-                         "corrupt:\nlocus metadata in database is "
-                         "invalid or corrupt.",
-                         args.dbPath.value()
-                     )
-                  << std::endl;
-        return EXIT_FAILURE;
-      }
-      break;
+    if (!get_locus_data (conn).valid()) {
+      std::cerr << fmt::format (
+                       "Error: database at {} appears to be "
+                       "corrupt:\nlocus metadata in database is "
+                       "invalid or corrupt.",
+                       args.dbPath.value()
+                   )
+                << std::endl;
+      return EXIT_FAILURE;
     }
-    case ApbMode::UNSET:
-      APB_UNREACHABLE ("CLI code malformed; mode unset");
+    break;
+  }
+  case ApbMode::UNSET:
+    APB_UNREACHABLE ("CLI code malformed; mode unset");
   }
 
   if (args.dumpPath) {
@@ -307,6 +309,9 @@ static std::expected<ApbCliArgs, std::string> parse_args (
       }
       else if (arg == "--log") {
         OPT_VAL_OR_EXIT ("--log", argsOut.logPath);
+      }
+      else if (arg == "--autoflush") {
+        argsOut.hiddenFlushLogOnWrite = true;
       }
       else if (arg == "--db") {
         if (argsOut.mode == ApbMode::db) {

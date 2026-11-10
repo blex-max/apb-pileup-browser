@@ -9,7 +9,7 @@ namespace apb_log {
 
 inline constexpr std::string_view crashLogPath = "apb-crash-log.txt";
 
-void init (const std::optional<std::string>& logPath, char sep);
+void init (const std::optional<std::string>& logPath, char sep, bool autoflush);
 
 bool log_push (const std::string_view msg, bool writeSep = true);
 

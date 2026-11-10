@@ -2,4 +2,4 @@
 
 #include "termbox2.h"
 
-void handle_event (const tb_event& ev);
+void handle_event (const tb_event* ev);

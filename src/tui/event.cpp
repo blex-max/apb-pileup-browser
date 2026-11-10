@@ -17,104 +17,81 @@ namespace g_cmd = tui_state::ui::cmd;
 namespace g_overlay = tui_state::ui::overlay;
 namespace g_ui = tui_state::ui;
 
-static bool handle_nav (const tb_event& ev)
+enum class nav_mode_t : uint8_t { browser, prompt, overlay };
+static constinit nav_mode_t navMode = nav_mode_t::prompt;
+
+void handle_event (const tb_event* ev)
 {
-  constexpr auto sideScrollIncrement = 3;
+  /* called before drawing each frame */
 
-  auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
+  apb_log::log_push (
+      fmt::format (
+          "Recieved event: .type: {}, .key: {}, .ch: {}, .mod: {}, .w: "
+          "{}, .h: {}\n\tinput buffer: {}",
+          ev->type, ev->key, ev->ch, ev->mod, ev->w, ev->h,
+          apb_read_tb2_global_in()
+      )
+  );
 
-  switch (ev.key) {
-    case TB_KEY_ENTER:
-      // execute user command
-      if (!g_cmd::cmdBuf.buf.text.empty()) {
-        auto cmdResult = exec_cmd (g_cmd::cmdBuf.buf.text);
-        switch (cmdResult.first) {
-          case ExecStatus::success:
-            input::reset (g_cmd::cmdBuf);
-          case ExecStatus::fail:
-          case ExecStatus::unknown:
-            break;
-        }
-        // return msg
-        g_cmd::msgBuf = cmdResult.second;
-      }
-      break;
+  /* non-modal bindings */
 
-    case TB_KEY_BACKSPACE:
-    case TB_KEY_BACKSPACE2:
-      if ((ev.mod & TB_MOD_ALT) != 0) {
-        input::del_word_left (g_cmd::cmdBuf.buf);
-      }
-      else {
-        input::del_back (g_cmd::cmdBuf.buf);
-      }
-      break;
+  // change state
+  tb_event trailing;
+  // detect ALT manually
+  if (ev->key == TB_KEY_ESC) {
+    // peek "pops" event out of buffer, despite the name
+    if (tb_peek_event (&trailing, 0) == TB_OK &&
+        trailing.type == TB_EVENT_KEY) {
+      apb_log::log_push ("Detected alt modifier, modifying key event");
+      trailing.mod |= TB_MOD_ALT;
+      ev = &trailing;
+    }
+    // TODO: check navMode in widgets, draw appropriately
+    else if (navMode == nav_mode_t::browser) {
+      navMode = nav_mode_t::prompt;
+      return;
+    }
+    else if (navMode == nav_mode_t::prompt) {
+      navMode = nav_mode_t::browser;
+      return;
+    }
+    else if (navMode == nav_mode_t::overlay) {
+      g_ui::showOverlay = false;  // FIXME: should this be handled here?
+      navMode = nav_mode_t::prompt;
+      return;
+    }
+  }
 
-    case TB_KEY_DELETE:
-      if (ev.mod == 0) {
-        input::del_fwd (g_cmd::cmdBuf.buf);
-      }
-      break;
+  if (ev->type == TB_EVENT_RESIZE) {
+    g_ui::tooSmall = !size_main_widgets();
+    if (g_ui::showOverlay &&
+        !size_and_set_overlay_widget (g_overlay::content)) {
+      g_ui::showOverlay = false;
+      g_cmd::msgBuf =
+          "Closed overlay - terminal too small to display pane";
+    }
+    return;
+  }
 
+  /* modal bindings */
+
+  switch (navMode) {
+  case nav_mode_t::browser: {
+    constexpr auto sideScrollIncrement = 3;
+    auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
+
+    switch (ev->key) {
     case TB_KEY_ARROW_LEFT:
-      if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        // side scroll aln pane
-        g_browsr::userPanOffset -= sideScrollIncrement;
-      }
-      else if ((ev.mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
-        input::move_word_left (g_cmd::cmdBuf.buf);
-      }
-      else {
-        input::move_left (g_cmd::cmdBuf.buf);
-      }
-      break;
-
+      // side scroll aln pane
+      g_browsr::userPanOffset -= sideScrollIncrement;
+      return;
     case TB_KEY_ARROW_RIGHT:
-      if ((ev.mod & TB_MOD_SHIFT) != 0) {
-        g_browsr::userPanOffset += sideScrollIncrement;
-      }
-      else if ((ev.mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
-        input::move_word_right (g_cmd::cmdBuf.buf);
-      }
-      else {
-        input::move_right (g_cmd::cmdBuf.buf);
-      }
-      break;
-
-    case TB_KEY_CTRL_A:
-    case TB_KEY_HOME:
-      input::move_start (g_cmd::cmdBuf.buf);
-      break;
+      g_browsr::userPanOffset += sideScrollIncrement;
+      return;
 
     case TB_KEY_CTRL_C:
-      if (!g_cmd::cmdBuf.buf.text.empty()) {
-        input::clear (g_cmd::cmdBuf.buf);
-      }
-      else {
-        tui_state::run = false;
-      }
-      break;
-
-    case TB_KEY_CTRL_E:
-    case TB_KEY_END:
-      input::move_end (g_cmd::cmdBuf.buf);
-      break;
-
-    case TB_KEY_CTRL_K:
-      input::del_to_end (g_cmd::cmdBuf.buf);
-      break;
-
-    case TB_KEY_CTRL_U:
-      input::del_to_start (g_cmd::cmdBuf.buf);
-      break;
-
-    case TB_KEY_CTRL_P:
-      input::history_prev (g_cmd::cmdBuf);
-      break;
-
-    case TB_KEY_CTRL_N:
-      input::history_next (g_cmd::cmdBuf);
-      break;
+      tui_state::run = false;
+      return;
 
     case TB_KEY_ARROW_DOWN: {
       const auto lastRowOnscreen = static_cast<uint32_t> (
@@ -123,11 +100,12 @@ static bool handle_nav (const tb_event& ev)
       if (lastRowOnscreen < g_db::nScrollRows()) {
         stmtRowScrollOffset++;
       }
-    } break;
+      return;
+    }
 
     case TB_KEY_ARROW_UP:
       stmtRowScrollOffset = std::max (stmtRowScrollOffset - 1, 0);
-      break;
+      return;
 
     case TB_KEY_PGUP: {
       // since number of tracks is dynamic both by setting
@@ -148,7 +126,7 @@ static bool handle_nav (const tb_event& ev)
           height (g_browsr::alnPaneDataBox) / rowsPerRead;
       stmtRowScrollOffset =
           std::max (stmtRowScrollOffset - minReadsPerPage, 0);
-      break;
+      return;
     }
 
     case TB_KEY_PGDN: {
@@ -158,10 +136,116 @@ static bool handle_nav (const tb_event& ev)
       if (lastRowOnscreen < g_db::nScrollRows()) {
         stmtRowScrollOffset += g_browsr::nUnitsOnscreen;
       }
-      break;
+      return;
     }
 
-    /* --- query management --- */
+    default:
+      return;
+    }
+  }
+  case nav_mode_t::prompt: {
+    if (ev->key == 0 && ev->ch != 0 && ev->mod == 0) {
+      // Unmodified character input (shift is not reported as a modifier for uppercase letters)
+      input::insert (g_cmd::cmdBuf.buf, static_cast<char> (ev->ch));
+    }
+
+    if ((ev->mod & TB_MOD_ALT) != 0 && ev->ch == 'b') {
+      input::move_word_left (g_cmd::cmdBuf.buf);
+      return;
+    }
+    else if ((ev->mod & TB_MOD_ALT) != 0 && ev->ch == 'f') {
+      input::move_word_right (g_cmd::cmdBuf.buf);
+    }
+    else if ((ev->mod & TB_MOD_ALT) != 0 && ev->ch == 'd') {
+      // equivalent to alt-del
+      input::del_word_right (g_cmd::cmdBuf.buf);
+    }
+
+    switch (ev->key) {
+    case TB_KEY_ENTER:
+      // execute user command
+      if (!g_cmd::cmdBuf.buf.text.empty()) {
+        auto cmdResult = exec_cmd (g_cmd::cmdBuf.buf.text);
+        switch (cmdResult.first) {
+        case ExecStatus::success:
+          input::reset (g_cmd::cmdBuf);
+        case ExecStatus::fail:
+        case ExecStatus::unknown:
+          break;
+        }
+        // return msg
+        g_cmd::msgBuf = cmdResult.second;
+      }
+      return;
+
+    case TB_KEY_BACKSPACE:
+    case TB_KEY_BACKSPACE2:
+      if ((ev->mod & TB_MOD_ALT) != 0) {
+        input::del_word_left (g_cmd::cmdBuf.buf);
+      }
+      else {
+        input::del_back (g_cmd::cmdBuf.buf);
+      }
+      return;
+
+    case TB_KEY_DELETE:
+      input::del_fwd (g_cmd::cmdBuf.buf);
+      return;
+
+    case TB_KEY_ARROW_LEFT:
+      if ((ev->mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
+        input::move_word_left (g_cmd::cmdBuf.buf);
+      }
+      else {
+        input::move_left (g_cmd::cmdBuf.buf);
+      }
+      return;
+
+    case TB_KEY_ARROW_RIGHT:
+      if ((ev->mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
+        input::move_word_right (g_cmd::cmdBuf.buf);
+      }
+      else {
+        input::move_right (g_cmd::cmdBuf.buf);
+      }
+      return;
+
+    case TB_KEY_CTRL_A:
+    case TB_KEY_HOME:
+      input::move_start (g_cmd::cmdBuf.buf);
+      return;
+
+    case TB_KEY_CTRL_C:
+      if (!g_cmd::cmdBuf.buf.text.empty()) {
+        input::clear (g_cmd::cmdBuf.buf);
+      }
+      else {
+        tui_state::run = false;
+      }
+      return;
+
+    case TB_KEY_CTRL_E:
+    case TB_KEY_END:
+      input::move_end (g_cmd::cmdBuf.buf);
+      return;
+
+    case TB_KEY_CTRL_K:
+      input::del_to_end (g_cmd::cmdBuf.buf);
+      return;
+
+    case TB_KEY_CTRL_U:
+      input::del_to_start (g_cmd::cmdBuf.buf);
+      return;
+
+    case TB_KEY_ARROW_UP:
+      input::history_prev (g_cmd::cmdBuf);
+      return;
+
+    case TB_KEY_ARROW_DOWN:
+      input::history_next (g_cmd::cmdBuf);
+      return;
+
+      /* --- query management --- */
     case TB_KEY_CTRL_W: {
       const auto& query = g_db::userQuery;
       if (!query.where.empty()) {
@@ -171,7 +255,8 @@ static bool handle_nav (const tb_event& ev)
         input::set_text (g_cmd::cmdBuf.buf, recall);
         input::move_end (g_cmd::cmdBuf.buf);
       }
-    } break;
+      return;
+    }
     case TB_KEY_CTRL_O: {
       const auto& query = g_db::userQuery;
       if (!query.orderBy.empty()) {
@@ -181,11 +266,12 @@ static bool handle_nav (const tb_event& ev)
         input::set_text (g_cmd::cmdBuf.buf, recall);
         input::move_end (g_cmd::cmdBuf.buf);
       }
-    } break;
+      return;
+    }
     case TB_KEY_CTRL_SLASH: {
       auto& undoStack = g_db::queryUndoStack;
       if (undoStack.empty()) {
-        break;
+        return;
       }
       auto query = undoStack.back();
       undoStack.pop_back();
@@ -197,92 +283,37 @@ static bool handle_nav (const tb_event& ev)
       // set_query always adds to undo queue on success,
       // so reverse that.
       undoStack.pop_back();
-      break;
+      return;
     }
 
     default:
-      return false;
-  }
-
-  return true;
-}
-
-static void handle_key_event (const tb_event& ev)
-{
-  if (ev.key == 0 && ev.ch != 0) {
-    // annoyingly, outside of handle_nav
-    // FIXME: why???
-    if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'b') {
-      input::move_word_left (g_cmd::cmdBuf.buf);
-    }
-    else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'f') {
-      input::move_word_right (g_cmd::cmdBuf.buf);
-    }
-    else if ((ev.mod & TB_MOD_ALT) != 0 && ev.ch == 'd') {
-      input::del_word_right (g_cmd::cmdBuf.buf);
-    }
-    else {
-      input::insert (g_cmd::cmdBuf.buf, static_cast<char> (ev.ch));
+      return;
     }
   }
-  else {
-    handle_nav (ev);
-  }
-}
-
-static void nav_overlay (const tb_event& ev)
-{
-  if (ev.ch != 0) {
-    if (ev.ch == 'q') {
+  case nav_mode_t::overlay: {
+    if (ev->ch == 'q') {
       g_ui::showOverlay = false;
       g_overlay::contentLnOffset = 0;
+      return;
     }
-  }
-  else if (ev.key != 0) {
-    auto& lnOff = g_overlay::contentLnOffset;
-    const auto contentLines = static_cast<int> (g_overlay::content.size());
-    auto maxScroll =
-        std::max (0, contentLines - height (g_overlay::contentBox));
-    switch (ev.key) {
+
+    if (ev->key != 0) {
+      auto& lnOff = g_overlay::contentLnOffset;
+      const auto contentLines =
+          static_cast<int> (g_overlay::content.size());
+      auto maxScroll =
+          std::max (0, contentLines - height (g_overlay::contentBox));
+      switch (ev->key) {
       case TB_KEY_ARROW_DOWN:
         lnOff = std::min (maxScroll, lnOff + 1);
-        break;
+        return;
       case TB_KEY_ARROW_UP:
         lnOff = std::max (0, lnOff - 1);
-        break;
+        return;
       default:
-        break;
+        return;
+      }
     }
   }
-}
-
-void handle_event (const tb_event& ev)
-{
-  if (ev.type == TB_EVENT_KEY) {
-    apb_log::log_push (
-        fmt::format (
-            "Recieved key event: {} - tb2 key code: {}; tb2 mod bits {}; "
-            "codepoint: {}",
-            apb_read_tb2_global_in(), ev.key, ev.mod, ev.ch
-        )
-    );
-    if (!g_ui::showOverlay) {
-      handle_key_event (ev);
-    }
-    else {
-      // overlay nav
-      nav_overlay (ev);
-    }
-  }
-  else if (ev.type == TB_EVENT_RESIZE) {
-    apb_log::log_push (
-        fmt::format ("Recieved resize event: w: {} h: {}", ev.w, ev.h)
-    );
-    g_ui::tooSmall = !size_main_widgets();
-    if (g_ui::showOverlay &&
-        !size_and_set_overlay_widget (g_overlay::content)) {
-      g_ui::showOverlay = false;
-      g_cmd::msgBuf = "Failed - terminal too small to display help pane";
-    }
   }
 }
