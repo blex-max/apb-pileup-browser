@@ -159,7 +159,7 @@ std::vector<std::string> build_cmd_ref_table()
 // NOTE: usage text roughly follows docopt
 
 static constexpr auto quitNames =
-    std::to_array<std::string_view> ({"quit", "q", "exit"});
+    std::to_array<std::string_view> ({"quit", "q", "exit", "close"});
 static constexpr auto quitDesc =
     std::to_array<std::string_view> ({"Exit the browser."});
 static constexpr Cmd quitCmd{
