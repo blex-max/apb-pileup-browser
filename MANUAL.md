@@ -38,7 +38,7 @@ In browser mode, the alignment viewer is scrolled and panned with the arrow keys
 The following reference table is also available via `help nav` at the prompt:
 
 ```
- M-: Alt | C-: Ctrl | S-: Shift                     
+ M-: Alt | C-: Ctrl                                 
                                                     
  ALWAYS ACTIVE:                                     
   Esc               change focus/mode between the   
