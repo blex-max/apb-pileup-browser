@@ -84,7 +84,7 @@ options:
   1-based closed coordinates.
 
  On startup your cursor will be focused at the in-app
- command line at the bottom of the TUI.
+ command prompt at the bottom of the TUI.
  Press Ctrl-C to quit.
 
  See README.md for project background and development

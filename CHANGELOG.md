@@ -24,7 +24,7 @@ Both the read viewer and the command prompt are now navigated by unmodifed arrow
 
 - Query recall/edit replaces `and`/`or`
   `Ctrl-q`, `Ctrl-w` and `Ctrl-o` now grab the current query and place it
-  at the command line, for editing and resubmission.
+  at the command prompt, for editing and resubmission.
     - `Ctrl-q`: grab entire query.
     - `Ctrl-w`: grab WHERE clause.
     - `Ctrl-o`: grab ORDER BY clause.
@@ -36,7 +36,7 @@ Both the read viewer and the command prompt are now navigated by unmodifed arrow
 
 ### User-facing
 - Command aliases added for those used to capitalised SQL (`WHERE`, `ORDER BY`).
-- Parsing improved to allow direct SQL to be provided at the command line, e.g.: WHERE ... ORDER BY ...
+- Parsing improved to allow direct SQL to be provided at the command prompt, e.g.: WHERE ... ORDER BY ...
 - `track` and `show-table` replaced by `toggle` (`tg`), which toggles display properties, including `quality`, `insertion`, `table` and `sparkline`.
 - `count` now requires a condition, as counts are always displayed for the current query.
 - `count all` command added to count reads matching <condition> ignoring current WHERE filter.

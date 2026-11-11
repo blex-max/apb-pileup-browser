@@ -52,9 +52,9 @@ The following reference table is also available via `help nav` at the prompt:
                                                     
  FOCUS: PROMPT                                      
   C-w               recall where clause to command  
-                    line                            
+                    prompt                          
   C-o               recall order by clause to       
-                    command line                    
+                    command prompt                  
   C-/               undo last modification to       
                     query                           
                                                     
