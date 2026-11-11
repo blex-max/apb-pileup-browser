@@ -2,10 +2,6 @@
 
 ## v0.5.0
 
-A fairly small release focused on compatibility issues.
-
-### Highlights:
-
 apb now has a modal interface. `Esc` switches focus between the read viewer and the command prompt. This removes the need for so many unique keybindings to cover both the viewer and the prompt at once. Some of these bindings have been found to be unreliable across different setups and terminal emulators, so this change should hopefully address that problem.
 
 Both the read viewer and the command prompt are now navigated by unmodifed arrow keys, which feels more intuitive. See `help nav` for the keybindings for each mode, or consult the manual.
