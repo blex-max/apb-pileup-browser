@@ -32,37 +32,6 @@ void handle_event (const tb_event* ev)
       )
   );
 
-  /* non-modal bindings */
-
-  // change state
-  tb_event trailing;
-  // detect ALT manually
-  if (ev->key == TB_KEY_ESC) {
-    // peek "pops" event out of buffer, despite the name
-    if (tb_peek_event (&trailing, 0) == TB_OK &&
-        trailing.type == TB_EVENT_KEY) {
-      apb_log::log_push ("Detected alt modifier, modifying key event");
-      trailing.mod |= TB_MOD_ALT;
-      ev = &trailing;
-    }
-    else if (tui_state::focus == browserMode) {
-      apb_log::log_push("focusing prompt from browser");
-      tui_state::focus = promptMode;
-      return;
-    }
-    else if (tui_state::focus == promptMode) {
-      apb_log::log_push("focusing browser from prompt");
-      tui_state::focus = browserMode;
-      return;
-    }
-    else if (tui_state::focus == overlayMode) {
-      apb_log::log_push("focusing prompt from overlay");
-      g_overlay::contentLnOffset = 0;
-      tui_state::focus = promptMode;
-      return;
-    }
-  }
-
   if (ev->type == TB_EVENT_RESIZE) {
     g_ui::tooSmall = !size_main_widgets();
     if (tui_state::focus == overlayMode &&
@@ -72,6 +41,43 @@ void handle_event (const tb_event* ev)
           "Closed overlay - terminal too small to display pane";
     }
     return;
+  }
+
+  /* non-modal key bindings */
+
+  tb_event trailing;
+  switch (ev->key) {
+  case TB_KEY_ESC:
+    // peek "pops" event out of buffer, despite the name
+    if (tb_peek_event (&trailing, 0) == TB_OK &&
+        trailing.type == TB_EVENT_KEY) {
+      apb_log::log_push ("Detected alt modifier, modifying key event");
+      trailing.mod |= TB_MOD_ALT;
+      ev = &trailing;
+      break;
+    }
+    else if (tui_state::focus == browserMode) {
+      apb_log::log_push ("focusing prompt from browser");
+      tui_state::focus = promptMode;
+      return;
+    }
+    else if (tui_state::focus == promptMode) {
+      apb_log::log_push ("focusing browser from prompt");
+      tui_state::focus = browserMode;
+      return;
+    }
+    else if (tui_state::focus == overlayMode) {
+      apb_log::log_push ("focusing prompt from overlay");
+      g_overlay::contentLnOffset = 0;
+      tui_state::focus = promptMode;
+      return;
+    }
+
+  case TB_KEY_CTRL_C:
+    tui_state::run = false;
+    return;
+  default:
+    break;
   }
 
   /* modal bindings */
@@ -90,10 +96,6 @@ void handle_event (const tb_event* ev)
       return;
     case TB_KEY_ARROW_RIGHT:
       g_browsr::userPanOffset += sideScrollIncrement;
-      return;
-
-    case TB_KEY_CTRL_C:
-      tui_state::run = false;
       return;
 
     case TB_KEY_ARROW_DOWN: {
@@ -192,6 +194,7 @@ void handle_event (const tb_event* ev)
       return;
 
     case TB_KEY_DELETE:
+    case TB_KEY_CTRL_D:
       input::del_fwd (g_cmd::cmdBuf.buf);
       return;
 
@@ -218,15 +221,6 @@ void handle_event (const tb_event* ev)
     case TB_KEY_CTRL_A:
     case TB_KEY_HOME:
       input::move_start (g_cmd::cmdBuf.buf);
-      return;
-
-    case TB_KEY_CTRL_C:
-      if (!g_cmd::cmdBuf.buf.text.empty()) {
-        input::clear (g_cmd::cmdBuf.buf);
-      }
-      else {
-        tui_state::run = false;
-      }
       return;
 
     case TB_KEY_CTRL_E:
