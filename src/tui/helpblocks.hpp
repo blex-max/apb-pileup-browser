@@ -50,7 +50,7 @@ static_assert (
 
 // FIXME: move to event.cpp
 inline constexpr auto navigation = std::to_array<std::string_view> ({
-    " M-: Alt | C-: Ctrl | S-: Shift                     ",
+    " M-: Alt | C-: Ctrl                                 ",
     "                                                    ",
     " ALWAYS ACTIVE:                                     ",
     "  Esc               change focus/mode between the   ",
