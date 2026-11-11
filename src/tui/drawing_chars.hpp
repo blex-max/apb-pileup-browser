@@ -2,18 +2,20 @@
 
 #include <cstdint>
 
-namespace tui_ch {
+constexpr uint16_t heavy_horz_line = 0x2501;
+constexpr uint16_t missing_ch = 0x00BF;  // inverted question mark
 
-constexpr uint32_t missing = 0x00BF;  // inverted question mark
+struct box_style_ch {
+  uint16_t horz, vert, leftTop, rightTop, leftBottom, rightBottom;
+};
+constexpr box_style_ch boxLight{
+    0x2500, 0x2502, 0x256D, 0x256E, 0x2570, 0x256F,
+};
+constexpr box_style_ch boxDouble{
+    0x2550, 0x2551, 0x2554, 0x2557, 0x255A, 0x255D,
+};
 
-enum box : uint16_t {
-  topLeftRoundCorner = 0x256D,
-  topRightRoundCorner = 0x256E,
-  horzLine = 0x2500,
-  horzHeavy = 0x2501,
-  vertLine = 0x2502,
-  bottomLeftRoundCorner = 0x2570,
-  bottomRightRoundCorner = 0x256F,
+enum box_connect : uint16_t {
   downTConnect = 0x252C,
   upTConnect = 0x2534,
   leftTConnect = 0x2524,
@@ -67,5 +69,3 @@ constexpr auto qual_to_sparkline (uint8_t asciiQual)
   }
   return full;
 }
-
-}  // namespace tui_ch

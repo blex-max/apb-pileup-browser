@@ -23,7 +23,6 @@ namespace tui_state::ui {
 
 extern std::array<ColMetadata, 10> tableCols;
 
-inline constinit bool showOverlay = false;
 // last resize left terminal too small; widget geometry is stale
 inline constinit bool tooSmall = false;
 

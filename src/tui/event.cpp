@@ -6,6 +6,7 @@
 #include "cmd.hpp"
 #include "input.hpp"
 #include "query.hpp"
+#include "shared/log.hpp"
 #include "state.hpp"
 #include "tb2_impl.hpp"
 #include "tui_assert.hpp"
@@ -17,11 +18,9 @@ namespace g_cmd = tui_state::ui::cmd;
 namespace g_overlay = tui_state::ui::overlay;
 namespace g_ui = tui_state::ui;
 
-enum class nav_mode_t : uint8_t { browser, prompt, overlay };
-static constinit nav_mode_t navMode = nav_mode_t::prompt;
-
 void handle_event (const tb_event* ev)
 {
+  using enum tui_state::focus_mode_t;
   /* called before drawing each frame */
 
   apb_log::log_push (
@@ -46,27 +45,29 @@ void handle_event (const tb_event* ev)
       trailing.mod |= TB_MOD_ALT;
       ev = &trailing;
     }
-    // TODO: check navMode in widgets, draw appropriately
-    else if (navMode == nav_mode_t::browser) {
-      navMode = nav_mode_t::prompt;
+    else if (tui_state::focus == browserMode) {
+      apb_log::log_push("focusing prompt from browser");
+      tui_state::focus = promptMode;
       return;
     }
-    else if (navMode == nav_mode_t::prompt) {
-      navMode = nav_mode_t::browser;
+    else if (tui_state::focus == promptMode) {
+      apb_log::log_push("focusing browser from prompt");
+      tui_state::focus = browserMode;
       return;
     }
-    else if (navMode == nav_mode_t::overlay) {
-      g_ui::showOverlay = false;  // FIXME: should this be handled here?
-      navMode = nav_mode_t::prompt;
+    else if (tui_state::focus == overlayMode) {
+      apb_log::log_push("focusing prompt from overlay");
+      g_overlay::contentLnOffset = 0;
+      tui_state::focus = promptMode;
       return;
     }
   }
 
   if (ev->type == TB_EVENT_RESIZE) {
     g_ui::tooSmall = !size_main_widgets();
-    if (g_ui::showOverlay &&
+    if (tui_state::focus == overlayMode &&
         !size_and_set_overlay_widget (g_overlay::content)) {
-      g_ui::showOverlay = false;
+      tui_state::focus = promptMode;
       g_cmd::msgBuf =
           "Closed overlay - terminal too small to display pane";
     }
@@ -74,9 +75,11 @@ void handle_event (const tb_event* ev)
   }
 
   /* modal bindings */
-
-  switch (navMode) {
-  case nav_mode_t::browser: {
+  // FIXME: should prompt be active during overlay mode?
+  // It would let you type looking at help. But then help must
+  // not overlap overlay. In future at least, I think yes.
+  switch (tui_state::focus) {
+  case browserMode: {
     constexpr auto sideScrollIncrement = 3;
     auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
 
@@ -143,7 +146,7 @@ void handle_event (const tb_event* ev)
       return;
     }
   }
-  case nav_mode_t::prompt: {
+  case promptMode: {
     if (ev->key == 0 && ev->ch != 0 && ev->mod == 0) {
       // Unmodified character input (shift is not reported as a modifier for uppercase letters)
       input::insert (g_cmd::cmdBuf.buf, static_cast<char> (ev->ch));
@@ -194,6 +197,7 @@ void handle_event (const tb_event* ev)
 
     case TB_KEY_ARROW_LEFT:
       if ((ev->mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
+        // NOTE: alt-left overlaps alt-b
         input::move_word_left (g_cmd::cmdBuf.buf);
       }
       else {
@@ -203,6 +207,7 @@ void handle_event (const tb_event* ev)
 
     case TB_KEY_ARROW_RIGHT:
       if ((ev->mod & (TB_MOD_CTRL | TB_MOD_ALT)) != 0) {
+        // NOTE: alt-right overlaps alt-f
         input::move_word_right (g_cmd::cmdBuf.buf);
       }
       else {
@@ -290,13 +295,7 @@ void handle_event (const tb_event* ev)
       return;
     }
   }
-  case nav_mode_t::overlay: {
-    if (ev->ch == 'q') {
-      g_ui::showOverlay = false;
-      g_overlay::contentLnOffset = 0;
-      return;
-    }
-
+  case overlayMode: {
     if (ev->key != 0) {
       auto& lnOff = g_overlay::contentLnOffset;
       const auto contentLines =

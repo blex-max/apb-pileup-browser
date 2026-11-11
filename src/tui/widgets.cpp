@@ -23,6 +23,7 @@
 #include "helpblocks.hpp"
 #include "model/schema.hpp"
 #include "query.hpp"
+#include "tui/state.hpp"
 #include "tui_assert.hpp"
 
 namespace e2 = extb;
@@ -33,7 +34,9 @@ namespace g_cmd = tui_state::ui::cmd;
 namespace g_overlay = tui_state::ui::overlay;
 namespace g_ui = tui_state::ui;
 
-// --- table column config --- //
+constexpr e2::Style none{};
+constexpr e2::Style dim{.fg = TB_DIM};
+constexpr e2::Style bold{.fg = TB_BOLD};
 
 namespace tui_state::ui {
 
@@ -315,10 +318,10 @@ static void header (
     // will clip if too long
     e2::write_string (writeHead, xLim, lpb_assembled);
     writeHead.x += fieldWidth;
-    if (writeHead.x > xLim) {
+    if (writeHead.x >= xLim) {
       break;
     }
-    set (writeHead, tui_ch::vertLine);
+    set (writeHead, boxLight.vert);
     writeHead.x++;
   }
 }
@@ -333,12 +336,12 @@ static void row_separators (
   const auto paneYLimit = last (dataPane.yspan);
   for (const auto* col : cols) {
     writeHead.x += static_cast<int> (col->displayWidth);
-    if (writeHead.x > writeXLimit) {
+    if (writeHead.x >= writeXLimit) {
       break;
     }
     set (
         e2::VLine{.x = writeHead.x, .yspan = {writeHead.y, paneYLimit}},
-        tui_ch::vertLine
+        boxLight.vert
     );
     writeHead.x++;
   }
@@ -408,7 +411,7 @@ struct ReadAlnFields {
 
 uint32_t seq_char (const std::optional<std::string>& seq, size_t i)
 {
-  return seq ? static_cast<unsigned char> ((*seq)[i]) : tui_ch::missing;
+  return seq ? static_cast<unsigned char> ((*seq)[i]) : missing_ch;
 }
 
 uint32_t qual_char (
@@ -417,13 +420,11 @@ uint32_t qual_char (
 {
   if (qual) {
     if (useSparkline) {
-      return tui_ch::qual_to_sparkline (
-          static_cast<unsigned char> ((*qual)[i])
-      );
+      return qual_to_sparkline (static_cast<unsigned char> ((*qual)[i]));
     }
     return static_cast<unsigned char> ((*qual)[i]);
   }
-  return tui_ch::missing;
+  return missing_ch;
 }
 
 ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
@@ -569,9 +570,8 @@ static e2::Delta seq1 (
   }();
   const int trackYOffsetQual =
       xtraYOffsetBase + static_cast<int> (drawInsTrack);
-  const e2::Style qualStyle = !readFields.qual || g_ui::drawSparkline
-                                  ? e2::Style{.fg = TB_DIM}
-                                  : e2::Style{};
+  const e2::Style qualStyle =
+      !readFields.qual || g_ui::drawSparkline ? dim : e2::Style{};
   bool drawQualTrack = g_ui::drawQualTrack &&
                        (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
   const int trackYOffsetInsQual = xtraYOffsetBase +
@@ -622,14 +622,12 @@ static e2::Delta seq1 (
         );
         e2::write_string (
             writeHead - e2::dX (static_cast<int> (shown.size())),
-            fa.writeLimits.x, shown, {.fg = TB_DIM}
+            fa.writeLimits.x, shown, dim
         );
       }
       if (iOp == readFields.nCig - 1) {
         // if no space left, no-op
-        e2::write_string (
-            writeHead, fa.writeLimits.x, clipLabel, {.fg = TB_DIM}
-        );
+        e2::write_string (writeHead, fa.writeLimits.x, clipLabel, dim);
       }
     }
 
@@ -642,12 +640,12 @@ static e2::Delta seq1 (
         // modify anchor base
         const auto anchorCell = writeHead - e2::dX (1);
         e2::clear_attrs (anchorCell);
-        e2::extend (anchorCell, tui_ch::insRingAbove);
+        e2::extend (anchorCell, insRingAbove);
 
         if (drawInsTrack) {
           auto opInsWriteHead = anchorCell + e2::dY (trackYOffsetIns);
           if (opInsWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsWriteHead, tui_ch::insAt);
+            e2::set (opInsWriteHead, insAt);
             opInsWriteHead.x++;
           }
           for (size_t i = 0;
@@ -655,7 +653,7 @@ static e2::Delta seq1 (
                ++i, ++opInsWriteHead.x) {
             set (
                 opInsWriteHead, seq_char (readFields.seq, iQuery + i),
-                readFields.seq ? e2::Style{} : e2::Style{.fg = TB_DIM}
+                readFields.seq ? e2::Style{} : dim
             );
           }
         }
@@ -668,7 +666,7 @@ static e2::Delta seq1 (
           auto opInsQualWriteHead =
               anchorCell + e2::dY (trackYOffsetInsQual);
           if (opInsQualWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsQualWriteHead, tui_ch::insAt);
+            e2::set (opInsQualWriteHead, insAt);
             opInsQualWriteHead.x++;
           }
           for (size_t i = 0;
@@ -715,7 +713,7 @@ static e2::Delta seq1 (
         e2::Style dispStyle;
         auto dispChar = seq_char (readFields.seq, iQuery + i);
         if (!readFields.seq) {
-          dispStyle = {.fg = TB_DIM};
+          dispStyle = dim;
         }
         // mask bases that match the reference with '='.
         else if (ref &&
@@ -724,7 +722,7 @@ static e2::Delta seq1 (
                       static_cast<unsigned char> ((*ref)[iRefOp + i])
                   ))) {
           dispChar = '=';
-          dispStyle = {.fg = TB_DIM};
+          dispStyle = dim;
         }
         set (writeHead, dispChar, dispStyle);
         if (drawQualTrack) {
@@ -770,40 +768,60 @@ static e2::Delta seq1 (
 
 void draw_main_to_buffer()
 {
+  using enum tui_state::focus_mode_t;
   // NOTE: set order does matter,
   // since some places just overwrite
   // previous draw calls
   APB_ASSERT_MAIN_UI_VALID;
   TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
-  constexpr e2::Style dim{.fg = TB_DIM};
   {
     /* --- draw browser chrome --- */
+    const auto* style = &dim;
+    const auto* boxCh = &boxLight;
+    if (tui_state::focus == browserMode) {
+      style = &bold;
+      boxCh = &boxDouble;
+    }
     const auto& bFrame = g_browsr::frame;
-    set (edgeAB (bFrame), tui_ch::horzLine, dim);
-    set (edgeCD (bFrame), tui_ch::horzLine, dim);
-    set (edgeDA (bFrame), tui_ch::vertLine, dim);
-    set (edgeBC (bFrame), tui_ch::vertLine, dim);
-    set (vertexA (bFrame), tui_ch::topLeftRoundCorner, dim);
-    set (vertexB (bFrame), tui_ch::topRightRoundCorner, dim);
+    set (edgeAB (bFrame), boxLight.horz, *style);
+    set (edgeCD (bFrame), boxLight.horz, *style);
+    set (edgeDA (bFrame), boxCh->vert, *style);
+    set (edgeBC (bFrame), boxCh->vert, *style);
+    set (vertexA (bFrame), boxCh->leftTop, *style);
+    set (vertexB (bFrame), boxCh->rightTop, *style);
 
-    set (body (g_browsr::headerSep), tui_ch::horzLine, dim);
-    set (first (g_browsr::headerSep), tui_ch::rightTConnect, dim);
+    set (body (g_browsr::headerSep), boxLight.horz, dim);
+    set (first (g_browsr::headerSep), rightTConnect, dim);
 
-    set (last (g_browsr::headerSep), tui_ch::leftTConnect, dim);
+    set (last (g_browsr::headerSep), leftTConnect, dim);
+
+    e2::write_string (
+        first (edgeCD (bFrame)) + e2::dX (2), last (edgeCD (bFrame)).x,
+        fmt::format ("focused: {}", to_string (tui_state::focus)), dim
+    );
   }
   {
     /* --- draw cmd chrome --- */
+    const auto* style = &dim;
+    const auto* boxCh = &boxLight;
+    if (tui_state::focus == promptMode) {
+      style = &bold;
+      boxCh = &boxDouble;
+    }
     const auto& cFrame = g_cmd::frame;
-    set (vertexA (cFrame), tui_ch::topLeftRoundCorner, dim);
-    set (vertexB (cFrame), tui_ch::topRightRoundCorner, dim);
-    set (vertexD (cFrame), tui_ch::bottomLeftRoundCorner, dim);
-    set (vertexC (cFrame), tui_ch::bottomRightRoundCorner, dim);
+    set (vertexA (cFrame), boxCh->leftTop, *style);
+    set (vertexB (cFrame), boxCh->rightTop, *style);
+    set (vertexD (cFrame), boxCh->leftBottom, *style);
+    set (vertexC (cFrame), boxCh->rightBottom, *style);
 
-    set (body (edgeAB (cFrame)), tui_ch::horzHeavy, dim);
-    set (body (edgeDA (cFrame)), tui_ch::vertLine, dim);
-    set (body (edgeBC (cFrame)), tui_ch::vertLine, dim);
+    set (body (edgeAB (cFrame)), heavy_horz_line, dim);
+    set (body (edgeDA (cFrame)), boxCh->vert, *style);
+    set (body (edgeBC (cFrame)), boxCh->vert, *style);
 
-    set (g_cmd::promptChar, '>');
+    set (
+        g_cmd::promptChar, '>',
+        (tui_state::focus == promptMode) ? none : dim
+    );
   }
 
   /* --- draw query data --- */
@@ -915,9 +933,9 @@ void draw_main_to_buffer()
       draw_table::header (g_browsr::tablePaneHeaderLine, activeCols);
       draw_table::row_separators (g_browsr::tablePaneDataBox, activeCols);
       /* draw pane separator */
-      set (body (g_browsr::vSep), tui_ch::vertLine, {.fg = TB_DIM});
-      set (first (g_browsr::vSep), tui_ch::downTConnect, {.fg = TB_DIM});
-      set (last (g_browsr::vSep), tui_ch::upTConnect, {.fg = TB_DIM});
+      set (body (g_browsr::vSep), boxLight.vert, dim);
+      set (first (g_browsr::vSep), downTConnect, dim);
+      set (last (g_browsr::vSep), upTConnect, dim);
     }
 
     /* iteratively draw query data */
@@ -1015,19 +1033,18 @@ void draw_main_to_buffer()
         }
         std::string_view reason;
         switch (file.reason) {
-          case g_db::EmptyFileReason::contigAbsent:
-            reason = "File does not contain contig";
-            break;
-          case g_db::EmptyFileReason::noReadsAtLocus:
-            reason = "File has no reads at locus";
-            break;
-          case g_db::EmptyFileReason::noMatchingReads:
-            reason = "No reads match query";
-            break;
+        case g_db::EmptyFileReason::contigAbsent:
+          reason = "File does not contain contig";
+          break;
+        case g_db::EmptyFileReason::noReadsAtLocus:
+          reason = "File has no reads at locus";
+          break;
+        case g_db::EmptyFileReason::noMatchingReads:
+          reason = "No reads match query";
+          break;
         }
         e2::write_string (
-            seqWriteHead, seqWriteLim.x, std::string (reason),
-            {.fg = TB_DIM}
+            seqWriteHead, seqWriteLim.x, std::string (reason), dim
         );
         seqWriteHead.y++;
         ++nUnitsDrawn;
@@ -1055,15 +1072,14 @@ void draw_main_to_buffer()
                 pileupScreenXPos,
                 first (g_browsr::alnPaneDataBox.yspan) - 1
             },
-            '|', {.fg = TB_DIM}
+            '|', dim
         );
       }
       /* end draw crosshair */
     }
     else if (!multiAln) {
       e2::write_string (
-          seqWriteHead, seqWriteLim.x, "No reads match query",
-          {.fg = TB_DIM}
+          seqWriteHead, seqWriteLim.x, "No reads match query", dim
       );
     }
     /* end draw query data */
@@ -1085,7 +1101,7 @@ void draw_main_to_buffer()
     if (size (writeLine) > locusInfoWidth) {
       writeHead.x += e2::write_string (writeHead, writeLim, locusStr);
       writeHead.x++;  // space
-      set (writeHead, tui_ch::vertLine, {.fg = TB_DIM});
+      set (writeHead, boxLight.vert, dim);
       writeHead.x += 2;  // past bar, then space
       writeHead.x += e2::write_string (writeHead, writeLim, spanStr);
     }
@@ -1111,7 +1127,7 @@ void draw_main_to_buffer()
         writeHead, last (body (g_cmd::contextLine)).x, qWhereS
     );
     if (!qOrderS.empty()) {
-      e2::set (writeHead, tui_ch::vertLine);
+      e2::set (writeHead, boxLight.vert);
       writeHead.x++;
       writeHead.x += e2::write_string (
           writeHead, last (g_cmd::contextLine).x, qOrderS
@@ -1119,14 +1135,16 @@ void draw_main_to_buffer()
     }
   }
   {
-    e2::set (g_cmd::msgLine, tui_ch::horzLine, dim);
+    e2::set (g_cmd::msgLine, boxLight.horz, dim);
+    auto writeHead = first (g_cmd::msgLine) + e2::dX (10);
+    e2::set (writeHead, doubleChevron, dim);
+    writeHead.x++;
+    e2::set (writeHead, ' ');
+    writeHead.x++;
     if (!g_cmd::msgBuf.empty()) {
-      const auto writeLim = last (g_cmd::msgLine);
-      auto writeHead = first (g_cmd::msgLine) + e2::dX (10);
-      e2::set (writeHead, tui_ch::doubleChevron, dim);
-      writeHead.x++;
       e2::write_string (
-          writeHead, writeLim.x, fmt::format (" {} ", g_cmd::msgBuf), dim
+          writeHead, last (g_cmd::msgLine).x,
+          fmt::format ("{} ", g_cmd::msgBuf), dim
       );
     }
   }
@@ -1162,15 +1180,15 @@ void draw_overlay_to_buffer()
   clear (box);
   clear (frame);
 
-  set (edgeAB (frame), tui_ch::horzLine);
-  set (edgeBC (frame), tui_ch::vertLine);
-  set (edgeCD (frame), tui_ch::horzLine);
-  set (edgeDA (frame), tui_ch::vertLine);
+  set (edgeAB (frame), boxLight.horz);
+  set (edgeBC (frame), boxLight.vert);
+  set (edgeCD (frame), boxLight.horz);
+  set (edgeDA (frame), boxLight.vert);
 
-  set (vertexA (frame), tui_ch::topLeftRoundCorner);
-  set (vertexB (frame), tui_ch::topRightRoundCorner);
-  set (vertexD (frame), tui_ch::bottomLeftRoundCorner);
-  set (vertexC (frame), tui_ch::bottomRightRoundCorner);
+  set (vertexA (frame), boxLight.leftTop);
+  set (vertexB (frame), boxLight.rightTop);
+  set (vertexD (frame), boxLight.leftBottom);
+  set (vertexC (frame), boxLight.rightBottom);
 
   const auto lnN = height (box);
   const auto maxLnOff =
@@ -1181,20 +1199,15 @@ void draw_overlay_to_buffer()
 
   auto writeHead = vertexA (frame) + e2::dX (1);
   auto xEnd = last (box.xspan) - 1;  // leave a gap before the border
-  writeHead.x += e2::write_string (
-      writeHead, xEnd, " q: close overlay ", {.fg = TB_DIM}
-  );
+  writeHead.x += e2::write_string (writeHead, xEnd, " ESC: close ", dim);
   writeHead.x += 3;
   if (lnN < std::ssize (content)) {
-    e2::write_string (
-        writeHead, xEnd, "Up / Down: scroll", {.fg = TB_DIM}
-    );
+    e2::write_string (writeHead, xEnd, "Up / Down: scroll", dim);
     if (lnOff < maxLnOff) {
       writeHead = vertexC (frame) - e2 ::dX (7);
-      writeHead.x += e2::write_string (
-          writeHead, vertexC (frame).x, "scroll", {.fg = TB_DIM}
-      );
-      e2::set (writeHead, tui_ch::downArrow);
+      writeHead.x +=
+          e2::write_string (writeHead, vertexC (frame).x, "scroll", dim);
+      e2::set (writeHead, downArrow);
     }
   }
 

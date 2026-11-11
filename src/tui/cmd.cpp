@@ -559,8 +559,9 @@ static constexpr Cmd helpCmd{
       if (!size_and_set_overlay_widget (content)) {
         return {false, CMD_FMT_FAIL ("terminal too small to display help pane")};
       }
-      g_ui::showOverlay = true;
-      return {true, {}};
+      apb_log::log_push("focusing overlay");
+      tui_state::focus = tui_state::focus_mode_t::overlayMode;
+      return {true, CMD_GENERIC_SUCCESS};
     }
 };
 

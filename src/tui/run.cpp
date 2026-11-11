@@ -134,7 +134,7 @@ int run_tui (sqlite3* conn)
       }
       else {
         draw_main_to_buffer();
-        if (g_ui::showOverlay) {
+        if (tui_state::focus == tui_state::focus_mode_t::overlayMode) {
           // For help overlays
           draw_overlay_to_buffer();
         }
@@ -153,6 +153,9 @@ int run_tui (sqlite3* conn)
         return EXIT_FAILURE;
       }
     }
+    apb_log::log_push (
+        fmt::format ("focus: {}", to_string (tui_state::focus))
+    );
   }
   tb_cleanup.invoke();
 
