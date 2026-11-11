@@ -21,7 +21,7 @@ The in-app command prompt is capable of highly complex queries, but is tuned to 
 
 ![apb screencap](apb-screencap-0.4.0.png)
 
-The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the prompt (`WHERE`), including the count of reads matching the query.  
+The TUI is split into 2 major regions. Focus can be switched between each reagion with `Esc`. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the prompt (`WHERE`), including the count of reads matching the query.  
 
 In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
 
