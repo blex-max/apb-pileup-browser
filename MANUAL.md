@@ -1,7 +1,7 @@
 
 # apb Manual - A Pileup Browser
 
-This is the manual for apb version 0.5.0. This manual is generated directly from the apb binary.
+This is the manual for apb version 0.5.1. This manual is generated directly from the apb binary.
 If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool.
 
 If you are reading this manual from a file on disk (rather than the webpage hosted with the apb GitHub repo), it is recommended to read this manual using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
