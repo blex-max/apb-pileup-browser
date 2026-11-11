@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## v0.5.1
+
+Patch to make modal interface clearer in helptext
+
 ## v0.5.0
 
 apb now has a modal interface. `Esc` switches focus between the read viewer and the command prompt. This removes the need for so many unique keybindings to cover both the viewer and the prompt at once. Some of these bindings have been found to be unreliable across different setups and terminal emulators, so this change should hopefully address that problem.
