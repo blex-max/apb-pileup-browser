@@ -10,10 +10,10 @@ apb is subject to change pending user feedback until the 1.0 release. Some aspec
 
 ## 1) Overview
 
-Given one or more alignment files and a genomic locus apb retrieves all reads aligned to that locus and loads the reads into a fast, queryable database. The TUI then displays the aligned reads alongside user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command line at which you can enter commands to query the reads or change the display. The display and command line can be navigated via simple arrow key navigation.
+Given one or more alignment files and a genomic locus apb retrieves all reads aligned to that locus and loads the reads into a fast, queryable database. The TUI then displays the aligned reads alongside user-selected data for each read (e.g. mapping quality, leftmost alignment position, etc.), and provides a command prompt at which you can enter commands to query the reads or change the display. The display and command prompt can be navigated via simple arrow key navigation.
 
 **IMPORTANT**:  
-apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at the command line.
+apb displays all coordinate data in 1-based closed coordinates. This includes the LOCUS argument passed at startup to the CLI.
 
 ## 2) CLI Usage
 
@@ -27,48 +27,55 @@ See the helptext from `apb --help` for the canonical guide to the CLI. Some addi
 
 ## 3) TUI Usage
 
-On starting apb you will enter the TUI. The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a table of per-read data. Information about the pileup locus is displayed at the top left of the alignment viewer. At the bottom you have a command line at which you can enter commands to query the reads and control the display. Commands are typed at the command promt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the command line, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
+On starting apb you will enter the TUI. The TUI is split into 3 major regions. On the left you have an alignment viewer; on the right you have a table of per-read data. Information about the pileup locus is displayed at the top left of the alignment viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command promt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
 
 ### 3.1) Basic Navigation
 
-The alignment view (i.e. the reads) are scrolled up/down with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. Normal typing goes directly to the command line at the bottom of the TUI. `Enter` dispatches the command. This reference is also available via `help nav` at the in-app command line.
+apb has a modal interface, which means that the way the program responds to your input depends on which mode you are in. There are only two major modes: `browser`, for viewing the reads in the alignment pane, and `prompt`, for controlling the command prompt. You can switch between modes with the `Esc` key, and the current mode is always beneath the alignment pane as `focused: <mode>`.
+
+In browser mode, the alignment viewer is scrolled and panned with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. In prompt mode, normal typing goes directly to the prompt at the `>`, and `Enter` dispatches a typed command. Keyboard shortcuts are provided for easily navigating and editing text while in prompt mode.
+
+The following reference table is also available via `help nav` at the prompt:
 
 ```
  M-: Alt | C-: Ctrl | S-: Shift                     
                                                     
- BROWSER PANE                                       
+ ALWAYS ACTIVE:                                     
+  Esc               change focus/mode between the   
+                    alignment viewer and the prompt 
+  C-c               quit apb                        
+                                                    
+ FOCUS: BROWSER                                     
   Up / Down         scroll one row                  
-  S-Left / S-Right  pan alignment view side-to-side 
+  Left / Right      pan alignment view side-to-side 
   PgUp / PgDn       scroll one page                 
                                                     
- COMMAND LINE (readline-based)                      
+ FOCUS: PROMPT                                      
+  C-w               recall where clause to command  
+                    line                            
+  C-o               recall order by clause to       
+                    to command line                 
+  C-/               undo last modification to       
+                    query                           
+                                                    
   Enter             submit command                  
   Left / Right      move cursor                     
+  Up / Down         scroll command history          
   C-Left / C-Right                                  
   M-Left / M-Right                                  
   M-b / M-f         back / forward one word         
   C-a / C-e                                         
   Home / End        start / end of line             
-  Bksp / Del        delete char back / forward      
+  Bksp / C-d        delete char back / forward      
   M-Bksp / M-d      delete word back / forward      
   C-k / C-u         delete to end / start of line   
-  C-p / C-n         scroll command history          
-  C-c               clear input, else quit apb      
-                                                    
- QUERY MANAGEMENT                                   
-  C-w               recall where clause of current  
-                    query to command line.          
-  C-o               recall order by clause of       
-                    current query to command line.  
-  C-/               undo last modification to       
-                    query.                          
 ```
-
-Ctrl-C clears the command line if any input is present, and exits the program otherwise.
 
 ### 3.2) Command Reference
 
-Every command submitted at the command line is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use. This reference is built directly from the command implementation in src and is also available via `help cmd` at the in-app command line.
+Every command submitted at the prompt is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use.
+
+The following reference table is is also available via `help cmd` at the prompt.
 
 ```
  COMMAND REFERENCE
@@ -79,7 +86,7 @@ Every command submitted at the command line is interpreted like `<command> [args
 
   `quit `:
     Exit the browser.
-     aliases: q, exit
+     aliases: q, exit, close
 
   `where [condition]`:
     Start a new WHERE clause, overwriting
@@ -137,7 +144,9 @@ Every command submitted at the command line is interpreted like `<command> [args
 
 ### 3.3) Column Reference
 
-For each read, the database stores the columns detailed below. All columns are queryable in `where`/`order by`/`count` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format. This reference table is also available via `help col` at the in-app command line.
+For each read, the database stores the columns detailed below. All columns are queryable in `where`/`order by`/`count` commands. If the content of a column is not clearly displayed by the alignment view, the column can be displayed alongside the reads in tabular format.
+
+The following reference table is also available via `help col` at the prompt.
 
 ```
 
@@ -246,15 +255,15 @@ The apb query commands provide a simple wrapper around (sqlite3-based) SQL. This
 
 If this is your first time using apb, you may find it useful to walk through the following example in the demo mode, which can be accessed at the CLI by `apb --demo`. The numbers will not exactly match the examples as the examples are only illustrative.
 
-Imagine we are inspecting a candidate SNV variant locus. We may start by filtering the pileup to only reads which the caller should consider. Specifics will vary by caller, but a common starting point is "reads which map well, have mapped mates, and aren't duplicates, qc fails, or secondary/supplementary alignments". At the command line we enter:
+Imagine we are inspecting a candidate SNV variant locus. We may start by filtering the pileup to only reads which the caller should consider. Specifics will vary by caller, but a common starting point is "reads which map well, have mapped mates, and aren't duplicates, qc fails, or secondary/supplementary alignments". At the command prompt we enter:
 ```
 where mapq > 0 AND (flag & 3848) = 0;
 ```
-This is an SQL WHERE clause - essentially a filter. The browser will update to show only reads matching that filter, and the status line will now show:
+This is an SQL WHERE clause - essentially a filter. The alignment viewer will update to show only reads matching that filter, and the status line will now show:
 ```
 - WHERE mapq > 0 AND (flag & 3848) = 0: 76/100 reads
 ```
-Let's say our candidate SNV is A->T. We can sort the reads to group reads expressing the variant base at the pileup locus and view them in the alignment pane:
+Let's say our candidate SNV is A->T. We can sort the reads to group reads expressing the variant base at the pileup locus and view them in the alignment viewer:
 ```
 order by base IS 'T' DESC
 ```
@@ -262,13 +271,13 @@ This is an SQL ORDER BY clause - essentially a sort. DESC is simply the SQL keyw
 ```
 - WHERE mapq > 0 AND (flag & 3848) = 0: 76/100 reads │ ORDER BY base IS 'T' DESC
 ```
-The alignment pane now shows only reads matching our WHERE condition, grouped by our ORDER BY condition. We may now explore the pileup visually for any properties of interest, e.g. if most of the reads supporting the variant are soft-clipped.
+The alignment pane now shows only reads matching our WHERE condition, grouped by our ORDER BY condition. We may now explore the pileup visually for any properties of interest, e.g. if most of the reads supporting the variant are soft-clipped. Switch to the alignment viewer with `Esc`, and switch back to the prompt with `Esc` again when finished.
 
 After exploring the pileup, it can be useful to quantify the locus in more detail. For example, to count the number of reads exhibiting the variant:
 ```
 count base IS 'T'
 ```
-This will return a message below the command line:
+This will return a message below the prompt at `»`:
 ```
 - base IS 'T' / mapq > 0 AND (flag & 3848) = 0: 24/76 reads
 ```
@@ -280,11 +289,11 @@ returning:
 ```
 - base IS 'T': 28/100 reads
 ```
-From this we may conclude that four reads exhibit the variant, but are filtered out by our current WHERE clause on `mapq` and `flag`. We may consider relaxing our requirement that the mate must be mapped to see if this brings any of those four reads into view. To do so, we can simply grab the current WHERE clause from the status bar with `Ctrl-w`. This places it in the command line, where we may edit and resubmit:
+From this we may conclude that four reads exhibit the variant, but are filtered out by our current WHERE clause on `mapq` and `flag`. We may consider relaxing our requirement that the mate must be mapped to see if this brings any of those four reads into view. To do so, we can simply grab the current WHERE clause from the status bar with `Ctrl-w`. This recalls it to the prompt, where we may edit and resubmit:
 ```
 where mapq > 0 AND (flag & 3840 /* edited from 3848 */ ) = 0;
 ```
-Editing the query is made easy by using the readline-style editing commands detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb. See the next section for further examples and snippets.
+Editing the query is made easy by using the editing key shortcuts detailed in Section 3.1. This concludes the example, but is by no means the limit of what you can do with apb. See the next section for further examples and snippets.
 
 **IMPORTANT**:  
 `flag` is a bitmask of read properties defined by the SAM format - see https://broadinstitute.github.io/picard/explain-flags.html from the Broad Institute, which both explains the meaning of the flag bits and allows you to calcuate the number (like 3848) which corresponds to a particular set of properties. See https://www.w3schools.com/programming/prog_operators_bitwise.php for a quick introduction to bitmask syntax. SQLite supports the bitwise and, or, and not.
@@ -391,7 +400,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 ---
 
-## Addenda
+## Addenda & Troubleshooting
 
 ### The `dump` Functionality
 
@@ -413,15 +422,15 @@ If you are using apb to compare to data as seen in htslib `bam1_t` and `bam_pile
 
 ### macOS Terminal App Users
 
-The Alt-based command line keybinds (M-b, M-f, M-d and M-Bksp) require the terminal to send Option as Meta. In Terminal, enable "Use Option as Meta key" under Settings > Profiles > Keyboard.
+All Alt-based keybinds (e.g. M-b, M-f, M-d) require the terminal to send Option as Meta. In Terminal, enable "Use Option as Meta key" under Settings > Profiles > Keyboard.
 
 ### Platform Keybind Differences
 
-Some command line and navigation keys depend on your keyboard and terminal.
+Some keybindings depend on your keyboard and terminal.
 
-On a mac laptop keyboard, use `fn-Left` and `fn-Right` for Home and End, `fn+up` and `fn-Down` for Page Up and Page Down, and `fn-Delete` for forward Delete. macOS uses `Ctrl-Left` and `Ctrl-Right` to switch Spaces, so these may not reach apb. If so, use `Option-Left` and `Option-Right`, or `Option-b` and `Option-f`, to move by word instead.
+On a mac laptop keyboard, use `fn-Left` and `fn-Right` for Home and End, `fn+up` and `fn-Down` for Page Up and Page Down. macOS swallows `Ctrl-Left` and `Ctrl-Right` by default, so these may not reach apb. If so, use `Option-Left` and `Option-Right`, or `Option-b` and `Option-f`, to move by word instead.
 
-On Linux and Windows terminals, Alt-based keybinds generally work without extra configuration.
+On Linux and Windows terminals, Most keybinds generally work without extra configuration.
 
 ### Fonts
 
