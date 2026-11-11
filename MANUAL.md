@@ -1,7 +1,7 @@
 
 # apb Manual - A Pileup Browser
 
-This is the manual for apb version 0.5.0. This manual is generated directly from the apb binary.
+This is the manual for apb version 0.5.1. This manual is generated directly from the apb binary.
 If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool.
 
 If you are reading this manual from a file on disk (rather than the webpage hosted with the apb GitHub repo), it is recommended to read this manual using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
@@ -33,7 +33,7 @@ On starting apb you will enter the TUI. The TUI is split into 2 major regions. A
 
 apb has a modal interface, which means that the way the program responds to your input depends on which mode you are in. There are only two major modes: `viewer`, for viewing the reads in the read viewer, and `prompt`, for controlling the command prompt. You can switch between modes with the `Esc` key, and the current mode is always beneath the read viewer as `focused (Esc): <mode>`.
 
-In viewer mode, the read viewer is scrolled, and the alignment pane panned, with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. In prompt mode, normal typing goes directly to the prompt at the `>`, and `Enter` dispatches a typed command. Keyboard shortcuts are provided for easily navigating and editing text while in prompt mode.
+In viewer mode, the read viewer is scrolled, and the alignment pane panned, with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. In prompt mode, commands are typed and edited at the `>`, and `Enter` dispatches the input as a command. Queries, detailed in section 3.4, are submitted via the prompt. Keyboard shortcuts are provided for easily navigating and editing text while in prompt mode.
 
 The following reference table is also available via `help nav` at the prompt:
 
