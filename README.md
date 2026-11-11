@@ -1,11 +1,13 @@
 # `apb` - A Pileup Browser
 
+APB ONLINE MANUAL: https://blex-max.github.io/apb-pileup-browser/
+
 `apb` is a terminal genome browser tailored to exploratory viewing of specifc loci, and flexible querying of aligned reads.
 It is chiefly designed for verification and investigation of variant calls, but can be used to inspect the reads at any locus.
 The in-app command prompt is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
 
 **Advantages:**
-- Powerful SQL-based query syntax for intuitive investigation.
+- Powerful SQL-based query syntax for intuitive exploration.
 - Highly performant and responsive
   - On a 100k read pileup:
     - Keypress response: ~0.1ms.
