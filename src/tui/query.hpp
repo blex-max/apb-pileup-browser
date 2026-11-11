@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-// User-supplied query components input at command line
+// User-supplied query components input at command prompt
 struct QueryFragments {
   std::string where;
   std::string orderBy;

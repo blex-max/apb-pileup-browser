@@ -83,8 +83,11 @@ options:
   apb displays all coordinate data in
   1-based closed coordinates.
 
- On startup your cursor will be focused at the in-app
- command line at the bottom of the TUI.
+ On startup you will be focused at the in-app
+ command prompt at the bottom of the TUI.
+ Try typing "help" and submitting with Enter,
+ or focus the read viewer with Esc and navigate
+ with the arrow keys.
  Press Ctrl-C to quit.
 
  See README.md for project background and development

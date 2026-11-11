@@ -1,11 +1,13 @@
 # `apb` - A Pileup Browser
 
+APB ONLINE MANUAL: https://blex-max.github.io/apb-pileup-browser/
+
 `apb` is a terminal genome browser tailored to exploratory viewing of specifc loci, and flexible querying of aligned reads.
 It is chiefly designed for verification and investigation of variant calls, but can be used to inspect the reads at any locus.
-The built-in command line is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
+The in-app command prompt is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
 
 **Advantages:**
-- Powerful SQL-based query syntax for intuitive investigation.
+- Powerful SQL-based query syntax for intuitive exploration.
 - Highly performant and responsive
   - On a 100k read pileup:
     - Keypress response: ~0.1ms.
@@ -19,7 +21,7 @@ The built-in command line is capable of highly complex queries, but is tuned to 
 
 ![apb screencap](apb-screencap-0.4.0.png)
 
-The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command line at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the command line (`WHERE`), including the count of reads matching the query.  
+The TUI is split into 2 major regions. Focus can be switched between each reagion with `Esc`. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the prompt (`WHERE`), including the count of reads matching the query.  
 
 In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
 
@@ -86,11 +88,12 @@ General suggestions regarding improvements to commands and navigation are also a
 - Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
   e.g. `where read_contains(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
   This is not plausible in direct SQL. Exact syntax TBD!
-- Various convenience features when writing queries at the command line, e.g. for doing `flag` comparisons without having to use bitwise operators.
+- Various convenience features when writing queries at the command prompt, e.g. for doing `flag` comparisons without having to use bitwise operators.
 - Headless querying, to get results for a query known ahead of time without dropping into the TUI.
   - Output format requires consideration.
   - This would allow use of apb programatically.
   - It may also be possible to expose apb as a library to scripting languages.
+- Display of reads aligned to adjacent bases at the specified locus.
 
 ### Speculative Features
 
@@ -108,7 +111,6 @@ These are items that I think might be useful and could implement, but am unlikel
     this 3-col format. e.g. for VCF `bcftools view my.vcf | awk <extract columns and create id> > loci.txt`
   - For common cases like VCF to loci, examples of the necessary awk/cut/sed could be provided in the manual for those who are
     not familiar with those tools.
-- Display of reads aligned to adjacent bases at the specified locus.
 
 ## Development
 
