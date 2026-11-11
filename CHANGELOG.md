@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## v0.5.0
+
+A fairly small release focused on compatibility issues.
+
+### Highlights:
+
+apb now has a modal interface. `Esc` switches focus between the read viewer and the command prompt. This removes the need for so many unique keybindings to cover both the viewer and the prompt at once. Some of these bindings have been found to be unreliable across different setups and terminal emulators, so this change should hopefully address that problem.
+
+Both the read viewer and the command prompt are now navigated by unmodifed arrow keys, which feels more intuitive. See `help nav` for the keybindings for each mode, or consult the manual.
+
+- Esc now switches between modes.
+- Ctrl-C always quits.
+- Up/Down replace C-p/C-n for command history when the prompt is focused.
+- Left/Right replace Shift-Left/Right for panning when the read viewer is focused.
+- The help overlay closes with Esc, not `q`.
+- The `quit` command is now available again at the prompt.
+- `--log` now takes a PATH.
+
 ## v0.4.0
 
 ### Highlights:

@@ -29,7 +29,7 @@
 namespace e2 = extb;
 
 namespace g_db = tui_state::db;
-namespace g_browsr = tui_state::ui::browsr;
+namespace g_viewer = tui_state::ui::viewer;
 namespace g_cmd = tui_state::ui::cmd;
 namespace g_overlay = tui_state::ui::overlay;
 namespace g_ui = tui_state::ui;
@@ -137,11 +137,11 @@ constinit std::array<ColMetadata, 10> tableCols{{
 
 namespace {
 
-bool browser_widget_is_valid()
+bool viewer_widget_is_valid()
 {
-  return valid (g_browsr::frame) &&
-         size (g_browsr::frame.xspan) >= g_ui::kMinWidth &&
-         size (g_browsr::frame.yspan) >= g_browsr::kMinWidgetHeight;
+  return valid (g_viewer::frame) &&
+         size (g_viewer::frame.xspan) >= g_ui::kMinWidth &&
+         size (g_viewer::frame.yspan) >= g_viewer::kMinWidgetHeight;
 };
 bool cmd_widget_is_valid()
 {
@@ -150,12 +150,12 @@ bool cmd_widget_is_valid()
          size (g_cmd::frame.yspan) == g_cmd::kWidgetHeight;
 };
 
-#define APB_ASSERT_MAIN_UI_VALID            \
-  do {                                      \
-    TUI_ASSERT (tb_width() > 0);            \
-    TUI_ASSERT (tb_height() > 0);           \
-    TUI_ASSERT (browser_widget_is_valid()); \
-    TUI_ASSERT (cmd_widget_is_valid());     \
+#define APB_ASSERT_MAIN_UI_VALID           \
+  do {                                     \
+    TUI_ASSERT (tb_width() > 0);           \
+    TUI_ASSERT (tb_height() > 0);          \
+    TUI_ASSERT (viewer_widget_is_valid()); \
+    TUI_ASSERT (cmd_widget_is_valid());    \
   } while (false)
 
 #define APB_ASSERT_BOX_NONEMPTY(box)             \
@@ -237,7 +237,7 @@ bool size_main_widgets()
   const auto screenW = tb_width();
   const auto screenH = tb_height();
   if (tb_width() < g_ui::kMinWidth ||
-      tb_height() < g_cmd::kWidgetHeight + g_browsr::kMinWidgetHeight) {
+      tb_height() < g_cmd::kWidgetHeight + g_viewer::kMinWidgetHeight) {
     return false;
   }
 
@@ -254,9 +254,9 @@ bool size_main_widgets()
   }
 
   {
-    g_browsr::frame = e2::Box{screenX, mainY};
+    g_viewer::frame = e2::Box{screenX, mainY};
     // skip header, separator.
-    g_browsr::headerSep = {
+    g_viewer::headerSep = {
         screenX, first (body (mainY)) + 1
     };  // overlapping frame in X, to set connectors
   }
@@ -286,7 +286,7 @@ bool size_main_widgets()
 }
 // --- end sizing --- //
 
-// --- draw browser pane --- //
+// --- draw read viewer --- //
 
 namespace draw_table {
 
@@ -775,14 +775,14 @@ void draw_main_to_buffer()
   APB_ASSERT_MAIN_UI_VALID;
   TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
   {
-    /* --- draw browser chrome --- */
+    /* --- draw read viewer chrome --- */
     const auto* style = &dim;
     const auto* boxCh = &boxLight;
-    if (tui_state::focus == browserMode) {
+    if (tui_state::focus == viewerMode) {
       style = &bold;
       boxCh = &boxDouble;
     }
-    const auto& bFrame = g_browsr::frame;
+    const auto& bFrame = g_viewer::frame;
     set (edgeAB (bFrame), boxLight.horz, *style);
     set (edgeCD (bFrame), boxLight.horz, *style);
     set (edgeDA (bFrame), boxCh->vert, *style);
@@ -790,14 +790,15 @@ void draw_main_to_buffer()
     set (vertexA (bFrame), boxCh->leftTop, *style);
     set (vertexB (bFrame), boxCh->rightTop, *style);
 
-    set (body (g_browsr::headerSep), boxLight.horz, dim);
-    set (first (g_browsr::headerSep), rightTConnect, dim);
+    set (body (g_viewer::headerSep), boxLight.horz, dim);
+    set (first (g_viewer::headerSep), rightTConnect, dim);
 
-    set (last (g_browsr::headerSep), leftTConnect, dim);
+    set (last (g_viewer::headerSep), leftTConnect, dim);
 
     e2::write_string (
         first (edgeCD (bFrame)) + e2::dX (2), last (edgeCD (bFrame)).x,
-        fmt::format ("focused: {}", to_string (tui_state::focus)), dim
+        fmt::format ("focused (Esc): {}", to_string (tui_state::focus)),
+        dim
     );
   }
   {
@@ -842,14 +843,14 @@ void draw_main_to_buffer()
     // view.
     constexpr int minAlnPaneWidth = 1;
     const auto maxTableWidth = static_cast<uint16_t> (
-        std::max (0, size (g_browsr::frame.xspan) - 2 - minAlnPaneWidth)
+        std::max (0, size (g_viewer::frame.xspan) - 2 - minAlnPaneWidth)
     );
     tableWidth = std::min (tableWidth, maxTableWidth);
     // No visible columns leaves nothing to lay the table pane out
     // with; fall back to the no-table-pane layout below.
     const bool showTable = g_ui::drawTable && tableWidth > 0;
 
-    const auto& [frameX, frameY] = spans (g_browsr::frame);
+    const auto& [frameX, frameY] = spans (g_viewer::frame);
     const auto& contentX = body (frameX);
     const auto& contentY = body (frameY);
     // skip header, separator.
@@ -860,37 +861,37 @@ void draw_main_to_buffer()
       e2::Span alnPaneX{first (contentX), splitAbsX};
       e2::Span tablePaneX{splitAbsX + 1, last (contentX)};
 
-      g_browsr::alnPaneRefLine = {alnPaneX, first (contentY)};
-      g_browsr::tablePaneHeaderLine = {tablePaneX, first (contentY)};
-      g_browsr::alnPaneDataBox = {alnPaneX, dataY};
-      g_browsr::tablePaneDataBox = {tablePaneX, dataY};
-      g_browsr::vSep = {
+      g_viewer::alnPaneRefLine = {alnPaneX, first (contentY)};
+      g_viewer::tablePaneHeaderLine = {tablePaneX, first (contentY)};
+      g_viewer::alnPaneDataBox = {alnPaneX, dataY};
+      g_viewer::tablePaneDataBox = {tablePaneX, dataY};
+      g_viewer::vSep = {
           splitAbsX, construct_relative (frameY, 0, size (frameY))
       };
 
       TUI_ASSERT (
-          valid (g_browsr::tablePaneHeaderLine),
-          g_browsr::tablePaneHeaderLine
+          valid (g_viewer::tablePaneHeaderLine),
+          g_viewer::tablePaneHeaderLine
       );
       TUI_ASSERT (
-          size (g_browsr::tablePaneHeaderLine) > 0,
-          size (g_browsr::tablePaneHeaderLine)
+          size (g_viewer::tablePaneHeaderLine) > 0,
+          size (g_viewer::tablePaneHeaderLine)
       );
-      APB_ASSERT_BOX_NONEMPTY (g_browsr::tablePaneDataBox);
+      APB_ASSERT_BOX_NONEMPTY (g_viewer::tablePaneDataBox);
     }
     else {
-      g_browsr::tablePaneHeaderLine = {};  // invalid
-      g_browsr::tablePaneDataBox = {};
-      g_browsr::vSep = {};
+      g_viewer::tablePaneHeaderLine = {};  // invalid
+      g_viewer::tablePaneDataBox = {};
+      g_viewer::vSep = {};
 
-      g_browsr::alnPaneRefLine = {contentX, first (contentY)};
-      g_browsr::alnPaneDataBox = {contentX, dataY};
+      g_viewer::alnPaneRefLine = {contentX, first (contentY)};
+      g_viewer::alnPaneDataBox = {contentX, dataY};
     }
-    APB_ASSERT_BOX_NONEMPTY (g_browsr::alnPaneDataBox);
+    APB_ASSERT_BOX_NONEMPTY (g_viewer::alnPaneDataBox);
     /* end size dynamic widgets */
 
     /* configure/validate draw coordinates */
-    const auto alnPaneHalfWidth = width (g_browsr::alnPaneDataBox) / 2;
+    const auto alnPaneHalfWidth = width (g_viewer::alnPaneDataBox) / 2;
     // Offset needed for the pane's left edge to reach
     // db.locusInfo.start. Can be positive when there isn't room
     // to center on pos, e.g. a locus near the start of its contig, or reads
@@ -901,11 +902,11 @@ void draw_main_to_buffer()
         g_db::locusInfo.end - alnPaneHalfWidth - g_db::locusInfo.pos,
         marginToPileupStart  // keep clamp's [lo, hi] non-empty
     );
-    g_browsr::userPanOffset = std::clamp (
-        g_browsr::userPanOffset, marginToPileupStart, marginToPileupEnd
+    g_viewer::userPanOffset = std::clamp (
+        g_viewer::userPanOffset, marginToPileupStart, marginToPileupEnd
     );
     const auto alnPaneLeftmostGPos =
-        g_db::locusInfo.pos - alnPaneHalfWidth + g_browsr::userPanOffset;
+        g_db::locusInfo.pos - alnPaneHalfWidth + g_viewer::userPanOffset;
     TUI_ASSERT (alnPaneLeftmostGPos >= 0, alnPaneLeftmostGPos);
     /* end coordinates */
 
@@ -919,10 +920,10 @@ void draw_main_to_buffer()
       const int64_t startDrawX = std::max<int64_t> (0, offsetToLocusStart);
 
       e2::write_string (
-          {first (g_browsr::alnPaneRefLine.xspan) +
+          {first (g_viewer::alnPaneRefLine.xspan) +
                static_cast<int> (startDrawX),
-           g_browsr::alnPaneRefLine.y},
-          last (g_browsr::alnPaneRefLine.xspan),
+           g_viewer::alnPaneRefLine.y},
+          last (g_viewer::alnPaneRefLine.xspan),
           g_db::locusInfo.refSlice->substr (
               static_cast<size_t> (skipRefBases)
           )
@@ -930,17 +931,17 @@ void draw_main_to_buffer()
     }
 
     if (showTable) {
-      draw_table::header (g_browsr::tablePaneHeaderLine, activeCols);
-      draw_table::row_separators (g_browsr::tablePaneDataBox, activeCols);
+      draw_table::header (g_viewer::tablePaneHeaderLine, activeCols);
+      draw_table::row_separators (g_viewer::tablePaneDataBox, activeCols);
       /* draw pane separator */
-      set (body (g_browsr::vSep), boxLight.vert, dim);
-      set (first (g_browsr::vSep), downTConnect, dim);
-      set (last (g_browsr::vSep), upTConnect, dim);
+      set (body (g_viewer::vSep), boxLight.vert, dim);
+      set (first (g_viewer::vSep), downTConnect, dim);
+      set (last (g_viewer::vSep), upTConnect, dim);
     }
 
     /* iteratively draw query data */
-    auto seqWriteHead = vertexA (g_browsr::alnPaneDataBox);
-    auto seqWriteLim = vertexC (g_browsr::alnPaneDataBox) +
+    auto seqWriteHead = vertexA (g_viewer::alnPaneDataBox);
+    auto seqWriteLim = vertexC (g_viewer::alnPaneDataBox) +
                        e2::dXY (1, 1);  // exclusive limit
     const draw_aln::Seq1FrameArgs seq1Frame{
         .writeStartX = static_cast<int16_t> (seqWriteHead.x),
@@ -949,8 +950,8 @@ void draw_main_to_buffer()
     };
     TUI_ASSERT (seq1Frame.valid(), seq1Frame.to_string());
     const draw_table::Row1FrameArgs row1Frame{
-        .writeXStart = first (g_browsr::tablePaneDataBox.xspan),
-        .writeXLimit = last (g_browsr::tablePaneDataBox.xspan),
+        .writeXStart = first (g_viewer::tablePaneDataBox.xspan),
+        .writeXLimit = last (g_viewer::tablePaneDataBox.xspan),
         .cols = activeCols,
     };
     TUI_ASSERT (row1Frame.valid(), row1Frame.to_string());
@@ -1051,26 +1052,26 @@ void draw_main_to_buffer()
       }
     }
 
-    g_browsr::nUnitsOnscreen = nUnitsDrawn;
+    g_viewer::nUnitsOnscreen = nUnitsDrawn;
     if (g_db::nStmtRows > 0) {
       /* draw crosshair */
       if (const int64_t pileupScreenXPosWide =
-              first (g_browsr::alnPaneDataBox.xspan) + alnPaneHalfWidth -
-              g_browsr::userPanOffset;
-          pileupScreenXPosWide >= first (g_browsr::alnPaneDataBox.xspan) &&
-          pileupScreenXPosWide < last (g_browsr::alnPaneDataBox.xspan)) {
+              first (g_viewer::alnPaneDataBox.xspan) + alnPaneHalfWidth -
+              g_viewer::userPanOffset;
+          pileupScreenXPosWide >= first (g_viewer::alnPaneDataBox.xspan) &&
+          pileupScreenXPosWide < last (g_viewer::alnPaneDataBox.xspan)) {
         // if user has not scrolled crosshair offscreen:
         const auto pileupScreenXPos =
             static_cast<int16_t> (pileupScreenXPosWide);
         e2::VLine pileupCrosshair{
-            pileupScreenXPos, g_browsr::alnPaneDataBox.yspan
+            pileupScreenXPos, g_viewer::alnPaneDataBox.yspan
         };
         add_attr (pileupCrosshair, {.fg = TB_REVERSE});
         // draw marker linking reference base and query position of pileup
         set (
             e2::GlobalCell{
                 pileupScreenXPos,
-                first (g_browsr::alnPaneDataBox.yspan) - 1
+                first (g_viewer::alnPaneDataBox.yspan) - 1
             },
             '|', dim
         );
@@ -1088,7 +1089,7 @@ void draw_main_to_buffer()
   {
     // draw locus label
     const auto& locusData = g_db::locusInfo;
-    const auto& writeLine = extb::edgeAB (g_browsr::frame);
+    const auto& writeLine = extb::edgeAB (g_viewer::frame);
     auto writeHead = first (writeLine) + e2::dX (2);
     const auto writeLim = last (writeLine).x;
 

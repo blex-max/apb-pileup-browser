@@ -13,7 +13,7 @@
 #include "widgets.hpp"
 
 namespace g_db = tui_state::db;
-namespace g_browsr = tui_state::ui::browsr;
+namespace g_viewer = tui_state::ui::viewer;
 namespace g_cmd = tui_state::ui::cmd;
 namespace g_overlay = tui_state::ui::overlay;
 namespace g_ui = tui_state::ui;
@@ -56,14 +56,14 @@ void handle_event (const tb_event* ev)
       ev = &trailing;
       break;
     }
-    else if (tui_state::focus == browserMode) {
-      apb_log::log_push ("focusing prompt from browser");
+    else if (tui_state::focus == viewerMode) {
+      apb_log::log_push ("focusing prompt from viewer");
       tui_state::focus = promptMode;
       return;
     }
     else if (tui_state::focus == promptMode) {
-      apb_log::log_push ("focusing browser from prompt");
-      tui_state::focus = browserMode;
+      apb_log::log_push ("focusing viewer from prompt");
+      tui_state::focus = viewerMode;
       return;
     }
     else if (tui_state::focus == overlayMode) {
@@ -85,22 +85,22 @@ void handle_event (const tb_event* ev)
   // It would let you type looking at help. But then help must
   // not overlap overlay. In future at least, I think yes.
   switch (tui_state::focus) {
-  case browserMode: {
+  case viewerMode: {
     constexpr auto sideScrollIncrement = 3;
     auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
 
     switch (ev->key) {
     case TB_KEY_ARROW_LEFT:
       // side scroll aln pane
-      g_browsr::userPanOffset -= sideScrollIncrement;
+      g_viewer::userPanOffset -= sideScrollIncrement;
       return;
     case TB_KEY_ARROW_RIGHT:
-      g_browsr::userPanOffset += sideScrollIncrement;
+      g_viewer::userPanOffset += sideScrollIncrement;
       return;
 
     case TB_KEY_ARROW_DOWN: {
       const auto lastRowOnscreen = static_cast<uint32_t> (
-          stmtRowScrollOffset + g_browsr::nUnitsOnscreen
+          stmtRowScrollOffset + g_viewer::nUnitsOnscreen
       );
       if (lastRowOnscreen < g_db::nScrollRows()) {
         stmtRowScrollOffset++;
@@ -128,7 +128,7 @@ void handle_event (const tb_event* ev)
         return rowsInUse;
       }();
       const auto minReadsPerPage =
-          height (g_browsr::alnPaneDataBox) / rowsPerRead;
+          height (g_viewer::alnPaneDataBox) / rowsPerRead;
       stmtRowScrollOffset =
           std::max (stmtRowScrollOffset - minReadsPerPage, 0);
       return;
@@ -136,10 +136,10 @@ void handle_event (const tb_event* ev)
 
     case TB_KEY_PGDN: {
       const auto lastRowOnscreen = static_cast<uint32_t> (
-          stmtRowScrollOffset + g_browsr::nUnitsOnscreen
+          stmtRowScrollOffset + g_viewer::nUnitsOnscreen
       );
       if (lastRowOnscreen < g_db::nScrollRows()) {
-        stmtRowScrollOffset += g_browsr::nUnitsOnscreen;
+        stmtRowScrollOffset += g_viewer::nUnitsOnscreen;
       }
       return;
     }

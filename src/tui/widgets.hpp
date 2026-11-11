@@ -34,7 +34,7 @@ inline constinit bool drawSparkline = false;
 
 inline constexpr auto kMinWidth = 20;
 
-namespace browsr {
+namespace viewer {
 
 // Can't meaningfully display data below this height
 inline constexpr auto kMinWidgetHeight = 8;
@@ -50,11 +50,11 @@ inline constinit extb::Box tablePaneDataBox;
 inline constinit uint16_t nUnitsOnscreen = 0;
 inline constinit int64_t userPanOffset = 0;
 
-}  // namespace browsr
+}  // namespace viewer
 
 namespace cmd {
 
-// cmd widget has fixed height. browser widget
+// cmd widget has fixed height. viewer widget
 // scales to accomodate.
 inline constexpr auto kWidgetHeight = 3;  // inc. borders
 

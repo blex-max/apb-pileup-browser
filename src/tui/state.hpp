@@ -7,17 +7,18 @@ namespace tui_state {
 
 inline constinit bool run = true;
 
-enum class focus_mode_t : uint8_t { browserMode, promptMode, overlayMode };
+enum class focus_mode_t : uint8_t { viewerMode, promptMode, overlayMode };
 inline std::string_view to_string (focus_mode_t mode)
 {
   switch (mode) {
-  case focus_mode_t::browserMode:
-    return "browser";
+  case focus_mode_t::viewerMode:
+    return "viewer";
   case focus_mode_t::promptMode:
     return "prompt";
   case focus_mode_t::overlayMode:
     return "overlay";
   }
+  return "unknown";  // gcc -Wreturn-type
 }
 inline constinit focus_mode_t focus = focus_mode_t::promptMode;
 

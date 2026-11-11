@@ -161,7 +161,7 @@ std::vector<std::string> build_cmd_ref_table()
 static constexpr auto quitNames =
     std::to_array<std::string_view> ({"quit", "q", "exit", "close"});
 static constexpr auto quitDesc =
-    std::to_array<std::string_view> ({"Exit the browser."});
+    std::to_array<std::string_view> ({"Exit apb."});
 static constexpr Cmd quitCmd{
     quitNames, "", quitDesc,
     [] (std::string_view args) -> CmdResult {
@@ -428,7 +428,7 @@ static constexpr auto toggleDesc = std::to_array<std::string_view> ({
     "             alignment pane.",
     "- insertion: read insertion track in",
     "             alignment pane.",
-    "- table:     browser table pane.",
+    "- table:     table pane.",
     "- sparkline: switch quality track",
     "             between Phred ASCII and a",
     "             quick-look sparkline graph.",

@@ -62,6 +62,11 @@ I am almost certainly not using these reliably, but I do find them helpful.
 The pointer prefixes are mostly for use with C libraries.
 As above, I am almost certainly not using these reliably, but again I find them helpful.
 
+## Layout terminology
+
+The top widget is the "read viewer", which has an "alignment pane" on the left and a "table pane" on the right.
+The lower widget is the "command prompt".
+
 ## Dependencies
 
 Dependencies will be properly credited in the README in future.

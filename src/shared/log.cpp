@@ -103,9 +103,8 @@ void crash_dump()
     return;
   }
   if (logOut.is_open()) {
-    std::cerr << fmt::format (
-        "Attempting to dump crash log to log output"
-    );
+    std::cerr << fmt::format ("Attempting to dump crash log to log output")
+              << std::endl;
     logOut.write (curBuf, *curIdx);
     logOut.flush();
     logOut.close();
@@ -115,7 +114,7 @@ void crash_dump()
       return;
     }
     std::ofstream dumpOut;
-    dumpOut.open (crashLogPath, std::ios::app);
+    dumpOut.open (std::string{crashLogPath}, std::ios::app);
     static constexpr std::string_view crashHdr =
         "-- apb crash report --\nLog contents near crash occurence.\n";
     time_t rawTime;
@@ -123,8 +122,9 @@ void crash_dump()
     std::string timeStr{ctime (&rawTime)};
 
     std::cerr << fmt::format (
-        "Attempting to dump crash log to {}", crashLogPath
-    );
+                     "Attempting to dump crash log to {}", crashLogPath
+                 )
+              << std::endl;
     dumpOut.write (crashHdr.data(), crashHdr.size());
     dumpOut.write (timeStr.c_str(), timeStr.size());
     dumpOut.write (preBuf, *preIdx);

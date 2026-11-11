@@ -69,7 +69,7 @@ options:
                       dump to disk at PATH, and exit.
                       (invalid with --db)
   --manual            Print the apb manual to stdout and exit.
-  --log PATH          Log addtional information to PATH.
+  --log PATH          Log additional information to PATH.
                       Useful for debugging.
   -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
                       file) instead of 1-based. Not valid
@@ -84,8 +84,8 @@ options:
   1-based closed coordinates.
 
  On startup your cursor will be focused at the in-app
- command line at the bottom of the TUI. In the TUI,
- press Ctrl-C twice to quit.
+ command line at the bottom of the TUI.
+ Press Ctrl-C to quit.
 
  See README.md for project background and development
  information.
@@ -153,11 +153,8 @@ int main (int argc, char** argv)
     return EXIT_FAILURE;
   }
   const ApbCliArgs& args = *argRet;
-  if (args.logPath) {
-    apb_log::init (args.logPath.value(), '\n', args.hiddenFlushLogOnWrite);
-  }
+  apb_log::init (args.logPath, '\n', args.hiddenFlushLogOnWrite);
   Defer log_deinit ([]() { apb_log::deinit(); });
-
 
   /* config */
   // must configure before sqlite3 is initialised (which will happen

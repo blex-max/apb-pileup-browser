@@ -6,5 +6,5 @@ extern "C" {
 #include "tb2_impl.hpp"
 
 std::string_view apb_read_tb2_global_in () {
-  return std::string_view{global.in.buf};
+  return std::string_view{global.in.buf, global.in.len};
 }
