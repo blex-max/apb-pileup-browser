@@ -143,7 +143,9 @@ if(APB_BUILD_TESTS)
     src/tui/input.cpp
     src/shared/log.cpp
   )
+  add_dependencies(apb-tests apb)
   target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
+  target_compile_options(apb-tests PRIVATE -Wno-c99-designator)
   target_include_directories(apb-tests PRIVATE src tests)
   target_link_libraries(apb-tests
     PRIVATE
