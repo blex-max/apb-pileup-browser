@@ -15,75 +15,6 @@
 #include "shared/cleanup.hpp"
 #include "tui_assert.hpp"
 
-std::string PileupMetadata::to_string() const
-{
-  return fmt::format (
-      "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}", contig,
-      pos, start, end
-  );
-}
-
-PileupMetadata get_locus_data (sqlite3* conn)
-{
-  sqlite3_stmt* o_stmt = NULL;
-  if (const auto rc = sqlite3_prepare_v2 (
-          conn, schema::MetaTableSelect::sql.data(),
-          static_cast<int> (schema::MetaTableSelect::sql.size()), &o_stmt,
-          NULL
-      );
-      rc != SQLITE_OK) {
-    TUI_UNREACHABLE (
-        fmt::format (
-            "failed to prepare locus metadata query: {}",
-            sqlite3_errmsg (conn)
-        )
-    );
-  }
-  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
-
-  if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
-    TUI_UNREACHABLE (
-        fmt::format (
-            "failed to read locus metadata row: {}", sqlite3_errmsg (conn)
-        )
-    );
-  }
-
-  PileupMetadata out;
-  out.contig = {
-      reinterpret_cast<const char*> (
-          sqlite3_column_text (o_stmt, schema::MetaTableSelect::contig)
-      ),
-      static_cast<size_t> (
-          sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::contig)
-      )
-  };
-
-  out.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
-  out.start =
-      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
-  out.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
-
-  if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
-      SQLITE_NULL) {
-    out.refSlice = std::string{
-        reinterpret_cast<const char*> (
-            sqlite3_column_text (o_stmt, schema::MetaTableSelect::ref)
-        ),
-        static_cast<size_t> (
-            sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
-        )
-    };
-    TUI_ASSERT (!out.refSlice.value().empty());
-  }
-
-  out.nAln = static_cast<int16_t> (
-      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
-  );
-
-  return out;
-}
-
 namespace tui_state::db {
 
 int set_query (const QueryFragments& query)
@@ -273,6 +204,82 @@ int set_query (const QueryFragments& query)
 }
 
 }  // namespace tui_state::db
+
+
+PileupMetadata get_locus_data (sqlite3* conn)
+{
+  sqlite3_stmt* o_stmt = NULL;
+  if (const auto rc = sqlite3_prepare_v2 (
+          conn, schema::MetaTableSelect::sql.data(),
+          static_cast<int> (schema::MetaTableSelect::sql.size()), &o_stmt,
+          NULL
+      );
+      rc != SQLITE_OK) {
+    TUI_UNREACHABLE (
+        fmt::format (
+            "failed to prepare locus metadata query: {}",
+            sqlite3_errmsg (conn)
+        )
+    );
+  }
+  Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+  if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
+    TUI_UNREACHABLE (
+        fmt::format (
+            "failed to read locus metadata row: {}", sqlite3_errmsg (conn)
+        )
+    );
+  }
+
+  PileupMetadata out;
+  out.contig = {
+      reinterpret_cast<const char*> (
+          sqlite3_column_text (o_stmt, schema::MetaTableSelect::contig)
+      ),
+      static_cast<size_t> (
+          sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::contig)
+      )
+  };
+
+  out.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
+  out.start =
+      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
+  out.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
+
+  if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
+      SQLITE_NULL) {
+    out.refSlice = std::string{
+        reinterpret_cast<const char*> (
+            sqlite3_column_text (o_stmt, schema::MetaTableSelect::ref)
+        ),
+        static_cast<size_t> (
+            sqlite3_column_bytes (o_stmt, schema::MetaTableSelect::ref)
+        )
+    };
+    TUI_ASSERT (!out.refSlice.value().empty());
+  }
+
+  out.nAln = static_cast<int16_t> (
+      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
+  );
+
+  return out;
+}
+std::string to_string (const PileupMetadata& pmd)
+{
+  return fmt::format (
+      "PileupMetadata{{contig: {}, pos: {}, start: {}, end: {}}}",
+      pmd.contig, pmd.pos, pmd.start, pmd.end
+  );
+}
+
+bool valid (const PileupMetadata& pmd) noexcept
+{
+  return !pmd.contig.empty() && pmd.start > 0 && pmd.end >= pmd.start &&
+         pmd.pos >= pmd.start && pmd.pos <= pmd.end && pmd.nAln > 0;
+}
+
 
 #ifndef DOCTEST_CONFIG_DISABLE
 

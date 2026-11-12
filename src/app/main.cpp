@@ -210,7 +210,7 @@ int main (int argc, char** argv)
     }
     conn = *loadRet;
       // load_from_disk only checks the metadata row exists
-    if (!get_locus_data (conn).valid()) {
+    if (!valid (get_locus_data (conn))) {
       std::cerr << fmt::format (
                        "Error: database at {} appears to be "
                        "corrupt:\nlocus metadata in database is "

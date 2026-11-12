@@ -773,7 +773,7 @@ void draw_main_to_buffer()
   // since some places just overwrite
   // previous draw calls
   APB_ASSERT_MAIN_UI_VALID;
-  TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
+  TUI_ASSERT (valid (g_db::locusInfo), to_string (g_db::locusInfo));
   {
     /* --- draw read viewer chrome --- */
     const auto* style = &dim;

@@ -23,20 +23,7 @@ struct PileupMetadata {
   int64_t end = -1;
   std::optional<std::string> refSlice;
   int16_t nAln = -1;
-
-  // Should be redundant with metadata's schema CHECK constraints
-  // (schema.hpp) - kept as a backstop.
-  bool valid() const noexcept
-  {
-    return !contig.empty() && start > 0 && end >= start && pos >= start &&
-           pos <= end && nAln > 0;
-  }
-
-  std::string to_string() const;
 };
-// Get locus metadata from db. Asserts internally; only call once
-// locus metadata is known to exist.
-PileupMetadata get_locus_data (sqlite3* conn);
 
 namespace tui_state::db {
 
@@ -77,3 +64,11 @@ inline constinit PileupMetadata
     locusInfo;  // cached metadata-table row; queried once at init()
 
 }  // namespace tui_state::db
+
+// Get locus metadata from db. Asserts internally; only call once
+// locus metadata is known to exist.
+PileupMetadata get_locus_data (sqlite3* conn);
+// Should be redundant with metadata's schema CHECK constraints
+// (schema.hpp) - kept as a backstop.
+bool valid (const PileupMetadata& pmd) noexcept;
+std::string to_string (const PileupMetadata& pmd);
