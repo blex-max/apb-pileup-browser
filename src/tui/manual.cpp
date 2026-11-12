@@ -251,7 +251,6 @@ A dump is a small, self-contained sqlite3 file with just the reads at the specif
 
 - Application of complex SQL and downstream use - `sqlite3 my.db` allows for complex querying (`GROUP BY`, aggregates, summaries, etc.) and programmatic use of apb (`apb --dump my.db --ref my.ref chr1:12345 my.bam && sqlite3 -header -csv my.db < query.sql > results.csv`).
 - Sharing - Dumps tend to be quite small files. Sending the dump allows the reciever to view the pileup you're looking at without needing the original alignment files or reference genome (or even `apb` if they're happy just to use `sqlite3`).
-- Debugging (for developers) - a dump is a snapshot of data loaded. Mostly relevant if you're developing apb itself rather than just using it.
 
 Note that all coordinate data within the dump is 1-based, matching the display.
 
