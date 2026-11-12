@@ -166,6 +166,7 @@ int run_tui (sqlite3* conn)
       )
   );
 
+  apb_log::log_push ("----- session ended -----");
   std::cerr << "Bye!" << std::endl;
   return EXIT_SUCCESS;
 }

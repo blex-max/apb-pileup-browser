@@ -15,14 +15,17 @@
 #define ERR_PRINT(msg)
 #endif
 
-// expansion functions modify a string view in place,
-// returning true/false depending on whether substitution was
-// successful.
+// expansion functions take a view of the string and a pointer
+// to the position at which the token appears upon which
+// expansion is to be attempted.
+// They return a string view, to be concatenated into the output string.
+// FIXME: How is failure to expand represented? Is empty output +
+// pointer not moved sufficient?
 static auto apb_keywords = []() {
   static auto kw_arr = std::to_array<std::pair<
       std::string_view,
       std::function<std::string_view (std::string_view, size_t* pos)>>> (
-      {{"flag", [] (std::string_view, size_t* pos) {
+      {{"test", [] (std::string_view, size_t* pos) {
           constexpr std::string_view replace = "hello";
           *pos += 4;
           return replace;
@@ -36,8 +39,13 @@ static auto apb_keywords = []() {
   return kw_arr;
 }();
 
+// NOTE: if keywords are an argument to the function, token expansion becomes
+// reusable with different keyword sets. Might be useful for limiting
+// certain expansions to particular cmds.
 // "@" is (currently) the selected character for token substitution by apb
-// (implicitly " @", i.e. space-@)
+// (implicitly " @", i.e. space-@).
+// NOTE: token indicator char could be argument to function, but I don't have
+// a use case for doing that as of now.
 std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
 {
   ERR_PRINT (
@@ -118,7 +126,7 @@ TEST_CASE ("apb_expand_tokens")
 {
   SUBCASE ("' @flag' is expanded/swapped to ' hello'")
   {
-    std::string testS = " @flag world";
+    std::string testS = " @test world";
     const auto expandedStr = apb_expand_tokens (testS, {});
     REQUIRE (expandedStr == " hello world");
   }
