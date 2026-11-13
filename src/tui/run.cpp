@@ -16,6 +16,14 @@ namespace g_db = tui_state::db;
 
 int run_tui (sqlite3* conn)
 {
+  // disable confusing fallback behaviour around
+  // double quotes ("") causing double quoted strings
+  // to be interpreted as either string literals or columns.
+  // Only single quotes allowed for quoted text, double quotes are always
+  // column names. FIXME: document in manual.
+  sqlite3_db_config (conn, SQLITE_DBCONFIG_DQS_DML, 0);
+  sqlite3_db_config (conn, SQLITE_DBCONFIG_DQS_DDL, 0);
+
   g_db::conn = conn;
   g_db::locusInfo = get_locus_data (g_db::conn);
   TUI_ASSERT (valid (g_db::locusInfo), to_string (g_db::locusInfo));

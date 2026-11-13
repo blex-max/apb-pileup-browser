@@ -159,7 +159,7 @@ int main (int argc, char** argv)
   apb_log::init (args.logPath, '\n', args.hiddenFlushLogOnWrite);
   Defer log_deinit ([]() { apb_log::deinit(); });
 
-  /* config */
+  /* sqlite3 lib config */
   // must configure before sqlite3 is initialised (which will happen
   // when database is initalised).
   if (const auto rc = sqlite3_config (SQLITE_CONFIG_MEMSTATUS, 1);
