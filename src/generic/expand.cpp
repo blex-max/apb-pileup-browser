@@ -4,33 +4,74 @@
 
 #include <array>
 #include <cstring>
+#include <expected>
 #include <functional>
 #include <map>
+#include <string>
 #include <string_view>
 
 #ifdef STDERR_DEBUG
 #include <iostream>
-#define ERR_PRINT(msg) std::cerr << msg << std::endl;
+#define CERR_DEBUG(msg) std::cerr << msg << std::endl;
 #else
-#define ERR_PRINT(msg)
+#define CERR_DEBUG(msg)
 #endif
 
-// expansion functions take a view of the string and a pointer
-// to the position at which the token appears upon which
-// expansion is to be attempted.
-// They return a string view, to be concatenated into the output string.
-// FIXME: How is failure to expand represented? Is empty output +
-// pointer not moved sufficient?
+// expansion functions take a view of the input string, a pointer
+// to the position in that string at which the token appears upon which
+// expansion is to be attempted, and a pointer to the output string
+// to which the result is to be appended.
+// FIXME: How is failure to expand represented? Currently return
+// is void, which is insufficient.
 static auto apb_keywords = []() {
+  using void_else_errmsg_t = std::expected<void, std::string>;
   static auto kw_arr = std::to_array<std::pair<
-      std::string_view,
-      std::function<std::string_view (std::string_view, size_t* pos)>>> (
-      {{"test", [] (std::string_view, size_t* pos) {
-          constexpr std::string_view replace = "hello";
-          *pos += 4;
-          return replace;
-        }}}
-  );
+      std::string_view, std::function<void_else_errmsg_t (
+                            std::string_view, size_t* pos, std::string*
+                        )>>> ({
+      {"tag",
+       [] (std::string_view s, size_t* pos,
+           std::string* out) -> void_else_errmsg_t {
+         /* syntax: tag 'RG' IS... */
+         auto fail = [] (std::string_view msg) {
+           return std::unexpected<std::string> (
+               fmt::format ("Failed to expand '@tag'- {}", msg)
+           );
+         };
+
+         // jump keyword;
+         *pos += 3;
+         while (s[*pos] == ' ') {
+           // NOTE: must be ++*pos or (*pos)++.
+           // *pos++; does not work.
+           ++*pos;
+           if (*pos >= s.size()) {
+             return fail ("expected single quotes, got end of string");
+           }
+         }
+         if (s[*pos] != '\'') {
+           return fail (
+               fmt::format ("expected single quotes, got {}", s[*pos])
+           );
+         }
+         ++*pos;
+         std::string tagKey;
+         while (s[*pos] != '\'') {
+           // suboptimal. Could memcpy...
+           tagKey += s[*pos];
+           ++*pos;
+           if (*pos >= s.size()) {
+             return fail (
+                 "expected matching ''' (single quote) after opening "
+                 "quote, got end of string"
+             );
+           }
+         }
+         ++*pos;  // jump final single quote
+         out->append (fmt::format ("tags ->> '$.{}'", tagKey));
+         return {};
+       }},
+  });
   std::sort (
       begin (kw_arr), end (kw_arr), [] (const auto& a, const auto& b) {
         return a.first.size() > b.first.size();
@@ -48,7 +89,7 @@ static auto apb_keywords = []() {
 // a use case for doing that as of now.
 std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
 {
-  ERR_PRINT (
+  CERR_DEBUG (
       fmt::format ("called apb_expand_tokens on input string {}", s)
   );
 
@@ -59,7 +100,7 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
   static auto shortest_match_len = apb_keywords.back().first.size() + 2;
   const auto slen = std::ssize (s);
   if (slen <= shortest_match_len) {
-    ERR_PRINT ("string too short to contain any keywords");
+    CERR_DEBUG ("string too short to contain any keywords");
     // too short
     return std::string{s};
   }
@@ -70,30 +111,36 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
   while (ic < s.size()) {
     switch (s[ic]) {
     case ' ': {
-      ERR_PRINT ("found ' ' (space)");
+      CERR_DEBUG ("found ' ' (space)");
       out += ' ';
       ic++;
       if (s[ic] == '@') {
-        ERR_PRINT ("found @ after space");
+        CERR_DEBUG ("found @ after space");
         ic++;
         // we may have found an apb token.
         // Does a known apb keyword appear after it?
-        ERR_PRINT (fmt::format ("trailing string is: {}", s.substr (ic)));
+        CERR_DEBUG (fmt::format ("trailing string is: {}", s.substr (ic)));
         for (const auto& [kw, fn] : apb_keywords) {
-          ERR_PRINT (fmt::format ("Trying kw {}", kw));
+          CERR_DEBUG (fmt::format ("Trying kw {}", kw));
           if (kw.size() > (s.size() - ic)) {
             continue;
           }
           if (std::strncmp (kw.data(), s.data() + ic, kw.size()) == 0) {
             // we have a match, call fn
-            ERR_PRINT (
+            CERR_DEBUG (
                 fmt::format (
                     "matched {}; calling expansion fn with ic at {}", kw,
                     ic
                 )
             );
-            out += fn (s, &ic);
-            ERR_PRINT (
+            if (const auto ret = fn (s, &ic, &out); !ret) {
+              // FIXME: do something of more substance
+              // on error
+              CERR_DEBUG (
+                  fmt::format ("expansion failed: {}", ret.error())
+              );
+            }
+            CERR_DEBUG (
                 fmt::format (
                     "after expansion, output string is now: {}\nic at: {}",
                     out, ic
@@ -110,11 +157,12 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
       ic++;
       break;
     }
-    ERR_PRINT (
+    CERR_DEBUG (
         fmt::format ("at end of cycle, expanded string is {}", out)
     );
   }
 
+  CERR_DEBUG ("");  // insert newline
   return out;
 }
 
@@ -124,11 +172,13 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
 
 TEST_CASE ("apb_expand_tokens")
 {
-  SUBCASE ("' @flag' is expanded/swapped to ' hello'")
+  SUBCASE (R"txt( @tag 'xx' is expanded to tags ->> '$.xx' )txt")
   {
-    std::string testS = " @test world";
-    const auto expandedStr = apb_expand_tokens (testS, {});
-    REQUIRE (expandedStr == " hello world");
+    constexpr std::string_view expected =
+        R"txt(WHERE tags ->> '$.RG' IS 'sample1';)txt";
+    std::string input = R"txt(WHERE @tag 'RG' IS 'sample1';)txt";
+    const auto output = apb_expand_tokens (input, {});
+    CHECK (output == expected);
   }
 }
 
