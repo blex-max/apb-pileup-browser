@@ -117,7 +117,8 @@ std::vector<std::string> build_cmd_ref_table()
   constexpr std::string_view bodyIndent = "    ";
 
   std::vector<std::string> lines{" COMMAND REFERENCE"};
-  for (const auto* cmd : get_cmd_registry()) {
+  const auto reg = get_cmd_registry();
+  for (const auto* cmd : reg) {
     lines.emplace_back (
         fmt::format (
             "{}`{} {}`:", headerIndent, cmd->names[0], cmd->usageArgs
@@ -134,7 +135,9 @@ std::vector<std::string> build_cmd_ref_table()
           )
       );
     }
-    lines.push_back ("");
+    if (cmd != reg.back()) {
+      lines.push_back ("");
+    }
   }
   return lines;
 }

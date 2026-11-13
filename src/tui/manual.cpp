@@ -53,38 +53,26 @@ apb has a modal interface, which means that the way the program responds to your
 In viewer mode, the read viewer is scrolled, and the alignment pane panned, with the arrow keys. Mouse scroll may also work if your terminal is configured to send mouse scrolling as arrow keys, which is reasonably common. In prompt mode, commands are typed and edited at the `>`, and `Enter` dispatches the input as a command. Queries, detailed in section 3.4, are submitted via the prompt. Keyboard shortcuts are provided for easily navigating and editing text while in prompt mode.
 
 The following reference table is also available via `help nav` at the prompt:
-
-```
 )md";
 
 static constexpr std::string_view manualChunk2 = R"md(
-```
-
 ### 3.2) Command Reference
 
 Every command submitted at the prompt is interpreted like `<command> [args]`. Shorthand aliases are provided for many commands for quick use.
 
 The following reference table is also available via `help cmd` at the prompt.
-
-```
 )md";
 
 static constexpr std::string_view manualChunk3 = R"md(
-```
-
 ### 3.3) Column Reference
 
 For each read, the database stores the columns detailed below. All columns are queryable in `where`/`order by`/`count` commands. If the content of a column is not clearly displayed by the alignment pane, the column can be displayed in the table pane.
 
 The following reference table is also available via `help col` at the prompt.
 
-```
-
 )md";
 
 static constexpr std::string_view manualChunk4 = R"md(
-```
-
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
 Note that `toggle sparkline` switches the quality track in the alignment pane between ASCII display of quality scores, and a sparkline graph - i.e. `FAFF-FF<FFI` vs `▆▅▆▆▁▆▆▄▆▆▆`.
 
@@ -290,8 +278,25 @@ See the README or the project GitHub (https://github.com/blex-max/apb-pileup-bro
 
 std::string_view get_manual()
 {
+  // clang-format off
+  constexpr std::string_view manual_format =
+R"txt({}
+```
+{}
+```
+{}
+```
+{}
+```
+{}
+```
+{}
+```
+{}
+)txt";
+  // clang-format on
   static const std::string manual = fmt::format (
-      "{}{}{}{}{}{}{}", manualChunk1,
+      manual_format, manualChunk1,
       fmt::join (helpblocks::navigation, "\n"), manualChunk2,
       fmt::join (build_cmd_ref_table(), "\n"), manualChunk3,
       fmt::join (helpblocks::tableColumns, "\n"), manualChunk4

@@ -139,7 +139,6 @@ The following reference table is also available via `help cmd` at the prompt.
 
   `dump <path>`:
     Write the pileup database to an sqlite3 dump file.
-
 ```
 
 ### 3.3) Column Reference
@@ -148,8 +147,8 @@ For each read, the database stores the columns detailed below. All columns are q
 
 The following reference table is also available via `help col` at the prompt.
 
-```
 
+```
  TABLE REFERENCE                                
                                                 
  The following columns are available for        
@@ -442,4 +441,5 @@ Your experience of apb, and many other terminal-based applications, may be impro
 ---
 
 See the README or the project GitHub (https://github.com/blex-max/apb-pileup-browser) for installation instructions, the project roadmap, and other background.
+
 
