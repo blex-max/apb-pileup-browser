@@ -103,12 +103,11 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
   if (s.empty()) {
     return "";
   }
-  // add two for " @"
+  // add 2 for " @"
   static auto shortest_match_len = apb_keywords.back().first.size() + 2;
   const auto slen = std::ssize (s);
   if (slen <= shortest_match_len) {
     CERR_DEBUG ("string too short to contain any keywords");
-    // too short
     return std::string{s};
   }
 
