@@ -17,61 +17,70 @@
 #define CERR_DEBUG(msg)
 #endif
 
-// expansion functions take a view of the input string, a pointer
-// to the position in that string at which the token appears upon which
-// expansion is to be attempted, and a pointer to the output string
-// to which the result is to be appended.
-// FIXME: How is failure to expand represented? Currently return
-// is void, which is insufficient.
-static auto apb_keywords = []() {
-  using void_else_errmsg_t = std::expected<void, std::string>;
-  static auto kw_arr = std::to_array<std::pair<
-      std::string_view, std::function<void_else_errmsg_t (
-                            std::string_view, size_t* pos, std::string*
-                        )>>> ({
-      {"tag",
-       [] (std::string_view s, size_t* pos,
-           std::string* out) -> void_else_errmsg_t {
-         /* syntax: tag 'RG' IS... */
-         auto fail = [] (std::string_view msg) {
-           return std::unexpected<std::string> (
-               fmt::format ("Failed to expand '@tag'- {}", msg)
-           );
-         };
+/* --- apb expansion tokens --- */
+// TODO: more notes!
+// expansion is top-level only, i.e. no expansion within expansion
 
-         // jump keyword;
-         *pos += 3;
-         while (s[*pos] == ' ') {
-           // NOTE: must be ++*pos or (*pos)++.
-           // *pos++; does not work.
-           ++*pos;
-           if (*pos >= s.size()) {
-             return fail ("expected single quotes, got end of string");
-           }
-         }
-         if (s[*pos] != '\'') {
-           return fail (
-               fmt::format ("expected single quotes, got {}", s[*pos])
-           );
-         }
-         ++*pos;
-         std::string tagKey;
-         while (s[*pos] != '\'') {
-           // suboptimal. Could memcpy...
-           tagKey += s[*pos];
-           ++*pos;
-           if (*pos >= s.size()) {
-             return fail (
-                 "expected matching ''' (single quote) after opening "
-                 "quote, got end of string"
-             );
-           }
-         }
-         ++*pos;  // jump final single quote
-         out->append (fmt::format ("tags ->> '$.{}'", tagKey));
-         return {};
-       }},
-  });
+// "@" is (currently) the selected character for token substitution by apb
+// (implicitly " @", i.e. space-@).
+static constexpr auto apb_expansion_prefix = '@';
+using incr_else_errmsg_t = std::expected<size_t, std::string>;
+// expansion functions take a view of the input string, a pointer
+// to the position in that string at which the candidate expansion token appears,
+// and a pointer to the output string to which the result of expansion is to be appended.
+using apb_expand_fn_t =
+    std::function<incr_else_errmsg_t (std::string_view, std::string*)>;
+// clang-format off
+#define DEF_EXPAND_LAMBDA \
+  [] (std::string_view trailing, std::string* out) -> incr_else_errmsg_t
+// clang-format on
+
+
+static auto apb_keywords = []() {
+  static auto kw_arr =
+      std::to_array<std::pair<std::string_view, apb_expand_fn_t>> ({
+          {"tag",
+           DEF_EXPAND_LAMBDA {
+             /* syntax: tag 'RG' IS... */
+             auto fail = [] (std::string_view msg) {
+               return std::unexpected<std::string> (
+                   fmt::format ("Failed to expand '@tag'- {}", msg)
+               );
+             };
+
+             size_t ic = 0;
+             ic += 3;  // jump kw
+             while (trailing[ic] == ' ') {
+               ++ic;
+               if (ic >= trailing.size()) {
+                 return fail ("expected single quotes, got end of string");
+               }
+             }
+             if (trailing[ic] != '\'') {
+               return fail (
+                   fmt::format (
+                       "expected single quotes, got {}", trailing[ic]
+                   )
+               );
+             }
+             ++ic;
+             std::string tagKey;
+             while (trailing[ic] != '\'') {
+               // suboptimal. Could memcpy...
+               tagKey += trailing[ic];
+               ++ic;
+               if (ic >= trailing.size()) {
+                 return fail (
+                     "expected matching ''' (single quote) after opening "
+                     "quote, got end of string"
+                 );
+               }
+             }
+             ++ic;  // jump final single quote
+             out->append (fmt::format ("tags ->> '$.{}'", tagKey));
+             return ic;
+           }},
+      });
   std::sort (
       begin (kw_arr), end (kw_arr), [] (const auto& a, const auto& b) {
         return a.first.size() > b.first.size();
@@ -83,8 +92,6 @@ static auto apb_keywords = []() {
 // NOTE: if keywords are an argument to the function, token expansion becomes
 // reusable with different keyword sets. Might be useful for limiting
 // certain expansions to particular cmds.
-// "@" is (currently) the selected character for token substitution by apb
-// (implicitly " @", i.e. space-@).
 // NOTE: token indicator char could be argument to function, but I don't have
 // a use case for doing that as of now.
 std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
@@ -105,16 +112,16 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
     return std::string{s};
   }
 
-
   size_t ic = 0;
   std::string out;
   while (ic < s.size()) {
+    // FIXME: suboptimal to build output char by char.
     switch (s[ic]) {
     case ' ': {
       CERR_DEBUG ("found ' ' (space)");
       out += ' ';
       ic++;
-      if (s[ic] == '@') {
+      if (s[ic] == apb_expansion_prefix) {
         CERR_DEBUG ("found @ after space");
         ic++;
         // we may have found an apb token.
@@ -133,12 +140,18 @@ std::string apb_expand_tokens (std::string_view s, const token_opts_t opts)
                     ic
                 )
             );
-            if (const auto ret = fn (s, &ic, &out); !ret) {
+            if (const auto ret =
+                    fn (std::string_view{s.data() + ic}, &out);
+                !ret) {
               // FIXME: do something of more substance
-              // on error
+              // on error. Report message and position in
+              // input where error occured.
               CERR_DEBUG (
                   fmt::format ("expansion failed: {}", ret.error())
               );
+            }
+            else {
+              ic += *ret;
             }
             CERR_DEBUG (
                 fmt::format (
@@ -176,9 +189,38 @@ TEST_CASE ("apb_expand_tokens")
   {
     constexpr std::string_view expected =
         R"txt(WHERE tags ->> '$.RG' IS 'sample1';)txt";
-    std::string input = R"txt(WHERE @tag 'RG' IS 'sample1';)txt";
-    const auto output = apb_expand_tokens (input, {});
-    CHECK (output == expected);
+    SUBCASE ("proper usage")
+    {
+      constexpr std::string_view input =
+          R"txt(WHERE @tag 'RG' IS 'sample1';)txt";
+      CHECK (apb_expand_tokens (input, {}) == expected);
+    }
+
+    SUBCASE ("whitespace irrelevant")
+    {
+      SUBCASE ("missing space")
+      {
+        constexpr std::string_view input =
+            R"txt(WHERE @tag'RG' IS 'sample1';)txt";
+        CHECK (apb_expand_tokens (input, {}) == expected);
+      }
+
+      SUBCASE ("extra spaces")
+      {
+        constexpr std::string_view input =
+            R"txt(WHERE @tag   'RG' IS 'sample1';)txt";
+        CHECK (apb_expand_tokens (input, {}) == expected);
+      }
+    }
+
+    SUBCASE ("@ prefix mandatory")
+    {
+      constexpr std::string_view input =
+          R"txt(WHERE tag 'RG' IS 'sample1';)txt";
+      CHECK (apb_expand_tokens (input, {}) == input);
+    }
+
+    // FIXME: add misuse cases
   }
 }
 

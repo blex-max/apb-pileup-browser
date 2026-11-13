@@ -32,3 +32,6 @@ ReflowComments: false
 AlignTrailingComments:
   Kind: Leave
 
+
+Macros:
+  - 'DEF_EXPAND_LAMBDA=[](std::string_view s, size_t pos, std::string* out) -> incr_else_errmsg_t'
