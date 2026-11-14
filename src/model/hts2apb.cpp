@@ -6,7 +6,6 @@
 #include <htslib/sam.h>
 #include <sqlite3.h>
 
-#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -175,21 +174,21 @@ static void append_json_escaped (
   for (size_t i = 0; i < len; ++i) {
     const auto ch = static_cast<unsigned char> (br_data[i]);
     switch (ch) {
-      case '"':
-        out += "\\\"";
-        break;
-      case '\\':
-        out += "\\\\";
-        break;
-      default:
-        if (ch < 0x20) {
-          out += "\\u00";
-          out += hexDigits[(ch >> 4) & 0xF];
-          out += hexDigits[ch & 0xF];
-        }
-        else {
-          out += static_cast<char> (ch);
-        }
+    case '"':
+      out += "\\\"";
+      break;
+    case '\\':
+      out += "\\\\";
+      break;
+    default:
+      if (ch < 0x20) {
+        out += "\\u00";
+        out += hexDigits[(ch >> 4) & 0xF];
+        out += hexDigits[ch & 0xF];
+      }
+      else {
+        out += static_cast<char> (ch);
+      }
     }
   }
 }
@@ -260,193 +259,164 @@ static std::expected<std::string, Aux1ToJsonErr::Codes> aux1_to_json (
     const auto* payloadStartPtr = br_str + tagPrefixLen;
     const size_t payloadLen = ks_len (&o_kstr) - tagPrefixLen;
     switch (typeCh) {
-      case 'A':
-      case 'Z':
-      case 'H':
-        // payload as string
-        out += '"';
-        append_json_escaped (payloadStartPtr, payloadLen, out);
-        out += '"';
-        break;
-      default:
-        // payload as numeric; JSON has no nan/inf (finite values
-        // end in a digit)
-        if (payloadLen > 0 && (isdigit (
-                                   static_cast<unsigned char> (
-                                       payloadStartPtr[payloadLen - 1]
-                                   )
-                               ) != 0)) {
-          out.append (payloadStartPtr, payloadLen);
-        }
-        else {
-          out += "null";
-        }
-        break;
+    case 'A':
+    case 'Z':
+    case 'H':
+      // payload as string
+      out += '"';
+      append_json_escaped (payloadStartPtr, payloadLen, out);
+      out += '"';
+      break;
+    default:
+      // payload as numeric; JSON has no nan/inf (finite values
+      // end in a digit)
+      if (payloadLen > 0 &&
+          (isdigit (
+               static_cast<unsigned char> (payloadStartPtr[payloadLen - 1])
+           ) != 0)) {
+        out.append (payloadStartPtr, payloadLen);
+      }
+      else {
+        out += "null";
+      }
+      break;
     }
   }
 
   return out;
 }
 
-// flat layout of htslib data to be entered
-// into the database for a single read.
-struct apb_pileup_t {
-  // 0-INDEXED: MATCHES RAW HTSLIB REPRESENTATION.
-
-  // NOTE: layout as table schema
-  std::string qName = "?";
-  uint16_t flag = UINT16_MAX;
-  hts_pos_t start = -1;
-  hts_pos_t end = -1;
-  uint8_t mapQ = UINT8_MAX;
-
-  std::optional<char> base = std::nullopt;
-  std::optional<uint8_t> baseQual = std::nullopt;
-  int32_t qPos = -1;
-  int indel = INT_MAX;
-  bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
-
-  std::string cig;
-  std::optional<std::string> seq = std::nullopt;
-  std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
-
-  std::optional<std::string> mtidName = std::nullopt;
-  std::optional<hts_pos_t> mStart = std::nullopt;
-
-  std::string auxJson;
-
-  std::vector<uint32_t> rawCig;
-  size_t nCig = SIZE_MAX;
-
-  bool valid() const noexcept
-  {
-    return start >= 0 && end > start && qPos >= 0 &&
-           (!seq || !rawQual || seq->size() == rawQual->size()) &&
-           nCig == rawCig.size() && !rawCig.empty();
-  }
-
-  std::string to_string() const
-  {
-    return fmt::format (
-        "apb_pileup_t{{start: {}, end: {}, qPos: {}, "
-        "nCig: {}, rawCig.size: {}}}",
-        start, end, qPos, nCig, rawCig.size()
-    );
-  }
-};
-
 // Convert a bam_pileup1_t
 // into the pileup database
 // interface type.
-//
-// NOTE: takes mTidName directly to
-// avoid dealing with SAM header.
-static bool fill_fields (
-    apb_pileup_t& pf, const bam_pileup1_t* br_p1, const char* mTidName
+std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
+    std::span<const bam_pileup1_t> plpIn,
+    std::span<apb_input_record1_t> recordsOut,
+    const std::function<const char*(int)>& mtid2name
 )
 {
-  const auto* br_b1 = br_p1->b;
-  const auto nCig = br_b1->core.n_cigar;
-  const auto* br_cig = bam_get_cigar (br_b1);
+  size_t i = 0;
+  for (; i < plpIn.size() && i < recordsOut.size(); i++) {
+    const auto& p1 = plpIn[i];
+    auto& r1 = recordsOut[i];
 
-  pf.qPos = br_p1->qpos;
-  pf.start = br_b1->core.pos;
-  if (br_b1->core.mpos >= 0) {  // <0 == unaligned (or no mate)
-    pf.mStart = br_b1->core.mpos;
-  }
+    {
+      const auto* br_b1 = p1.b;
+      const auto nCig = br_b1->core.n_cigar;
+      const auto* br_cig = bam_get_cigar (br_b1);
 
-  pf.indel = br_p1->indel;
-  pf.isDel = br_p1->is_del;
-  pf.isHead = br_p1->is_head;
-  pf.isTail = br_p1->is_tail;
-  pf.isRefSkip = br_p1->is_refskip;
-  // NOTE: qname null terminated,
-  // so assignment safe.
-  pf.qName = bam_get_qname (br_b1);
-  pf.flag = br_b1->core.flag;
-  pf.mapQ = br_b1->core.qual;
-  if (mTidName != NULL) {
-    pf.mtidName = mTidName;
-  }
-  pf.rawCig = {br_cig, br_cig + nCig};
-  pf.nCig = br_b1->core.n_cigar;
-
-  {
-    /* stringify seq, qual */
-    const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
-    // Tests per sam format spec
-    const bool hasSeq = lq > 0;
-    const bool hasQual = hasSeq && bam_get_qual (br_b1)[0] != 0xFF;
-    if (hasSeq) {
-      pf.seq.emplace (lq, ' ');
-
-      const uint8_t* br_qs = bam_get_seq (br_b1);
-      for (size_t j = 0; j < lq; ++j) {
-        (*pf.seq)[j] = seq_nt16_str[bam_seqi (br_qs, j)];
+      r1.qPos = p1.qpos;
+      r1.start = br_b1->core.pos;
+      if (br_b1->core.mpos >= 0) {  // <0 == unaligned (or no mate)
+        r1.mStart = br_b1->core.mpos;
       }
-      if (!br_p1->is_del) {
-        pf.base = (*pf.seq)[static_cast<size_t> (br_p1->qpos)];
-      }
-    }
-    if (hasQual) {
-      pf.rawQual.emplace (lq);
-      const uint8_t* br_qq = bam_get_qual (br_b1);
-      for (size_t j = 0; j < lq; ++j) {
-        (*pf.rawQual)[j] = br_qq[j];
-      }
-      if (!br_p1->is_del) {
-        pf.baseQual = br_qq[br_p1->qpos];
-      }
-    }
-    // else these fields are nullopt
-  }
 
-  {
-    /* stringify cigar */
-    pf.cig = [&br_cig, &nCig]() {
-      std::string out;
-      for (size_t opi = 0; opi < nCig; opi++) {
-        const auto cigel = br_cig[opi];
-        out += std::to_string (bam_cigar_oplen (cigel));
-        out += bam_cigar_opchr (cigel);
-      }
-      return out;
-    }();
+      r1.indel = p1.indel;
+      r1.isDel = p1.is_del;
+      r1.isHead = p1.is_head;
+      r1.isTail = p1.is_tail;
+      r1.isRefSkip = p1.is_refskip;
+      // NOTE: qname null terminated,
+      // so assignment safe.
+      r1.qName = bam_get_qname (br_b1);
+      r1.flag = br_b1->core.flag;
+      r1.mapQ = br_b1->core.qual;
+      r1.rawCig = {br_cig, br_cig + nCig};
+      r1.nCig = br_b1->core.n_cigar;
 
-    pf.end = pf.start + bam_cigar2rlen (static_cast<int> (nCig), br_cig);
-  }
-
-  {
-    /* aux to json; left empty if no aux tags present */
-    auto& auxJson = pf.auxJson;
-    auxJson.clear();
-    const uint8_t* br_dataEnd = br_b1->data + br_b1->l_data;
-    const uint8_t* br_aux1 = bam_aux_first (br_b1);
-    if (br_aux1 != NULL) {
-      auxJson += '{';
-      for (; br_aux1 != nullptr;) {
-        auto tagEntry = aux1_to_json (br_aux1, br_dataEnd);
-        if (!tagEntry) {
-          return false;
+      /* stringify mtid, if available */
+      // '=' if same contig as this read, per SAM RNEXT convention;
+      // NULL if no mate reference (core.mtid < 0).
+      if (mtid2name && p1.b->core.mtid >= 0) {
+        if (p1.b->core.mtid == p1.b->core.tid) {
+          r1.mtidName = "=";
         }
-        auxJson += *tagEntry;
-        br_aux1 = bam_aux_next (br_b1, br_aux1);
-        if (br_aux1 == NULL) {
-          break;
+        else {
+          const auto* name = mtid2name (p1.b->core.mtid);
+          if (name != nullptr) {
+            r1.mtidName = name;
+          }
         }
-        auxJson += ',';
       }
-      auxJson += '}';
+
+      {
+        /* stringify seq, qual */
+        const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
+        // Tests per sam format spec
+        const bool hasSeq = lq > 0;
+        const bool hasQual = hasSeq && bam_get_qual (br_b1)[0] != 0xFF;
+        if (hasSeq) {
+          r1.seq.emplace (lq, ' ');
+
+          const uint8_t* br_qs = bam_get_seq (br_b1);
+          for (size_t j = 0; j < lq; ++j) {
+            (*r1.seq)[j] = seq_nt16_str[bam_seqi (br_qs, j)];
+          }
+          if (!p1.is_del) {
+            r1.base = (*r1.seq)[static_cast<size_t> (p1.qpos)];
+          }
+        }
+        if (hasQual) {
+          r1.rawQual.emplace (lq);
+          const uint8_t* br_qq = bam_get_qual (br_b1);
+          for (size_t j = 0; j < lq; ++j) {
+            (*r1.rawQual)[j] = br_qq[j];
+          }
+          if (!p1.is_del) {
+            r1.baseQual = br_qq[p1.qpos];
+          }
+        }
+        // else these fields are nullopt
+      }
+
+      {
+        /* stringify cigar */
+        r1.cig.clear();  // only appended to, so must clear
+        for (size_t opi = 0; opi < nCig; opi++) {
+          const auto cigel = br_cig[opi];
+          r1.cig += std::to_string (bam_cigar_oplen (cigel));
+          r1.cig += bam_cigar_opchr (cigel);
+        }
+
+        r1.end =
+            r1.start + bam_cigar2rlen (static_cast<int> (nCig), br_cig);
+      }
+
+      {
+        /* aux to json; left empty if no aux tags present */
+        auto& auxJson = r1.auxJson;
+        auxJson.clear();
+        const uint8_t* br_dataEnd = br_b1->data + br_b1->l_data;
+        const uint8_t* br_aux1 = bam_aux_first (br_b1);
+        if (br_aux1 != NULL) {
+          auxJson += '{';
+          for (; br_aux1 != nullptr;) {
+            auto tagEntry = aux1_to_json (br_aux1, br_dataEnd);
+            if (!tagEntry) {
+              return false;
+            }
+            auxJson += *tagEntry;
+            br_aux1 = bam_aux_next (br_b1, br_aux1);
+            if (br_aux1 == NULL) {
+              break;
+            }
+            auxJson += ',';
+          }
+          auxJson += '}';
+        }
+      }
+
+      APB_ASSERT (valid (r1), to_string (r1));
     }
   }
-
-  APB_ASSERT (pf.valid(), pf.to_string());
-  return true;
+  return i;
 }
 
-std::expected<void, insert_pileup_err_t> apb_insert_pileup (
-    sqlite3* conn, std::span<const bam_pileup1_t> plp, sqlite3_int64 alnId,
-    const std::function<const char*(int)>& mtid2name
+// insert pileup into db for a single alignment file.
+// CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
+[[nodiscard]] int apb_insert_pileup (
+    sqlite3* conn, std::span<const apb_input_record1_t> recs,
+    sqlite3_int64 alnId
 )
 {
   sqlite3_stmt* o_stmt;
@@ -455,174 +425,126 @@ std::expected<void, insert_pileup_err_t> apb_insert_pileup (
           static_cast<int> (schema::sqlInsertReads.size()), &o_stmt, NULL
       );
       rc != SQLITE_OK) {
-    return std::unexpected (
-        insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
-    );
+    return rc;
   }
   Defer stmt_cleanup ([&o_stmt]() { return sqlite3_finalize (o_stmt); });
 
-  for (size_t i = 0; i < plp.size(); ++i) {
-    apb_pileup_t readI;
-    const auto* p1 = &plp[i];
-
-    const char* mtidName = NULL;
-    {
-      /* stringify mtid, if available */
-      // '=' if same contig as this read, per SAM RNEXT convention;
-      // NULL if no mate reference (core.mtid < 0).
-      const auto* b1 = p1->b;
-      if (b1->core.mtid >= 0) {
-        // NOTE: in the case where tid2name
-        // fails, null recorded in database.
-        // Hence failure not checked.
-        mtidName = (b1->core.mtid == b1->core.tid)
-                       ? "="
-                       : mtid2name (b1->core.mtid);
-      }
-      else {
-        mtidName = NULL;
-      }
-    }
-
-    // FIXME: return qname of offending read on failure
-    // NOTE: fill_fields asserts internally
-    if (!fill_fields (readI, p1, mtidName)) {
-      return std::unexpected (
-          insert_pileup_err_t{
-              insert_pileup_err_t::auxParseFail, std::nullopt
-          }
-      );
-    }
-
-#define TRY_BIND(bind_fn)                                       \
-  do {                                                          \
-    if (const auto rc = bind_fn; rc != SQLITE_OK) {             \
-      return std::unexpected (                                  \
-          insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc} \
-      );                                                        \
-    }                                                           \
-  } while (false)
-
-    /* bind statement */
-    // CONVERTS FROM 0-INDEXED apb_pileup_t TO 1-INDEXED DB REPRESENTATION
-    // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
+  /* bind to statement */
+  // CONVERTS FROM 0-INDEXED apb_pileup_t TO 1-INDEXED DB REPRESENTATION
+  // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
+  for (const auto& rec1 : recs) {
     int col = 1;
-
-    TRY_BIND (sqlite3_bind_text (
-        o_stmt, col++, readI.qName.data(),
-        static_cast<int> (readI.qName.size()), SQLITE_TRANSIENT
+    TRY_OK_INT (sqlite3_bind_text (
+        o_stmt, col++, rec1.qName.data(),
+        static_cast<int> (rec1.qName.size()), SQLITE_TRANSIENT
     ));
-    TRY_BIND (sqlite3_bind_int (o_stmt, col++, readI.flag));
-    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, readI.start + 1));
-    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, readI.end));
-    TRY_BIND (sqlite3_bind_int (o_stmt, col++, readI.mapQ));
+    TRY_OK_INT (sqlite3_bind_int (o_stmt, col++, rec1.flag));
+    TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, rec1.start + 1));
+    TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, rec1.end));
+    TRY_OK_INT (sqlite3_bind_int (o_stmt, col++, rec1.mapQ));
 
-    if (readI.base) {
-      TRY_BIND (sqlite3_bind_text (
-          o_stmt, col++, &(*readI.base), 1, SQLITE_TRANSIENT
+    if (rec1.base) {
+      TRY_OK_INT (sqlite3_bind_text (
+          o_stmt, col++, &(*rec1.base), 1, SQLITE_TRANSIENT
       ));
     }
     else {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    if (readI.baseQual) {
-      TRY_BIND (sqlite3_bind_int (o_stmt, col++, *readI.baseQual));
+    if (rec1.baseQual) {
+      TRY_OK_INT (sqlite3_bind_int (o_stmt, col++, *rec1.baseQual));
     }
     else {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, readI.qPos + 1));
-    TRY_BIND (sqlite3_bind_int (o_stmt, col++, readI.indel));
-    TRY_BIND (
-        sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.isDel))
+    TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, rec1.qPos + 1));
+    TRY_OK_INT (sqlite3_bind_int (o_stmt, col++, rec1.indel));
+    TRY_OK_INT (
+        sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.isDel))
     );
-    TRY_BIND (
-        sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.isHead))
+    TRY_OK_INT (
+        sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.isHead))
     );
-    TRY_BIND (
-        sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.isTail))
+    TRY_OK_INT (
+        sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.isTail))
     );
-    TRY_BIND (sqlite3_bind_int (
-        o_stmt, col++, static_cast<int> (readI.isRefSkip)
+    TRY_OK_INT (
+        sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.isRefSkip))
+    );
+    TRY_OK_INT (sqlite3_bind_text (
+        o_stmt, col++, rec1.cig.data(), static_cast<int> (rec1.cig.size()),
+        SQLITE_TRANSIENT
     ));
-    TRY_BIND (sqlite3_bind_text (
-        o_stmt, col++, readI.cig.data(),
-        static_cast<int> (readI.cig.size()), SQLITE_TRANSIENT
-    ));
 
-    if (readI.seq) {
-      TRY_BIND (sqlite3_bind_text (
-          o_stmt, col++, readI.seq->data(),
-          static_cast<int> (readI.seq->size()), SQLITE_TRANSIENT
+    if (rec1.seq) {
+      TRY_OK_INT (sqlite3_bind_text (
+          o_stmt, col++, rec1.seq->data(),
+          static_cast<int> (rec1.seq->size()), SQLITE_TRANSIENT
       ));
     }
     else {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    if (readI.rawQual) {
-      TRY_BIND (sqlite3_bind_blob (
-          o_stmt, col++, readI.rawQual->data(),
-          static_cast<int> (readI.rawQual->size()), SQLITE_TRANSIENT
+    if (rec1.rawQual) {
+      TRY_OK_INT (sqlite3_bind_blob (
+          o_stmt, col++, rec1.rawQual->data(),
+          static_cast<int> (rec1.rawQual->size()), SQLITE_TRANSIENT
       ));
     }
     else {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    if (readI.mtidName) {
-      TRY_BIND (sqlite3_bind_text (
-          o_stmt, col++, readI.mtidName->data(),
-          static_cast<int> (readI.mtidName->size()), SQLITE_TRANSIENT
+    if (rec1.mtidName) {
+      TRY_OK_INT (sqlite3_bind_text (
+          o_stmt, col++, rec1.mtidName->data(),
+          static_cast<int> (rec1.mtidName->size()), SQLITE_TRANSIENT
       ));
     }
     else {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    if (readI.mStart) {
-      TRY_BIND (
-          sqlite3_bind_int64 (o_stmt, col++, readI.mStart.value() + 1)
+    if (rec1.mStart) {
+      TRY_OK_INT (
+          sqlite3_bind_int64 (o_stmt, col++, rec1.mStart.value() + 1)
       );
     }
     else {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    if (readI.auxJson.empty()) {
-      TRY_BIND (sqlite3_bind_null (o_stmt, col++));
+    if (rec1.auxJson.empty()) {
+      TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
     else {
-      TRY_BIND (sqlite3_bind_text (
-          o_stmt, col++, readI.auxJson.data(),
-          static_cast<int> (readI.auxJson.size()), SQLITE_TRANSIENT
+      TRY_OK_INT (sqlite3_bind_text (
+          o_stmt, col++, rec1.auxJson.data(),
+          static_cast<int> (rec1.auxJson.size()), SQLITE_TRANSIENT
       ));
     }
 
-    TRY_BIND (sqlite3_bind_blob (
-        o_stmt, col++, readI.rawCig.data(),
-        static_cast<int> (readI.nCig << 2), SQLITE_TRANSIENT
+    TRY_OK_INT (sqlite3_bind_blob (
+        o_stmt, col++, rec1.rawCig.data(),
+        static_cast<int> (rec1.nCig << 2), SQLITE_TRANSIENT
     ));
-    TRY_BIND (
-        sqlite3_bind_int (o_stmt, col++, static_cast<int> (readI.nCig))
+    TRY_OK_INT (
+        sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.nCig))
     );
-    TRY_BIND (sqlite3_bind_int64 (o_stmt, col++, alnId));
-
-#undef TRY_BIND
+    TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, alnId));
 
     if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
-      return std::unexpected (
-          insert_pileup_err_t{insert_pileup_err_t::sqlFail, rc}
-      );
+      return rc;
     }
     sqlite3_reset (o_stmt);  // rc mirrors the step already checked above
     sqlite3_clear_bindings (o_stmt);  // cannot fail per sqlite3 docs
   }
 
   return {};
-};
+}
 
 [[nodiscard]] std::expected<void, int> apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos,
@@ -719,6 +641,25 @@ std::expected<int, int> apb_insert_aln (
   }
   file_stmt_cleanup.invoke();
   return sqlite3_last_insert_rowid (conn);
+}
+
+
+// apb_input_record1_t methods
+bool valid (const apb_input_record1_t& rec) noexcept
+{
+  return rec.start >= 0 && rec.end > rec.start && rec.qPos >= 0 &&
+         (!rec.seq || !rec.rawQual ||
+          rec.seq->size() == rec.rawQual->size()) &&
+         rec.nCig == rec.rawCig.size() && !rec.rawCig.empty();
+}
+
+std::string to_string (const apb_input_record1_t& rec)
+{
+  return fmt::format (
+      "apb_pileup_t{{start: {}, end: {}, qPos: {}, "
+      "nCig: {}, rawCig.size: {}}}",
+      rec.start, rec.end, rec.qPos, rec.nCig, rec.rawCig.size()
+  );
 }
 
 

@@ -958,34 +958,34 @@ void draw_main_to_buffer()
     const bool multiAln = g_db::locusInfo.nAln > 1;
     // scroll units drawn on this page: reads, then empty-file labels
     uint16_t nUnitsDrawn = 0;
-    sqlite3_reset (g_db::selectStmt);
+    sqlite3_reset (g_db::displayStmt);
     // bind offset and limit
     TUI_S3_EXPECT (
         sqlite3_bind_int64 (
-            g_db::selectStmt, 1, g_db::stmtRowScrollOffset
+            g_db::displayStmt, 1, g_db::displayScrollOffset
         ),
         SQLITE_OK
     );
     TUI_S3_EXPECT (
         sqlite3_bind_int64 (
-            g_db::selectStmt, 2, seqWriteLim.y - seqWriteHead.y
+            g_db::displayStmt, 2, seqWriteLim.y - seqWriteHead.y
         ),
         SQLITE_OK
     );
-    if (g_db::nStmtRows > 0) {
+    if (g_db::nQueryRows > 0) {
       // file of the last header drawn on this page
       std::string headerFile;
       int stepRc = SQLITE_DONE;
       while ((seqWriteHead.y < seqWriteLim.y) &&
-             (stepRc = sqlite3_step (g_db::selectStmt)) == SQLITE_ROW) {
+             (stepRc = sqlite3_step (g_db::displayStmt)) == SQLITE_ROW) {
         std::string_view rowFile;
         if (multiAln) {
           rowFile = std::string_view{
               reinterpret_cast<const char*> (sqlite3_column_text (
-                  g_db::selectStmt, schema::UserReadViewSelect::path
+                  g_db::displayStmt, schema::UserReadViewSelect::path
               )),
               static_cast<size_t> (sqlite3_column_bytes (
-                  g_db::selectStmt, schema::UserReadViewSelect::path
+                  g_db::displayStmt, schema::UserReadViewSelect::path
               ))
           };
         }
@@ -1001,11 +1001,11 @@ void draw_main_to_buffer()
           }
         }
         const auto dHead = draw_aln::seq1 (
-            static_cast<int16_t> (seqWriteHead.y), g_db::selectStmt,
+            static_cast<int16_t> (seqWriteHead.y), g_db::displayStmt,
             seq1Frame
         );
         if (showTable) {
-          draw_table::row1 (seqWriteHead.y, g_db::selectStmt, row1Frame);
+          draw_table::row1 (seqWriteHead.y, g_db::displayStmt, row1Frame);
         }
         seqWriteHead.y += dHead.dy;
         ++nUnitsDrawn;
@@ -1016,10 +1016,10 @@ void draw_main_to_buffer()
 
     // if space avail, draw empty file labels
     {
-      const auto nReads = static_cast<int64_t> (g_db::nStmtRows);
+      const auto nReads = static_cast<int64_t> (g_db::nQueryRows);
       // get scroll position relative to file labels
       const auto labelOffset = static_cast<size_t> (
-          std::max<int64_t> (g_db::stmtRowScrollOffset - nReads, 0)
+          std::max<int64_t> (g_db::displayScrollOffset - nReads, 0)
       );
       for (size_t i = labelOffset; i < g_db::queryEmptyFiles.size() &&
                                    seqWriteHead.y < seqWriteLim.y;
@@ -1053,7 +1053,7 @@ void draw_main_to_buffer()
     }
 
     g_viewer::nUnitsOnscreen = nUnitsDrawn;
-    if (g_db::nStmtRows > 0) {
+    if (g_db::nQueryRows > 0) {
       /* draw crosshair */
       if (const int64_t pileupScreenXPosWide =
               first (g_viewer::alnPaneDataBox.xspan) + alnPaneHalfWidth -
@@ -1113,8 +1113,8 @@ void draw_main_to_buffer()
     /* draw query banner */
     const auto& userQ = g_db::userQuery;
     std::string qWhereS = fmt::format (
-        " WHERE {}: {}/{} reads ", userQ.where, g_db::nStmtRows,
-        g_db::totalRows
+        " WHERE {}: {}/{} reads ", userQ.where, g_db::nQueryRows,
+        g_db::dbTotalRows
     );
     std::string qOrderS;
     if (!userQ.orderBy.empty()) {

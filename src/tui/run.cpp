@@ -24,7 +24,7 @@ int run_tui (sqlite3* conn)
         "Failed to set initial query", sqlite3_errmsg (g_db::conn)
     );
   }
-  g_db::totalRows = g_db::nStmtRows;
+  g_db::dbTotalRows = g_db::nQueryRows;
 
   g_ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "

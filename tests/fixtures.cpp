@@ -78,7 +78,7 @@ bam_pileup1_t make_pileup1 (const SeedRead& r)
 
 }  // namespace
 
-void seed_reads (
+void seed_conn_with_reads (
     sqlite3* conn, const std::vector<ExtraFile>& extraFiles, bool withRef
 )
 {

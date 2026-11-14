@@ -158,6 +158,7 @@ std::expected<void, std::string> ingest_sam_auto (
   genomic_span_t maxSpan{
       INT64_MAX, 0
   };  // for fetching appropriate reference slice
+  std::vector<apb_input_record1_t> inputRecBuf;
   if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     return std::unexpected (
@@ -195,20 +196,20 @@ std::expected<void, std::string> ingest_sam_auto (
     switch (const auto rc =
                 sam_hdr_name2tid (aln.o_hdr, locusContigName.c_str());
             rc) {
-      case -2:
-        return std::unexpected (
-            fmt::format (
-                "Error while attempting to retrive contig id for contig "
-                "{} from alignment file {}",
-                locusContigName, aln.path
-            )
-        );
-      case -1:
-        break;
-      default:
-        alnHasContig = true;
-        contigFound = true;
-        aln.locusTid = static_cast<uint32_t> (rc);
+    case -2:
+      return std::unexpected (
+          fmt::format (
+              "Error while attempting to retrive contig id for contig "
+              "{} from alignment file {}",
+              locusContigName, aln.path
+          )
+      );
+    case -1:
+      break;
+    default:
+      alnHasContig = true;
+      contigFound = true;
+      aln.locusTid = static_cast<uint32_t> (rc);
     };
 
     PileupIterator pileup;
@@ -339,29 +340,43 @@ std::expected<void, std::string> ingest_sam_auto (
     }
     readsFoundAtLocus = true;
 
-    const auto get_mtid_name = [&aln] (int mtid) {
-      return sam_hdr_tid2name (aln.o_hdr, mtid);
-    };
-    if (const auto ret = apb_insert_pileup (
-            conn, {pileup.br_plpArr, pileup.nPlp}, alnID, get_mtid_name
+    if (inputRecBuf.size() < pileup.nPlp) {
+      // grow buffer
+      inputRecBuf.resize (pileup.nPlp);
+    }
+    size_t iter_nrec = 0;
+    /* transform and insert */
+    if (const auto ret = apb_transform_pileup1 (
+            {pileup.br_plpArr, pileup.nPlp}, inputRecBuf,
+            [&aln] (int mtid) {
+              return sam_hdr_tid2name (aln.o_hdr, mtid);
+            }
         );
         !ret) {
       const auto& err = ret.error();
-      switch (err.kind) {
-        case insert_pileup_err_t::sqlFail:
-          return std::unexpected (apb_describe_sqlite_failure (
-              "Failed to transform/insert alignment data", err.rc.value(),
-              sqlite3_errmsg (conn)
-          ));
-        case insert_pileup_err_t::auxParseFail:
-          // FIXME: provide qname/read/tag details
-          return std::unexpected (
-              "Failed to parse aux tag in alignment file. Is aux "
-              "data corrupt?"
-          );
-        default:
-          APB_UNREACHABLE ("unrecognised InsertPileupErr code");
+      switch (err.code) {
+      case transform_p1_err_t::aux_parse_fail:
+        return std::unexpected (
+            fmt::format (
+                "Unspecified failure in htslib when attempting to parse "
+                "aux tag in read {}. Is tag data corrupt?",
+                bam_get_qname (err.b)
+            )
+        );
       }
+    }
+    else {
+      iter_nrec = *ret;
+    }
+    APB_ASSERT (iter_nrec == pileup.nPlp, iter_nrec, pileup.nPlp);
+    if (const auto rc = apb_insert_pileup (
+            conn, {inputRecBuf.data(), iter_nrec}, alnID
+        );
+        rc != SQLITE_OK) {
+      return std::unexpected (apb_describe_sqlite_failure (
+          "Failed to transform/insert alignment data", rc,
+          sqlite3_errmsg (conn)
+      ));
     }
   }
 
@@ -448,11 +463,13 @@ void ingest_demo_auto (sqlite3* conn)
       },
       std::span<bam_pileup1_t>{begin (demoData.p) + 600, end (demoData.p)}
   };
+
+
+  std::vector<apb_input_record1_t> inputRecs (300);
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
-
   for (size_t i = 0; i < demoAlns.size(); ++i) {
     const auto plp = demoAlns[i];
     std::sort (begin (plp), end (plp), [] (const auto& a, const auto& b) {
@@ -484,25 +501,28 @@ void ingest_demo_auto (sqlite3* conn)
       alnId = *ret;
     }
 
-    if (const auto ret = apb_insert_pileup (
-            conn, plp, alnId,
+    /* transform and insert */
+    if (const auto ret = apb_transform_pileup1 (
+            plp, inputRecs,
             [&demoContig] (int) { return demoContig.data(); }
+
         );
         !ret) {
       const auto& err = ret.error();
-      switch (err.kind) {
-        case insert_pileup_err_t::sqlFail:
-          APB_UNREACHABLE (
-              "demo insertion malformed", sqlite3_errstr (err.rc.value()),
-              sqlite3_errmsg (conn)
-          );
-        case insert_pileup_err_t::auxParseFail:
-          APB_UNREACHABLE ("bad tag data in demo pileup");
-        default:
-          APB_UNREACHABLE ("unrecognised InsertPileupErr code");
+      switch (err.code) {
+      case transform_p1_err_t::aux_parse_fail:
+        APB_UNREACHABLE ("bad tag data in demo pileup");
       }
     }
+    if (const auto rc = apb_insert_pileup (conn, inputRecs, alnId);
+        rc != SQLITE_OK) {
+      APB_UNREACHABLE (
+          "demo insertion malformed", sqlite3_errstr (rc),
+          sqlite3_errmsg (conn)
+      );
+    }
   }
+
   APB_ASSERT (
       const auto ret = apb_insert_locus (
           conn, std::string{demoContig}, demoPos, demoData.pspan,

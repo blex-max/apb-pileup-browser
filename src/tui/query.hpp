@@ -44,10 +44,10 @@ namespace tui_state::db {
 inline constinit sqlite3* conn = nullptr;
 inline constinit QueryFragments userQuery;
 inline constinit std::vector<QueryFragments> queryUndoStack;
-inline constinit sqlite3_stmt* selectStmt = nullptr;
-inline constinit uint64_t nStmtRows = 0;  // rows in current stmt
-inline constinit int32_t stmtRowScrollOffset = 0;
-inline constinit uint64_t totalRows = 0;
+inline constinit sqlite3_stmt* displayStmt = nullptr;
+inline constinit uint64_t nQueryRows = 0;  // rows in current query table
+inline constinit int32_t displayScrollOffset = 0;
+inline constinit uint64_t dbTotalRows = 0;
 
 // Files (multi-aln only) with no reads in the current query, and why.
 // Displayed after the reads; counted as scrollable rows.
@@ -70,7 +70,7 @@ inline constinit std::vector<EmptyFile> queryEmptyFiles;
 // total scrollable rows: reads, then empty-file labels
 inline uint64_t nScrollRows()
 {
-  return nStmtRows + static_cast<uint64_t> (queryEmptyFiles.size());
+  return nQueryRows + static_cast<uint64_t> (queryEmptyFiles.size());
 }
 
 inline constinit PileupMetadata

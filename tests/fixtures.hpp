@@ -30,7 +30,7 @@ struct ExtraFile {
 // then any extraFiles (ids 2, 3, ...), reads readA/readB/readC for the
 // first file, and locus metadata (chr1:150, span 100-200). With withRef
 // the locus carries a reference slice matching its span.
-void seed_reads (
+void seed_conn_with_reads (
     sqlite3* conn, const std::vector<ExtraFile>& extraFiles = {},
     bool withRef = false
 );

@@ -303,7 +303,7 @@ void dump_seeded (
 {
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn);
+  test::seed_conn_with_reads (conn);
   if (alterSql != nullptr) {
     test::exec_ok (conn, alterSql);
   }
@@ -320,7 +320,7 @@ TEST_CASE ("dump_to_disk then load_from_disk")
 
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_reads (conn, {{"other.bam", false}}, true);
+  test::seed_conn_with_reads (conn, {{"other.bam", false}}, true);
   REQUIRE (dump_to_disk (conn, path.string()).has_value());
 
   auto loadRet = load_from_disk (path.string());

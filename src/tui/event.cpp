@@ -87,7 +87,7 @@ void handle_event (const tb_event* ev)
   switch (tui_state::focus) {
   case viewerMode: {
     constexpr auto sideScrollIncrement = 3;
-    auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
+    auto& stmtRowScrollOffset = g_db::displayScrollOffset;
 
     switch (ev->key) {
     case TB_KEY_ARROW_LEFT:
