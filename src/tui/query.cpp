@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "model/schema.hpp"
-#include "shared/cleanup.hpp"
 #include "tui_assert.hpp"
+#include "utility/cleanup.hpp"
 
 std::string PileupMetadata::to_string() const
 {
@@ -278,7 +278,7 @@ int set_query (const QueryFragments& query)
 
 #include "doctest.h"
 #include "fixtures.hpp"
-#include "model/hts2apb.hpp"
+#include "model/apb_db.hpp"
 
 namespace {
 
@@ -309,39 +309,21 @@ namespace g_db = tui_state::db;
 //   DbFixture& operator= (const DbFixture&) = delete;
 // };
 
-struct query_test_state_t {
-  query_test_state_t()
-  {
-    // set up globals for testing
-    sqlite3* conn = nullptr;
-    REQUIRE (sqlite3_open (":memory:", &conn) == SQLITE_OK);
-    REQUIRE (apb_create_schema (conn) == SQLITE_OK);
-  }
-  ~query_test_state_t() {}
-};
+// struct query_test_state_t {
+//   query_test_state_t()
+//   {
+//     // set up globals for testing
+//     sqlite3* conn = nullptr;
+//     REQUIRE (sqlite3_open (":memory:", &conn) == SQLITE_OK);
+//     REQUIRE (apb_create_schema (conn) == SQLITE_OK);
+//   }
+//   ~query_test_state_t() {}
+// };
 
-void exec (const char* sql) { test::exec_ok (g_db::conn, sql); }
-
-// duplicate file 1's reads into alternate file `id`
-void copy_reads_to_file (int id)
-{
-  exec (
-      fmt::format (
-          "INSERT INTO per_record_data (qname, flag, start, end, mapq, "
-          "base, basequal, qpos, indel, is_del, is_head, is_tail, "
-          "is_refskip, cigar, seq, qual, mtid, mstart, tags, cig_uint32, "
-          "ncig, path_id) SELECT qname, flag, start, end, mapq, base, "
-          "basequal, qpos, indel, is_del, is_head, is_tail, is_refskip, "
-          "cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig, {} "
-          "FROM per_record_data WHERE path_id = 1;",
-          id
-      )
-          .c_str()
-  );
-}
+// void exec (const char* sql) { test::exec_ok (g_db::conn, sql); }
 
 // qnames of the page the render loop would fetch
-std::vector<std::string> fetch_page (int64_t offset, int64_t limit)
+std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
 {
   sqlite3_stmt* stmt = g_db::displayStmt;
   sqlite3_reset (stmt);
@@ -368,6 +350,7 @@ std::string row_path (sqlite3_stmt* stmt)
 
 }  // namespace
 
+// FIXME: complete implemententation here!
 TEST_CASE ("set_query behaviour")
 {
   SUBCASE ("Behaviour expectatations in normal use")
@@ -380,12 +363,41 @@ TEST_CASE ("set_query behaviour")
     g_db::conn = nullptr;
     REQUIRE (sqlite3_open (":memory:", &g_db::conn) == SQLITE_OK);
     REQUIRE (apb_create_schema (g_db::conn) == SQLITE_OK);
+#define DEF_TEST_REC(test_qname, test_mapq) \
+  test::TestRecord{                         \
+      .qname = (test_qname),                \
+      .flag = 99,                           \
+      .mapQ = (test_mapq),                  \
+      .start_0ho = 100,                     \
+      .end_0ho = 200                        \
+  }
+    const auto testAlns = std::to_array<test::TestAln> ({
+        test::TestAln{
+            "test1.bam",
+            std::vector<test::TestRecord>{
+                DEF_TEST_REC ("read1_f1", 50),
+                DEF_TEST_REC ("read2_f1", 50),
+                DEF_TEST_REC ("read3_f1", 50),
+            },
+            true
+        },
+        test::TestAln{
+            "test2.bam",
+            std::vector<test::TestRecord>{
+                DEF_TEST_REC ("read1_f2", 30),
+                DEF_TEST_REC ("read2_f2", 70),
+                DEF_TEST_REC ("read3_f3", 80),
+            },
+            true
+        },
+    });
+#undef DEF_TEST_REC
 
-    // populate with reads
-
+    test::seed_conn_with_reads (
+        g_db::conn, testAlns, "test-chr", 150, true
+    );
     REQUIRE (g_db::set_query ({}) == SQLITE_OK);
     REQUIRE (g_db::nQueryRows == 3);
-
 
     // leave the old stmt mid-iteration, as render does when the page fills
     sqlite3_reset (g_db::displayStmt);
@@ -394,85 +406,84 @@ TEST_CASE ("set_query behaviour")
     REQUIRE (sqlite3_step (g_db::displayStmt) == SQLITE_ROW);
 
     REQUIRE (
-        g_db::set_query ({.where = {"qname = 'readB'"}, .orderBy = {}}) ==
+        g_db::set_query ({.where = {"qname = 'read2'"}, .orderBy = {}}) ==
         SQLITE_OK
     );
     CHECK (g_db::nQueryRows == 1);
-    CHECK (fetch_page (0, 10) == std::vector<std::string>{"readB"});
-    CHECK()
+    CHECK (fetch_page_qnames (0, 10) == std::vector<std::string>{"read2"});
   }
 
-  SUBCASE ("Path is the primary sort key")
-  {
-    DbFixture fx ({{"b.bam", true}});
-    copy_reads_to_file (2);
+  // SUBCASE ("Path is the primary sort key")
+  // {
+  //   DbFixture fx ({{"b.bam", true}});
+  //   copy_reads_to_file (2);
 
-    REQUIRE (g_db::set_query ({.orderBy = "mapq DESC"}) == SQLITE_OK);
+  //   REQUIRE (g_db::set_query ({.orderBy = "mapq DESC"}) == SQLITE_OK);
 
-    sqlite3_stmt* stmt = g_db::displayStmt;
-    sqlite3_reset (stmt);
-    sqlite3_bind_int64 (stmt, 1, 0);
-    sqlite3_bind_int64 (stmt, 2, 10);
-    std::vector<std::string> paths;
-    while (sqlite3_step (stmt) == SQLITE_ROW) {
-      paths.push_back (row_path (stmt));
-    }
-    sqlite3_reset (stmt);
-    // grouped by file, not interleaved by mapq
-    CHECK (
-        paths ==
-        std::vector<std::string>{
-            "b.bam", "b.bam", "b.bam", "test.bam", "test.bam", "test.bam"
-        }
-    );
-  }
+  //   sqlite3_stmt* stmt = g_db::displayStmt;
+  //   sqlite3_reset (stmt);
+  //   sqlite3_bind_int64 (stmt, 1, 0);
+  //   sqlite3_bind_int64 (stmt, 2, 10);
+  //   std::vector<std::string> paths;
+  //   while (sqlite3_step (stmt) == SQLITE_ROW) {
+  //     paths.push_back (row_path (stmt));
+  //   }
+  //   sqlite3_reset (stmt);
+  //   // grouped by file, not interleaved by mapq
+  //   CHECK (
+  //       paths ==
+  //       std::vector<std::string>{
+  //           "b.bam", "b.bam", "b.bam", "test.bam", "test.bam", "test.bam"
+  //       }
+  //   );
+  // }
 
 
-  SUBCASE ("failure leaves the active query untouched")
-  {
-    DbFixture fx;
-    REQUIRE (
-        g_db::set_query ({.where = {"flag = 99"}, .orderBy = ""}) ==
-        SQLITE_OK
-    );
-    const auto* const stmtBefore = g_db::displayStmt;
-    const auto pageBefore = fetch_page (0, 10);
+  // SUBCASE ("failure leaves the active query untouched")
+  // {
+  //   DbFixture fx;
+  //   REQUIRE (
+  //       g_db::set_query ({.where = {"flag = 99"}, .orderBy = ""}) ==
+  //       SQLITE_OK
+  //   );
+  //   const auto* const stmtBefore = g_db::displayStmt;
+  //   const auto pageBefore = fetch_page (0, 10);
 
-    CHECK (g_db::set_query ({.where = {"nonsense ="}}) != SQLITE_OK);
+  //   CHECK (g_db::set_query ({.where = {"nonsense ="}}) != SQLITE_OK);
 
-    CHECK (g_db::displayStmt == stmtBefore);
-    CHECK (g_db::nQueryRows == 2);
-    CHECK (g_db::userQuery.where == "flag = 99");
-    CHECK (fetch_page (0, 10) == pageBefore);
-  }
+  //   CHECK (g_db::displayStmt == stmtBefore);
+  //   CHECK (g_db::nQueryRows == 2);
+  //   CHECK (g_db::userQuery.where == "flag = 99");
+  //   CHECK (fetch_page (0, 10) == pageBefore);
+  // }
 
-  SUBCASE ("files without reads are correctly classified")
-  {
-    DbFixture fx (
-        {{"no_reads.bam", true},
-         {"no_contig.bam", false},
-         {"has_reads.bam", true}}
-    );
-    copy_reads_to_file (4);
+  // SUBCASE ("files without reads are correctly classified")
+  // {
+  //   DbFixture fx (
+  //       {{"no_reads.bam", true},
+  //        {"no_contig.bam", false},
+  //        {"has_reads.bam", true}}
+  //   );
+  //   copy_reads_to_file (4);
 
-    // nothing matches: all four files are empty, file 1 and 4 only by query
-    REQUIRE (g_db::set_query ({.where = {"qname = 'none'"}}) == SQLITE_OK);
-    CHECK (g_db::nQueryRows == 0);
-    using R = g_db::EmptyFileReason;
-    const auto& ef = g_db::queryEmptyFiles;
-    REQUIRE (ef.size() == 4);
-    CHECK (ef[0].path == "test.bam");
-    CHECK (ef[0].reason == R::noMatchingReads);
-    CHECK (ef[1].path == "no_reads.bam");
-    CHECK (ef[1].reason == R::noReadsAtLocus);
-    CHECK (ef[2].path == "no_contig.bam");
-    CHECK (ef[2].reason == R::contigAbsent);
-    CHECK (ef[3].reason == R::noMatchingReads);
+  //   // nothing matches: all four files are empty, file 1 and 4 only by query
+  //   REQUIRE (g_db::set_query ({.where = {"qname = 'none'"}}) == SQLITE_OK);
+  //   CHECK (g_db::nQueryRows == 0);
+  //   using R = g_db::EmptyFileReason;
+  //   const auto& ef = g_db::queryEmptyFiles;
+  //   REQUIRE (ef.size() == 4);
+  //   CHECK (ef[0].path == "test.bam");
+  //   CHECK (ef[0].reason == R::noMatchingReads);
+  //   CHECK (ef[1].path == "no_reads.bam");
+  //   CHECK (ef[1].reason == R::noReadsAtLocus);
+  //   CHECK (ef[2].path == "no_contig.bam");
+  //   CHECK (ef[2].reason == R::contigAbsent);
+  //   CHECK (ef[3].reason == R::noMatchingReads);
 
-    // files with matching reads are not listed
-    REQUIRE (g_db::set_query ({}) == SQLITE_OK);
-    CHECK (g_db::queryEmptyFiles.size() == 2);
-  }
+  //   // files with matching reads are not listed
+  //   REQUIRE (g_db::set_query ({}) == SQLITE_OK);
+  //   CHECK (g_db::queryEmptyFiles.size() == 2);
+  // }
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

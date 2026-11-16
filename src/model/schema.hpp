@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-#include "shared/stringify.hpp"
+#include "utility/stringify.hpp"
 
 #define APB_APP_ID 777
 #define APB_SCHEMA_VER 2
@@ -21,6 +21,7 @@ inline constexpr std::string_view sqlSetAppId =
 inline constexpr std::string_view sqlSetVersion =
   "PRAGMA user_version = " STR(APB_SCHEMA_VER) ";";
 
+// FIXME: this is not part of the schema - it is a TUI specific thing.
 // keep all data in RAM.
 // Note that because we do this, some
 // classic optimisation techniques,

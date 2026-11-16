@@ -19,10 +19,12 @@
 #include "generic/db_io.hpp"
 #include "generic/describe.hpp"
 #include "helpblocks.hpp"
+#include "log.hpp"
 #include "query.hpp"
-#include "shared/cleanup.hpp"
 #include "state.hpp"
 #include "tui_assert.hpp"
+#include "utility/cleanup.hpp"
+#include "version.hpp"
 #include "widgets.hpp"
 
 namespace g_db = tui_state::db;

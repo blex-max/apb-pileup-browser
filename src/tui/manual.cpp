@@ -9,7 +9,7 @@
 
 #include "cmd.hpp"
 #include "helpblocks.hpp"
-#include "shared/version.hpp"
+#include "version.hpp"
 
 // NOTE: write in single line paragraphs. The reader should use a word-wrapping pager.
 

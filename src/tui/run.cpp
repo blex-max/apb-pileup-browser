@@ -1,13 +1,16 @@
 #include "run.hpp"
 
+#include <fmt/format.h>
+
 #include <cstdlib>
+#include <iostream>
 
 #include "event.hpp"
+#include "log.hpp"
 #include "query.hpp"
-#include "shared/cleanup.hpp"
-#include "shared/log.hpp"
 #include "state.hpp"
 #include "tui_assert.hpp"
+#include "utility/cleanup.hpp"
 #include "widgets.hpp"
 
 namespace e2 = extb;

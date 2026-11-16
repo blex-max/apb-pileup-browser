@@ -1,12 +1,14 @@
 #include "event.hpp"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cstdint>
 
 #include "cmd.hpp"
 #include "input.hpp"
+#include "log.hpp"
 #include "query.hpp"
-#include "shared/log.hpp"
 #include "state.hpp"
 #include "tb2_impl.hpp"
 #include "tui_assert.hpp"

@@ -6,15 +6,21 @@
 #include <htslib/hts.h>
 #include <htslib/sam.h>
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <expected>
+#include <random>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
-#include "generic/demo.hpp"
 #include "generic/describe.hpp"
-#include "model/hts2apb.hpp"
-#include "model/hts_types.hpp"
-#include "shared/apb_assert.hpp"
-#include "shared/cleanup.hpp"
-#include "shared/stringify.hpp"
+#include "generic/transform_hts.hpp"
+#include "model/apb_db.hpp"
+#include "utility/apb_assert.hpp"
+#include "utility/cleanup.hpp"
 
 struct PileupCapture {
   htsFile* br_fh = nullptr;
@@ -33,7 +39,8 @@ std::expected<void, std::string> ingest_sam_auto (
     sqlite3* conn, const std::vector<std::filesystem::path>& alnPaths,
     const std::string& locus,
     const std::optional<std::filesystem::path>& refPath, bool zeroBased,
-    bool limitMemUsage
+    std::optional<size_t> loadLimitBytes,
+    std::optional<size_t> loadLimitDepth
 )
 {
   // helper types for this fn
@@ -155,9 +162,8 @@ std::expected<void, std::string> ingest_sam_auto (
   bool contigFound = false;
   bool readsFoundAtLocus = false;
   uint64_t estLocusBytes = 0;
-  genomic_span_t maxSpan{
-      INT64_MAX, 0
-  };  // for fetching appropriate reference slice
+  int64_t span0Start = INT64_MAX;
+  int64_t span0End = 0;
   std::vector<apb_input_record1_t> inputRecBuf;
   if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
@@ -247,7 +253,7 @@ std::expected<void, std::string> ingest_sam_auto (
         );
       }
       bam_plp_set_maxcnt (
-          pileup.o_plp, limitMemUsage ? DEPTH_LIMIT : INT_MAX
+          pileup.o_plp, loadLimitDepth ? *loadLimitDepth : INT_MAX
       );
 
       int64_t plpPos = -1;
@@ -276,26 +282,28 @@ std::expected<void, std::string> ingest_sam_auto (
         // else locus found (implying reads present)
         pileup.br_plpArr = br_plpArr;
         pileup.nPlp = static_cast<size_t> (nPlp);
-        if (limitMemUsage && pileup.nPlp >= DEPTH_LIMIT) {
+        if (loadLimitDepth && pileup.nPlp >= *loadLimitDepth) {
           return std::unexpected (
               fmt::format (
                   "Pileup at locus exceeds {} reads in alignment file {}, "
                   "aborting. To uncap memory usage, use --no-limit-mem",
-                  DEPTH_LIMIT, aln.path
+                  *loadLimitDepth, aln.path
               )
           );
         }
         for (int j = 0; j < nPlp; j++) {
           const auto* b1 = br_plpArr[j].b;
-          if (limitMemUsage) {
+          if (loadLimitBytes) {
             estLocusBytes += sizeof (bam_pileup1_t) + sizeof (bam1_t) +
                              static_cast<unsigned long> (b1->l_data);
-            if (estLocusBytes > kBytesLimit) {
+            if (estLocusBytes > *loadLimitBytes) {
               return std::unexpected (
-                  "Pileup at locus exceeds ~" STR (
-                      GB_LIMIT
-                  ) "Gb in size, "
-                    "aborting. To uncap memory usage, use --no-limit-mem"
+                  fmt::format (
+                      "Pileup at locus exceeds ~{}Gb in size, "
+                      "aborting. To uncap memory usage, use "
+                      "--no-limit-mem",
+                      *loadLimitBytes / 1'000'000'000
+                  )
               );
             }
           }
@@ -305,8 +313,8 @@ std::expected<void, std::string> ingest_sam_auto (
               bam_cigar2rlen (
                   static_cast<int> (b1->core.n_cigar), bam_get_cigar (b1)
               );
-          maxSpan.start = std::min (maxSpan.start, rStart);
-          maxSpan.end = std::max (maxSpan.end, rEnd);
+          span0Start = std::min (span0Start, rStart);
+          span0End = std::max (span0End, rEnd);
         }
         break;
       }
@@ -369,7 +377,7 @@ std::expected<void, std::string> ingest_sam_auto (
       iter_nrec = *ret;
     }
     APB_ASSERT (iter_nrec == pileup.nPlp, iter_nrec, pileup.nPlp);
-    if (const auto rc = apb_insert_pileup (
+    if (const auto rc = apb_insert_records (
             conn, {inputRecBuf.data(), iter_nrec}, alnID
         );
         rc != SQLITE_OK) {
@@ -393,20 +401,18 @@ std::expected<void, std::string> ingest_sam_auto (
       hts_pos_t regLen;
       // uses closed coordinates, hence -1
       auto* o_fetch = faidx_fetch_seq64 (
-          *ff, locusContigName.c_str(), maxSpan.start, maxSpan.end - 1,
-          &regLen
+          *ff, locusContigName.c_str(), span0Start, span0End - 1, &regLen
       );
       if (o_fetch == NULL) {
         return std::unexpected (
             fmt::format (
                 "Failed to fetch reference region from fasta at {} "
                 "for span {}:{}-{}",
-                refPath.value(), locusContigName, maxSpan.start,
-                maxSpan.end
+                refPath.value(), locusContigName, span0Start, span0End
             )
         );
       }
-      if (regLen < (maxSpan.end - maxSpan.start)) {
+      if (regLen < (span0End - span0Start)) {
         return std::unexpected (
             "Reference too short! Fasta missing coverage for pileup span."
         );
@@ -415,13 +421,12 @@ std::expected<void, std::string> ingest_sam_auto (
       free (o_fetch);
     }
 
-    if (const auto ret = apb_insert_locus (
-            conn, locusContigName, locusPos, maxSpan, refSlice
+    if (const auto rc = apb_insert_locus (
+            conn, locusContigName, locusPos, span0Start, span0End, refSlice
         );
-        !ret) {
+        rc != SQLITE_OK) {
       return std::unexpected (apb_describe_sqlite_failure (
-          "Failed to insert locus metadata", ret.error(),
-          sqlite3_errmsg (conn)
+          "Failed to insert locus metadata", rc, sqlite3_errmsg (conn)
       ));
     }
   }
@@ -445,50 +450,275 @@ std::expected<void, std::string> ingest_sam_auto (
   return {};
 }
 
-void ingest_demo_auto (sqlite3* conn)
+/* demo */
+static const char kBaseArray[] = "ACGT";
+
+// Deterministic reference sequence
+static std::string fixed_ref_seq (size_t len)
+{
+  std::string out;
+  out.reserve (len);
+  for (size_t i = 0; i < len; ++i) {
+    out += kBaseArray[i % 4];
+  }
+  return out;
+}
+
+static char random_base (std::mt19937& rng)
+{
+  std::uniform_int_distribution<int> pick (0, 3);
+  return kBaseArray[pick (rng)];
+}
+
+// A base guaranteed to differ from refBase, for injecting mismatches
+// into otherwise ref-copied synthetic reads.
+static char mutate_base (char refBase, std::mt19937& rng)
+{
+  char b;
+  do {
+    b = random_base (rng);
+  } while (b == refBase);
+  return b;
+}
+
+void ingest_demo (sqlite3* conn)
 {
   APB_ASSERT (conn != nullptr);
 
   constexpr std::string_view demoContig = "demo-contig";
-  constexpr hts_pos_t demoPos = 10'000'000;
+  constexpr int64_t pos = 10'000'000;
+  constexpr size_t regWidth = 300;
+  constexpr size_t nAln = 3;
+  constexpr size_t nQueryPerAln = 300;
 
-  auto demoData = generate_demo_data (300, 900, demoPos);
-  Defer data_cleanup ([&demoData]() { demoData.destroy(); });
-  std::array<std::span<bam_pileup1_t>, 3> demoAlns{
-      std::span<bam_pileup1_t>{
-          begin (demoData.p), begin (demoData.p) + 300
-      },
-      std::span<bam_pileup1_t>{
-          begin (demoData.p) + 300, begin (demoData.p) + 600
-      },
-      std::span<bam_pileup1_t>{begin (demoData.p) + 600, end (demoData.p)}
+  // every read has a core aligned run of this length, covering the
+  // pileup column.
+  constexpr size_t readLen = (regWidth / 2) - 1;
+  auto refSeq = fixed_ref_seq (regWidth);
+  // refSeq[0] sits at this absolute position; pos is refSeq[readLen]
+  constexpr int64_t winStart = pos - static_cast<int64_t> (readLen);
+  // known ref base at pos
+  refSeq[readLen] = 'A';
+
+  constexpr size_t maxDelLen = 4;
+
+  // start >= 2 leaves a base after the pileup column for an indel to follow.
+  // headroom of maxDelLen keeps start+readLen+delLen within regWidth.
+  std::uniform_int_distribution<size_t> gstartGen (2, readLen - maxDelLen);
+  constexpr double mismatchRate = 0.01;
+  std::bernoulli_distribution mismatchDist (mismatchRate);
+  std::uniform_int_distribution<size_t> delLenGen (1, maxDelLen);
+  constexpr size_t maxInsLen = 4;
+  std::uniform_int_distribution<size_t> insLenGen (1, maxInsLen);
+  constexpr size_t maxClipLen = 20;
+  std::uniform_int_distribution<size_t> clipLenGen (1, maxClipLen);
+  // mostly 60, some 0, a spread between
+  std::discrete_distribution<int> mapQBand ({5, 15, 80});
+  std::uniform_int_distribution<int> mapQMid (1, 59);
+  const std::array<uint8_t, 5> qualVals{
+      'F' - 33, 'E' - 33, 'D' - 33, ':' - 33, ';' - 33
   };
+  std::discrete_distribution<int> qualValPicker ({80, 30, 20, 15, 15});
 
+  // Each read carries one allele at the pileup column...
+  // FIns/FDel follow the column; Del covers it.
+  enum class Allele : uint8_t { Ref, Alt, FIns, FDel, Del };
+  constexpr char pileupAlt = 'T';
+  std::discrete_distribution<int> allelePicker (
+      {0.45, 0.20, 0.12, 0.12, 0.11}
+  );
 
-  std::vector<apb_input_record1_t> inputRecs (300);
+  // and, independently, at most one soft clip.
+  enum class AlignmentFeature : uint8_t { None, LeadClip, TailClip };
+  std::discrete_distribution<int> featurePicker ({0.80, 0.10, 0.10});
+
+  // All reads paired, mates on the same contig unless unmapped.
+  std::bernoulli_distribution coinFlip (0.5);
+  std::bernoulli_distribution mateUnmappedDist (0.05);
+  std::uniform_int_distribution<int64_t> mateDistGen (100, 400);
+  // at most one of none/dup/secondary/supplementary/qcfail
+  constexpr std::array<uint16_t, 5> filterFlags{
+      0, BAM_FDUP, BAM_FSECONDARY, BAM_FSUPPLEMENTARY, BAM_FQCFAIL
+  };
+  std::discrete_distribution<int> filterPicker ({87, 8, 2, 2, 1});
+
+  // read/ref coordinates are absolute (0-based); index refSeq via winStart.
+  // every read covers pos.
+  int64_t spanStart_0ho = pos;
+  int64_t spanEnd_0ho = pos + 1;
+  std::mt19937 rng;
+  // one record set per alignment file
+  std::array<std::vector<apb_input_record1_t>, nAln> alns;
+  for (size_t i = 0; i < nAln * nQueryPerAln; ++i) {
+    const size_t alnIdx = i / nQueryPerAln;
+    auto& rec = alns[alnIdx].emplace_back();
+
+    rec.start_0ho = winStart + static_cast<int64_t> (gstartGen (rng));
+    // offset of the pileup column within the core aligned run
+    const auto colOff = static_cast<size_t> (pos - rec.start_0ho);
+
+    const auto pushOp = [&rec] (size_t len, int op) {
+      const auto cigel = static_cast<uint32_t> (bam_cigar_gen (len, op));
+      rec.rawCig.push_back (cigel);
+      rec.cig += std::to_string (len);
+      rec.cig += bam_cigar_opchr (cigel);
+    };
+    const auto allele = static_cast<Allele> (allelePicker (rng));
+    const auto feature =
+        static_cast<AlignmentFeature> (featurePicker (rng));
+
+    if (feature == AlignmentFeature::LeadClip) {
+      pushOp (clipLenGen (rng), BAM_CSOFT_CLIP);
+    }
+    rec.indel = 0;  // meaning per htslib p1.indel
+    if (allele == Allele::Del) {
+      // column falls inside the deletion; >= 1 base precedes it
+      const size_t n = delLenGen (rng);
+      const size_t pre =
+          colOff - std::uniform_int_distribution<size_t> (0, n - 1) (rng);
+      pushOp (pre, BAM_CMATCH);
+      pushOp (n, BAM_CDEL);
+      pushOp (readLen - pre, BAM_CMATCH);
+    }
+    else if (allele == Allele::FIns || allele == Allele::FDel) {
+      // indel immediately after the pileup column
+      const bool isDel = allele == Allele::FDel;
+      const size_t n = isDel ? delLenGen (rng) : insLenGen (rng);
+      pushOp (colOff + 1, BAM_CMATCH);
+      pushOp (n, isDel ? BAM_CDEL : BAM_CINS);
+      pushOp (readLen - colOff - 1, BAM_CMATCH);
+      rec.indel = isDel ? -static_cast<int> (n) : static_cast<int> (n);
+    }
+    else {
+      pushOp (readLen, BAM_CMATCH);
+    }
+    if (feature == AlignmentFeature::TailClip) {
+      pushOp (clipLenGen (rng), BAM_CSOFT_CLIP);
+    }
+    rec.nCig = rec.rawCig.size();
+
+    // Walk the CIGAR to build the read sequence, tracking ref and query
+    // cursors. The pileup column is inside an M op, or a D op for Del.
+    std::string seq;
+    int64_t nm = 0;  // edit distance, for the NM tag
+    auto refPos = rec.start_0ho;
+    for (const auto cig : rec.rawCig) {
+      const size_t len = bam_cigar_oplen (cig);
+      switch (bam_cigar_op (cig)) {
+      case BAM_CMATCH:
+        for (size_t k = 0; k < len; ++k, ++refPos) {
+          const char refBase =
+              refSeq[static_cast<size_t> (refPos - winStart)];
+          char b;
+          if (refPos == pos) {
+            rec.qPos = static_cast<int32_t> (seq.size());
+            b = allele == Allele::Alt ? pileupAlt : refBase;
+          }
+          else {
+            b = mismatchDist (rng) ? mutate_base (refBase, rng) : refBase;
+          }
+          if (b != refBase) {
+            ++nm;
+          }
+          seq += b;
+        }
+        break;
+      case BAM_CDEL:
+        if (pos >= refPos && pos < refPos + static_cast<int64_t> (len)) {
+          // htslib: qpos of a deleted column is the next query base
+          rec.qPos = static_cast<int32_t> (seq.size());
+          rec.isDel = true;
+        }
+        refPos += static_cast<int64_t> (len);
+        nm += static_cast<int64_t> (len);
+        break;
+      case BAM_CINS:
+        nm += static_cast<int64_t> (len);
+        [[fallthrough]];
+      default:  // insertion, soft clip: bases not in the reference
+        for (size_t k = 0; k < len; ++k) {
+          seq += random_base (rng);
+        }
+        break;
+      }
+    }
+    APB_ASSERT (rec.qPos >= 0);
+    rec.end_0ho = refPos;
+
+    std::vector<uint8_t> qual (seq.size());
+    for (auto& q : qual) {
+      q = qualVals[static_cast<size_t> (qualValPicker (rng))];
+    }
+
+    const auto qPos = static_cast<size_t> (rec.qPos);
+    rec.isHead = qPos == 0;
+    rec.isTail = qPos == seq.size() - 1;
+    rec.isRefSkip = false;  // not in demo
+    if (!rec.isDel) {
+      rec.base = seq[qPos];
+      rec.baseQual = qual[qPos];
+    }
+    rec.seq = std::move (seq);
+    rec.rawQual = std::move (qual);
+
+    uint16_t flag = BAM_FPAIRED;
+    flag |= coinFlip (rng) ? BAM_FREAD1 : BAM_FREAD2;
+    flag |= filterFlags[static_cast<size_t> (filterPicker (rng))];
+    const bool isRev = coinFlip (rng);
+    if (isRev) {
+      flag |= BAM_FREVERSE;
+    }
+    // unmapped mate sits at this read's position, per SAM recommended
+    // practice (bwa, minimap2, fixmate, htsjdk)
+    rec.mStart = rec.start_0ho;
+    if (mateUnmappedDist (rng)) {
+      flag |= BAM_FMUNMAP;
+    }
+    else {
+      flag |= BAM_FPROPER_PAIR;
+      // FR orientation: mate on the opposite strand, facing this read
+      const auto d = mateDistGen (rng);
+      rec.mStart = isRev ? rec.start_0ho - d : rec.start_0ho + d;
+      if (!isRev) {
+        flag |= BAM_FMREVERSE;
+      }
+    }
+    rec.flag = flag;
+    rec.mtidName = "=";  // single demo contig
+
+    rec.mapQ = 60;
+    switch (mapQBand (rng)) {
+    case 0:
+      rec.mapQ = 0;
+      break;
+    case 1:
+      rec.mapQ = static_cast<uint8_t> (mapQMid (rng));
+      break;
+    default:
+      break;
+    }
+
+    rec.qName = "read" + std::to_string (i);
+    // one read group per alignment file
+    rec.auxJson =
+        fmt::format (R"({{"NM":{},"RG":"sample{}"}})", nm, alnIdx + 1);
+
+    spanStart_0ho = std::min (rec.start_0ho, spanStart_0ho);
+    spanEnd_0ho = std::max (rec.end_0ho, spanEnd_0ho);
+  }
+
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
       rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
-  for (size_t i = 0; i < demoAlns.size(); ++i) {
-    const auto plp = demoAlns[i];
-    std::sort (begin (plp), end (plp), [] (const auto& a, const auto& b) {
-      return a.b->core.pos < b.b->core.pos;
+  for (size_t i = 0; i < alns.size(); ++i) {
+    auto& aln = alns[i];
+    std::sort (begin (aln), end (aln), [] (const auto& a, const auto& b) {
+      return a.start_0ho < b.start_0ho;
     });
     std::string alnPath{"/data/samples/PD12345"};
     alnPath += static_cast<char> ('a' + i);
     alnPath.append (".bam");
-    // one read group per file
-    const auto readGroup = "sample" + std::to_string (i + 1);
-    for (auto& p1 : plp) {
-      APB_ASSERT (
-          const auto ret = bam_aux_update_str (
-              p1.b, "RG", static_cast<int> (readGroup.size() + 1),
-              readGroup.c_str()
-          );
-          ret == 0, ret
-      );
-    }
 
     int alnId;
     if (const auto ret = apb_insert_aln (conn, alnPath, true); !ret) {
@@ -501,20 +731,7 @@ void ingest_demo_auto (sqlite3* conn)
       alnId = *ret;
     }
 
-    /* transform and insert */
-    if (const auto ret = apb_transform_pileup1 (
-            plp, inputRecs,
-            [&demoContig] (int) { return demoContig.data(); }
-
-        );
-        !ret) {
-      const auto& err = ret.error();
-      switch (err.code) {
-      case transform_p1_err_t::aux_parse_fail:
-        APB_UNREACHABLE ("bad tag data in demo pileup");
-      }
-    }
-    if (const auto rc = apb_insert_pileup (conn, inputRecs, alnId);
+    if (const auto rc = apb_insert_records (conn, aln, alnId);
         rc != SQLITE_OK) {
       APB_UNREACHABLE (
           "demo insertion malformed", sqlite3_errstr (rc),
@@ -523,12 +740,16 @@ void ingest_demo_auto (sqlite3* conn)
     }
   }
 
+  const auto ref = refSeq.substr (
+      static_cast<size_t> (spanStart_0ho - winStart),
+      static_cast<size_t> (spanEnd_0ho - spanStart_0ho)
+  );
   APB_ASSERT (
-      const auto ret = apb_insert_locus (
-          conn, std::string{demoContig}, demoPos, demoData.pspan,
-          demoData.ref
+      const auto rc = apb_insert_locus (
+          conn, std::string{demoContig}, pos, spanStart_0ho, spanEnd_0ho,
+          ref
       );
-      ret, ret.error(), sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
+      rc == SQLITE_OK, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);

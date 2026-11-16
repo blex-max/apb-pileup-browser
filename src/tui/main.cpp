@@ -24,15 +24,15 @@
 #include "generic/db_io.hpp"
 #include "generic/describe.hpp"
 #include "ingest.hpp"
-#include "model/hts2apb.hpp"
-#include "shared/apb_assert.hpp"
-#include "shared/cleanup.hpp"
-#include "shared/log.hpp"
-#include "shared/stringify.hpp"
-#include "shared/version.hpp"
+#include "log.hpp"
+#include "model/apb_db.hpp"
 #include "tui/manual.hpp"
 #include "tui/query.hpp"
 #include "tui/run.hpp"
+#include "utility/apb_assert.hpp"
+#include "utility/cleanup.hpp"
+#include "utility/stringify.hpp"
+#include "version.hpp"
 
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
@@ -109,7 +109,7 @@ struct ApbCliArgs {
   std::optional<std::filesystem::path> logPath = std::nullopt;
 
   bool zeroBased = false;
-  bool limitHeapSize = true;
+  bool limitMemUsage = true;
 
   bool hiddenFlushLogOnWrite = false;
 };
@@ -131,9 +131,9 @@ static bool init_db (sqlite3*& conn)
     return true;
     // more cases may be added if they're outside of apb's control
   case SQLITE_NOMEM:
-      // FIXME: nomem might be worth failing gracefully on throughout,
-      // since running out of memory on a cluster interactive session
-      // or head node is not implausible.
+    // FIXME: nomem might be worth failing gracefully on throughout,
+    // since running out of memory on a cluster interactive session
+    // or head node is not implausible.
     std::cerr << "Error: failed to initialise database BEFORE "
                  "attempting to load pileup with out of memory error. "
                  "Are you in a memory constrained environment?"
@@ -174,26 +174,33 @@ int main (int argc, char** argv)
   Defer db_shutdown ([&conn]() { sqlite3_close_v2 (conn); });
 
   switch (args.mode) {
-  case ApbMode::locus:
+  case ApbMode::locus: {
     APB_ASSERT (!args.locus.empty());
     APB_ASSERT (!args.alnPaths.empty());
     if (!init_db (conn)) {
       return EXIT_FAILURE;
     }
+    /* bounds */
+    constexpr size_t kDepthLimit = 500'000;
+    constexpr size_t kBytesLimit = static_cast<size_t> (4) * 1'000'000'000;
     if (const auto ret = ingest_sam_auto (
             conn, args.alnPaths, args.locus, args.refPath, args.zeroBased,
-            args.limitHeapSize
+            args.limitMemUsage ? std::make_optional (kBytesLimit)
+                               : std::nullopt,
+            args.limitMemUsage ? std::make_optional (kDepthLimit)
+                               : std::nullopt
         );
         !ret) {
       std::cerr << "Error: " << ret.error() << std::endl;
       return EXIT_FAILURE;
     }
     break;
+  }
   case ApbMode::demo: {
     if (!init_db (conn)) {
       return EXIT_FAILURE;
     }
-    ingest_demo_auto (conn);
+    ingest_demo (conn);
     break;
   }
   case ApbMode::db: {
@@ -209,7 +216,7 @@ int main (int argc, char** argv)
       return EXIT_FAILURE;
     }
     conn = *loadRet;
-      // load_from_disk only checks the metadata row exists
+    // load_from_disk only checks the metadata row exists
     if (!get_locus_data (conn).valid()) {
       std::cerr << fmt::format (
                        "Error: database at {} appears to be "
@@ -329,7 +336,7 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         OPT_VAL_OR_EXIT ("--ref", argsOut.refPath);
       }
       else if (arg == "--no-limit-mem") {
-        argsOut.limitHeapSize = false;
+        argsOut.limitMemUsage = false;
       }
       else if (arg.starts_with ("-")) {
         EXIT_W_USAGE (fmt::format ("unrecognized argument: {}", arg));

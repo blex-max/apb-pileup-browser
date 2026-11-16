@@ -4,9 +4,9 @@
 #include <sqlite3.h>
 
 #include "describe.hpp"
-#include "model/hts2apb.hpp"
+#include "model/apb_db.hpp"
 #include "model/schema.hpp"
-#include "shared/cleanup.hpp"
+#include "utility/cleanup.hpp"
 
 std::expected<void, dump_err_t> dump_to_disk (
     sqlite3* conn, std::string_view path
@@ -286,15 +286,37 @@ std::string apb_describe_load_failure (
 /* --- TESTS --- */
 #ifndef DOCTEST_CONFIG_DISABLE
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include "doctest.h"
 #include "fixtures.hpp"
 
 namespace {
+
+constexpr int64_t k_seedPos_0ho = 149;
+
+const std::vector<test::TestRecord> k_seedReads{
+    {.qname = "readA",
+     .flag = 99,
+     .mapQ = 60,
+     .start_0ho = 99,
+     .end_0ho = 170},
+    {.qname = "readB",
+     .flag = 4,
+     .mapQ = 10,
+     .start_0ho = 119,
+     .end_0ho = 190},
+    {.qname = "readC",
+     .flag = 99,
+     .mapQ = 45,
+     .start_0ho = 139,
+     .end_0ho = 200},
+};
 
 // dump a seeded apb db to `path`, optionally altering it first
 void dump_seeded (
@@ -303,7 +325,10 @@ void dump_seeded (
 {
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_conn_with_reads (conn);
+  const auto alns = std::to_array<test::TestAln> ({
+      {"test.bam", k_seedReads, true},
+  });
+  test::seed_conn_with_reads (conn, alns, "chr1", k_seedPos_0ho, false);
   if (alterSql != nullptr) {
     test::exec_ok (conn, alterSql);
   }
@@ -320,7 +345,11 @@ TEST_CASE ("dump_to_disk then load_from_disk")
 
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  test::seed_conn_with_reads (conn, {{"other.bam", false}}, true);
+  const auto alns = std::to_array<test::TestAln> ({
+      {"test.bam", k_seedReads, true},
+      {"other.bam", std::nullopt, false},
+  });
+  test::seed_conn_with_reads (conn, alns, "chr1", k_seedPos_0ho, true);
   REQUIRE (dump_to_disk (conn, path.string()).has_value());
 
   auto loadRet = load_from_disk (path.string());

@@ -80,12 +80,13 @@ set(APB_COMPILE_DEFINITIONS
 )
 
 add_executable(apb
-  src/app/main.cpp
-  src/app/ingest.cpp
+  src/tui/log.cpp
+  src/utility/abort_fatal.cpp
+  src/model/apb_db.cpp
   src/generic/db_io.cpp
-  src/generic/demo.cpp
   src/generic/describe.cpp
-  src/model/hts2apb.cpp
+  src/generic/transform_hts.cpp
+  src/tui/tb2_impl.cpp
   src/tui/cmd.cpp
   src/tui/event.cpp
   src/tui/input.cpp
@@ -93,9 +94,9 @@ add_executable(apb
   src/tui/query.cpp
   src/tui/run.cpp
   src/tui/state.cpp
-  src/tui/tb2_impl.cpp
   src/tui/widgets.cpp
-  src/shared/log.cpp
+  src/tui/ingest.cpp
+  src/tui/main.cpp
 )
 target_compile_definitions(apb PRIVATE ${APB_COMPILE_DEFINITIONS} DOCTEST_CONFIG_DISABLE)
 target_compile_options(apb
@@ -134,14 +135,16 @@ if(APB_BUILD_TESTS)
     tests/fixtures.cpp
     src/generic/db_io.cpp
     src/generic/describe.cpp
-    src/model/hts2apb.cpp
+    src/generic/transform_hts.cpp
+    src/model/apb_db.cpp
     src/tui/cmd.cpp
     src/tui/query.cpp
     src/tui/state.cpp
     src/tui/tb2_impl.cpp
     src/tui/widgets.cpp
     src/tui/input.cpp
-    src/shared/log.cpp
+    src/tui/log.cpp
+    src/utility/abort_fatal.cpp
   )
   target_compile_definitions(apb-tests PRIVATE ${APB_COMPILE_DEFINITIONS})
   target_include_directories(apb-tests PRIVATE src tests)

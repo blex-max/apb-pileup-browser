@@ -4,7 +4,6 @@
 #include <htslib/sam.h>
 
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -12,9 +11,8 @@
 #include <vector>
 
 #include "doctest.h"
-#include "model/hts2apb.hpp"
-#include "model/schema.hpp"
-#include "shared/cleanup.hpp"
+#include "model/apb_db.hpp"
+#include "utility/cleanup.hpp"
 
 namespace test {
 
@@ -35,93 +33,74 @@ void exec_ok (sqlite3* conn, const char* sql)
 
 namespace {
 
-// A read overlapping the seeded pileup position.
-struct SeedRead {
-  const char* qname;
-  uint16_t flag;
-  uint8_t mapQ;
-  hts_pos_t start, end;  // 1-based closed, as stored in the db
-};
-
-// 0-based, as htslib
-constexpr hts_pos_t k_seedPos = 149;
-
-// Built as demo.cpp builds its synthetic reads: a bam1_t, with the
-// pileup fields set by hand. A single aligned run, all 'A' at qual 30.
-// Owner must bam_destroy1 .b
-bam_pileup1_t make_pileup1 (const SeedRead& r)
+// A single aligned run, all 'A' at qual 30.
+// No mate, no tags.
+apb_input_record1_t make_record (const TestRecord& tr, int64_t pos_0ho)
 {
-  const hts_pos_t start0 = r.start - 1;
-  const auto readLen = static_cast<size_t> (r.end - start0);
-  const uint32_t cigar[] = {
-      static_cast<uint32_t> (bam_cigar_gen (readLen, BAM_CMATCH))
-  };
-  const std::string seq (readLen, 'A');
-  const std::vector<char> qual (readLen, 30);
-
-  bam_pileup1_t p1{};
-  p1.b = bam_init1();
-  REQUIRE (p1.b != nullptr);
-  REQUIRE (
-      bam_set1 (
-          p1.b, std::strlen (r.qname), r.qname, r.flag, -1 /* no tid */,
-          start0, r.mapQ, 1, cigar, -1 /* no mate */, -1, -1, readLen,
-          seq.data(), qual.data(), 0 /* no tags */
-      ) >= 0
-  );
-  p1.qpos = static_cast<int32_t> (k_seedPos - start0);
-  p1.indel = 0;
-  p1.is_head = (p1.qpos == 0);
-  p1.is_tail = (static_cast<size_t> (p1.qpos) == readLen - 1);
-  return p1;
+  apb_input_record1_t rec;
+  rec.qName = tr.qname;
+  rec.flag = tr.flag;
+  rec.start_0ho = tr.start_0ho;
+  rec.end_0ho = tr.end_0ho;
+  rec.mapQ = tr.mapQ;
+  rec.qPos = static_cast<int32_t> (pos_0ho - tr.start_0ho);
+  rec.indel = 0;
+  rec.isHead = rec.qPos == 0;
+  // use simple fixed values for testing
+  constexpr char k_base = 'A';
+  constexpr uint8_t k_qual = 30;
+  const auto readLen = static_cast<size_t> (tr.end_0ho - tr.start_0ho);
+  const auto cigel =
+      static_cast<uint32_t> (bam_cigar_gen (readLen, BAM_CMATCH));
+  rec.isTail = static_cast<size_t> (rec.qPos) == readLen - 1;
+  rec.base = k_base;
+  rec.baseQual = k_qual;
+  rec.seq = std::string (readLen, k_base);
+  rec.rawQual = std::vector<uint8_t> (readLen, k_qual);
+  rec.rawCig = {cigel};
+  rec.nCig = rec.rawCig.size();
+  rec.cig = std::to_string (readLen) + bam_cigar_opchr (cigel);
+  return rec;
 }
 
 }  // namespace
 
 void seed_conn_with_reads (
-    sqlite3* conn, const std::vector<ExtraFile>& extraFiles, bool withRef
+    sqlite3* conn, std::span<const TestAln> alns,
+    const std::string& contig, int64_t pos_0ho, bool withRef
 )
 {
-  // (qname, flag, mapq, start, end); all satisfy
-  // 100 <= start <= 150 <= end <= 200.
-  const SeedRead seedReads[] = {
-      {"readA", 99, 60, 100, 170},
-      {"readB", 4, 10, 120, 190},
-      {"readC", 99, 45, 140, 200},
-  };
-  std::vector<bam_pileup1_t> plp;
-  Defer plpCleanup ([&]() {
-    for (auto& p1 : plp) {
-      bam_destroy1 (p1.b);
+  int64_t spanStart_0ho = INT64_MAX;
+  int64_t spanEnd_0ho = 0;
+  std::vector<apb_input_record1_t> fReads;
+  for (size_t i = 0; i < alns.size(); i++) {
+    const auto& f = alns[i];
+    const auto alnId = apb_insert_aln (conn, f.path, f.hasContig);
+    REQUIRE (alnId == i + 1);
+    if (f.reads) {
+      fReads.clear();
+      for (const auto& r : *f.reads) {
+        fReads.push_back (make_record (r, pos_0ho));
+        spanStart_0ho = std::min (spanStart_0ho, r.start_0ho);
+        spanEnd_0ho = std::max (spanEnd_0ho, r.end_0ho);
+      }
+      REQUIRE (apb_insert_records (conn, fReads, *alnId) == SQLITE_OK);
     }
-  });
-  for (const auto& r : seedReads) {
-    plp.push_back (make_pileup1 (r));
   }
-
-  const auto alnId = apb_insert_aln (conn, "test.bam", true);
-  REQUIRE (alnId);
-  REQUIRE (*alnId == k_testFileId);
-  for (const auto& f : extraFiles) {
-    REQUIRE (apb_insert_aln (conn, f.path, f.hasContig));
-  }
-
-  REQUIRE (apb_insert_pileup (conn, plp, *alnId, [] (int) -> const char* {
-    return nullptr;
-  }));
 
   // locus last: it counts the alignment files
-  const genomic_span_t span{.start = 99, .end = 200};
   std::string ref;
   if (withRef) {
-    for (hts_pos_t i = 0; i < span.end - span.start; ++i) {
+    for (hts_pos_t i = 0; i < spanEnd_0ho - spanStart_0ho; ++i) {
       ref += "ACGT"[i % 4];
     }
   }
-  REQUIRE (apb_insert_locus (
-      conn, "chr1", k_seedPos, span,
-      withRef ? std::optional<std::string_view>{ref} : std::nullopt
-  ));
+  REQUIRE (
+      apb_insert_locus (
+          conn, contig, pos_0ho, spanStart_0ho, spanEnd_0ho,
+          withRef ? std::optional<std::string_view>{ref} : std::nullopt
+      ) == SQLITE_OK
+  );
 }
 
 std::filesystem::path temp_db_path (std::string_view name)

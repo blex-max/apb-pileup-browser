@@ -1,10 +1,10 @@
 #pragma once
 
-#include "shared/abort_fatal.hpp"
+#include "log.hpp"
 #include "state.hpp"
+#include "utility/abort_fatal.hpp"
 
-// as APB_ASSERT (shared/apb_assert.hpp),
-// but shutdown tb2
+// as APB_ASSERT, but shutdown tb2 and dump log
 #define TUI_ASSERT(expr, ...)                     \
   do {                                            \
     if (expr) [[likely]] {                        \
@@ -12,6 +12,7 @@
     }                                             \
     else [[unlikely]] {                           \
       tui_state::tui_shutdown();                  \
+      apb_log::crash_dump();                      \
       apb_abort_fatal (                           \
           __FILE__, __LINE__,                     \
           "assertion failed: " #expr __VA_OPT__ ( \
@@ -24,6 +25,7 @@
 #define TUI_UNREACHABLE(msg, ...)                                         \
   do {                                                                    \
     tui_state::tui_shutdown();                                            \
+    apb_log::crash_dump();                                                \
     apb_abort_fatal (                                                     \
         __FILE__, __LINE__, (msg)__VA_OPT__ (, #__VA_ARGS__, __VA_ARGS__) \
     );                                                                    \
