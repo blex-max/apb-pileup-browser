@@ -416,6 +416,7 @@ TEST_CASE ("set_query behaviour")
     );
   }
 
+  // FIXME: incoroporate into above test case
   // SUBCASE ("Path is the primary sort key")
   // {
   //   DbFixture fx ({{"b.bam", true}});

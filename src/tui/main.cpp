@@ -240,7 +240,7 @@ int main (int argc, char** argv)
       std::cerr << "Error: "
                 << apb_describe_sqlite_failure (
                        "Failed to dump database to disk", ret.error().rc,
-                       ret.error().msg
+                       ret.error().dumpConnMsg
                    )
                 << std::endl;
       return EXIT_FAILURE;

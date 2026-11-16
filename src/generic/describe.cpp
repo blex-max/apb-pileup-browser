@@ -1,45 +1,47 @@
 #include "describe.hpp"
 
-#include <fmt/format.h>
 #include <sqlite3.h>
 
+// FIXME: presumes too much. Not broadly useful.
+// Reconsider, or remove from generic
 std::string apb_describe_sqlite_failure (
     std::string_view what, int rc, std::optional<std::string_view> conn_msg
 )
 {
+  std::string out{what};
   switch (rc & 0xFF) {  // strip extended result code
-    case SQLITE_CANTOPEN:
-      return fmt::format (
-          "{}: could not open file ({}).", what, sqlite3_errstr (rc)
-      );
-    case SQLITE_PERM:
-    case SQLITE_READONLY:
-      return fmt::format (
-          "{}: permission denied ({}).", what, sqlite3_errstr (rc)
-      );
-    case SQLITE_NOTADB:
-    case SQLITE_CORRUPT:
-      return fmt::format (
-          "{}: not a valid sqlite3 "
-          "database, or is corrupt ({}).",
-          what, sqlite3_errstr (rc)
-      );
-    case SQLITE_FULL:
-    case SQLITE_IOERR:
-      return fmt::format (
-          "{}: a disk I/O error occurred ({}).", what, sqlite3_errstr (rc)
-      );
-    case SQLITE_NOMEM:
-      return fmt::format (
-          "{}: out of memory. Were you trying to load a very "
-          "large pileup?",
-          what
-      );
-    default:
-      return fmt::format (
-          "{}, reporting code {} and status {} - "
-          "please report this failure to the maintainer.",
-          what, rc, conn_msg.value_or (sqlite3_errstr (rc))
-      );
+  case SQLITE_CANTOPEN:
+    out += ": could not open file (";
+    out += sqlite3_errstr (rc);
+    out += ").";
+    return out;
+  case SQLITE_PERM:
+  case SQLITE_READONLY:
+    out += ": permission denied (";
+    out += sqlite3_errstr (rc);
+    out += ").";
+    return out;
+  case SQLITE_NOTADB:
+  case SQLITE_CORRUPT:
+    out += ": not a valid sqlite3 database, or is corrupt (";
+    out += sqlite3_errstr (rc);
+    out += ").";
+    return out;
+  case SQLITE_FULL:
+  case SQLITE_IOERR:
+    out += ": a disk I/O error occurred (";
+    out += sqlite3_errstr (rc);
+    out += ").";
+    return out;
+  case SQLITE_NOMEM:
+    out += ": out of memory. Were you trying to load a very large pileup?";
+    return out;
+  default:
+    out += ", reporting code ";
+    out += std::to_string (rc);
+    out += " and status ";
+    out += conn_msg.value_or (sqlite3_errstr (rc));
+    out += " - please report this failure to the maintainer.";
+    return out;
   }
 }

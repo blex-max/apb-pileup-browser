@@ -497,7 +497,7 @@ static constexpr Cmd dumpCmd{
       if (const auto ret = dump_to_disk (g_db::conn, path); !ret) {
         return {false, apb_describe_sqlite_failure (
             "Failed to dump database to disk", ret.error().rc,
-            ret.error().msg
+            ret.error().dumpConnMsg
         )};
       }
       return {true, fmt::format ("Dumped database to {}", path)};

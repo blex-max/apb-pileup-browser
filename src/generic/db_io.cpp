@@ -51,7 +51,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
   if (const auto rc = sqlite3_open (":memory:", &conn); rc != SQLITE_OK) {
     return std::unexpected (
         load_err_t{
-            .kind = load_err_t::sqlFail,
+            .code = load_err_t::sqlFail,
             .rc = rc,
             .msg = sqlite3_errmsg (conn)
         }
@@ -74,7 +74,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
       // the error belongs to o_fileDb, the handle that failed to open
       return std::unexpected (
           load_err_t{
-              .kind = load_err_t::openFail,
+              .code = load_err_t::openFail,
               .rc = rc,
               .msg = sqlite3_errmsg (o_fileDb)
           }
@@ -87,7 +87,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
         o_backup == NULL) {
       return std::unexpected (
           load_err_t{
-              .kind = load_err_t::copyFail,
+              .code = load_err_t::copyFail,
               .rc = sqlite3_errcode (conn),
               .msg = sqlite3_errmsg (conn)
           }
@@ -97,7 +97,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
         rc != SQLITE_DONE) {
       return std::unexpected (
           load_err_t{
-              .kind = load_err_t::copyFail,
+              .code = load_err_t::copyFail,
               .rc = rc,
               .msg = sqlite3_errmsg (conn)
           }
@@ -113,7 +113,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
         rc != SQLITE_OK) {
       return std::unexpected (
           load_err_t{
-              .kind = load_err_t::sqlFail,
+              .code = load_err_t::sqlFail,
               .rc = rc,
               .msg = sqlite3_errmsg (conn)
           }
@@ -130,7 +130,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
         rc != SQLITE_OK) {
       return std::unexpected (
           load_err_t{
-              .kind = load_err_t::contentCorrupt,
+              .code = load_err_t::contentCorrupt,
               .msg = fmt::format (
                   "Could not verify database content: {}",
                   sqlite3_errmsg (conn)
@@ -157,7 +157,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
     }
     if (!problems.empty()) {
       return std::unexpected (
-          load_err_t{.kind = load_err_t::contentCorrupt, .msg = problems}
+          load_err_t{.code = load_err_t::contentCorrupt, .msg = problems}
       );
     }
   }
@@ -166,7 +166,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
   if (!verifyRet) {
     return std::unexpected (
         load_err_t{
-            .kind = load_err_t::sqlFail,
+            .code = load_err_t::sqlFail,
             .rc = verifyRet.error(),
             .msg = sqlite3_errmsg (conn)
         }
@@ -176,16 +176,16 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
     case apb_verify_result_t::success:
       break;
     case apb_verify_result_t::appMismatch:
-      return std::unexpected (load_err_t{.kind = load_err_t::appMismatch});
+      return std::unexpected (load_err_t{.code = load_err_t::appMismatch});
     case apb_verify_result_t::verMismatch:
-      return std::unexpected (load_err_t{.kind = load_err_t::verMismatch});
+      return std::unexpected (load_err_t{.code = load_err_t::verMismatch});
     case apb_verify_result_t::schemaMismatch:
       return std::unexpected (
-          load_err_t{.kind = load_err_t::schemaMismatch}
+          load_err_t{.code = load_err_t::schemaMismatch}
       );
     case apb_verify_result_t::pragmaMismatch:
       return std::unexpected (
-          load_err_t{.kind = load_err_t::pragmaMismatch}
+          load_err_t{.code = load_err_t::pragmaMismatch}
       );
   }
 
@@ -202,7 +202,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
         rc != SQLITE_OK) {
       return std::unexpected (
           load_err_t{
-              .kind = load_err_t::sqlFail,
+              .code = load_err_t::sqlFail,
               .rc = rc,
               .msg = sqlite3_errmsg (conn)
           }
@@ -216,7 +216,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
       case SQLITE_DONE:
         return std::unexpected (
             load_err_t{
-                .kind = load_err_t::contentCorrupt,
+                .code = load_err_t::contentCorrupt,
                 .msg = "database has no locus metadata - is this a valid "
                        "apb dump?"
             }
@@ -224,7 +224,7 @@ std::expected<sqlite3*, load_err_t> load_from_disk (std::string_view path)
       default:
         return std::unexpected (
             load_err_t{
-                .kind = load_err_t::sqlFail,
+                .code = load_err_t::sqlFail,
                 .rc = rc,
                 .msg = sqlite3_errmsg (conn)
             }
@@ -241,44 +241,43 @@ std::string apb_describe_load_failure (
     std::string_view path, const load_err_t& err
 )
 {
-  switch (err.kind) {
-    case load_err_t::openFail:
-      return fmt::format (
-          "failed to open database at {}, reporting error: {}; and "
-          "extended status msg: {}",
-          path, sqlite3_errstr (err.rc.value()), err.msg.value()
-      );
-    case load_err_t::copyFail:
-      return apb_describe_sqlite_failure (
-          "Failed to load database", err.rc.value(), err.msg
-      );
-    case load_err_t::contentCorrupt:
-      return fmt::format (
-          "database at {} appears to be corrupt:\n{}", path,
-          err.msg.value()
-      );
-    case load_err_t::appMismatch:
-      return fmt::format ("database at {} is not an apb database.", path);
-    case load_err_t::verMismatch:
-      return fmt::format (
-          "database at {} is from a different version of apb's database "
-          "schema. Is it from an old version?",
-          path
-      );
-    case load_err_t::schemaMismatch:
-      return fmt::format (
-          "database at {} does not have the expected schema for an apb "
-          "database.",
-          path
-      );
-    case load_err_t::sqlFail:
-      return apb_describe_sqlite_failure (
-          "Failed to verify database", err.rc.value_or (SQLITE_ERROR),
-          err.msg
-      );
-    case load_err_t::pragmaMismatch:
-      return "database does not have the expected pragmas enabled for an "
-             "apb database.";
+  switch (err.code) {
+  case load_err_t::openFail:
+    return fmt::format (
+        "failed to open database at {}, reporting error: {}; and "
+        "extended status msg: {}",
+        path, sqlite3_errstr (err.rc.value()), err.msg.value()
+    );
+  case load_err_t::copyFail:
+    return apb_describe_sqlite_failure (
+        "Failed to load database", err.rc.value(), err.msg
+    );
+  case load_err_t::contentCorrupt:
+    return fmt::format (
+        "database at {} appears to be corrupt:\n{}", path, err.msg.value()
+    );
+  case load_err_t::appMismatch:
+    return fmt::format ("database at {} is not an apb database.", path);
+  case load_err_t::verMismatch:
+    return fmt::format (
+        "database at {} is from a different version of apb's database "
+        "schema. Is it from an old version?",
+        path
+    );
+  case load_err_t::schemaMismatch:
+    return fmt::format (
+        "database at {} does not have the expected schema for an apb "
+        "database.",
+        path
+    );
+  case load_err_t::sqlFail:
+    return apb_describe_sqlite_failure (
+        "Failed to verify database", err.rc.value_or (SQLITE_ERROR),
+        err.msg
+    );
+  case load_err_t::pragmaMismatch:
+    return "database does not have the expected pragmas enabled for an "
+           "apb database.";
   }
   return {};
 }
@@ -385,7 +384,7 @@ TEST_CASE ("load_from_disk reports a typed error for unusable files")
 
     const auto ret = load_from_disk (path.string());
     REQUIRE_FALSE (ret);
-    CHECK (ret.error().kind == load_err_t::appMismatch);
+    CHECK (ret.error().code == load_err_t::appMismatch);
   }
 
   SUBCASE ("apb database of another schema version")
@@ -393,7 +392,7 @@ TEST_CASE ("load_from_disk reports a typed error for unusable files")
     dump_seeded (path, "PRAGMA user_version = 1;");
     const auto ret = load_from_disk (path.string());
     REQUIRE_FALSE (ret);
-    CHECK (ret.error().kind == load_err_t::verMismatch);
+    CHECK (ret.error().code == load_err_t::verMismatch);
   }
 
   SUBCASE ("apb database with altered schema")
@@ -403,7 +402,7 @@ TEST_CASE ("load_from_disk reports a typed error for unusable files")
     );
     const auto ret = load_from_disk (path.string());
     REQUIRE_FALSE (ret);
-    CHECK (ret.error().kind == load_err_t::schemaMismatch);
+    CHECK (ret.error().code == load_err_t::schemaMismatch);
   }
 
   SUBCASE ("apb database with no locus metadata")
@@ -414,7 +413,7 @@ TEST_CASE ("load_from_disk reports a typed error for unusable files")
 
     const auto ret = load_from_disk (path.string());
     REQUIRE_FALSE (ret);
-    CHECK (ret.error().kind == load_err_t::contentCorrupt);
+    CHECK (ret.error().code == load_err_t::contentCorrupt);
   }
 }
 

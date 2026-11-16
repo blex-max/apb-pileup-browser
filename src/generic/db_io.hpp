@@ -10,7 +10,8 @@
 
 struct dump_err_t {
   int rc;
-  std::string msg;  // from the dump db handle, where the error lives
+  std::string
+      dumpConnMsg;  // from the dump db handle, where the error lives
 };
 // Copy the in-memory database out to a file on disk, using
 // sqlite3's online backup API.
@@ -19,7 +20,7 @@ struct dump_err_t {
 );
 
 struct load_err_t {
-  enum Kind : uint8_t {
+  enum Codes : uint8_t {
     openFail,
     copyFail,
     contentCorrupt,
@@ -29,7 +30,7 @@ struct load_err_t {
     pragmaMismatch,
     sqlFail
   };
-  Kind kind;
+  Codes code;
   std::optional<int> rc = std::nullopt;
   std::optional<std::string> msg = std::nullopt;
 };
@@ -38,6 +39,8 @@ struct load_err_t {
 // Checks the file is not corrupt, is an apb database of the current
 // schema, and has a locus metadata row. Well-formedness of that row
 // is left to caller.
+// FIXME: is there actually a good reason not to just use the
+// dump on disk? I haven't profiled...
 [[nodiscard]] std::expected<sqlite3*, load_err_t> load_from_disk (
     std::string_view path
 );
