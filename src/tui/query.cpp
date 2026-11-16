@@ -397,7 +397,7 @@ TEST_CASE ("set_query behaviour")
         g_db::conn, testAlns, "test-chr", 150, true
     );
     REQUIRE (g_db::set_query ({}) == SQLITE_OK);
-    REQUIRE (g_db::nQueryRows == 3);
+    REQUIRE (g_db::nQueryRows == 6);
 
     // leave the old stmt mid-iteration, as render does when the page fills
     sqlite3_reset (g_db::displayStmt);
@@ -406,11 +406,14 @@ TEST_CASE ("set_query behaviour")
     REQUIRE (sqlite3_step (g_db::displayStmt) == SQLITE_ROW);
 
     REQUIRE (
-        g_db::set_query ({.where = {"qname = 'read2'"}, .orderBy = {}}) ==
-        SQLITE_OK
+        g_db::set_query (
+            {.where = {"qname = 'read2_f1'"}, .orderBy = {}}
+        ) == SQLITE_OK
     );
     CHECK (g_db::nQueryRows == 1);
-    CHECK (fetch_page_qnames (0, 10) == std::vector<std::string>{"read2"});
+    CHECK (
+        fetch_page_qnames (0, 10) == std::vector<std::string>{"read2_f1"}
+    );
   }
 
   // SUBCASE ("Path is the primary sort key")
