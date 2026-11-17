@@ -6,7 +6,6 @@
 
 #include "utility/stringify.hpp"
 
-#define APB_APP_ID 777
 #define APB_SCHEMA_VER 2
 
 
@@ -15,21 +14,11 @@
 
 namespace schema {
 
-inline constexpr std::string_view sqlSetAppId = 
-    "PRAGMA application_id = " STR(APB_APP_ID) ";";
-
+// NOTE: sqlite also provides PRAGMA schema_version,
+// but this is actually used internally, so we
+// use user_version, which is always safe.
 inline constexpr std::string_view sqlSetVersion =
   "PRAGMA user_version = " STR(APB_SCHEMA_VER) ";";
-
-// FIXME: this is not part of the schema - it is a TUI specific thing.
-// keep all data in RAM.
-// Note that because we do this, some
-// classic optimisation techniques,
-// like using WAL, are irrelevant.
-inline constexpr std::string_view sqlSetTempStoreMemory =
-    R"sql(
-    PRAGMA temp_store = MEMORY;
-)sql";
 
 inline constexpr std::string_view sqlSetFK =
     R"sql(

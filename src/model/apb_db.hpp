@@ -20,37 +20,35 @@
 // Create the apb schema on an open db connection
 [[nodiscard]] int apb_create_schema (sqlite3* conn);
 
-enum class apb_verify_result_t : uint8_t {
-  success,
-  appMismatch,
-  verMismatch,
-  pragmaMismatch,
-  schemaMismatch
+struct apb_verify_result_t {
+  enum codes_t : uint8_t {
+    success,
+    verMismatch,
+    fkNotEnabled,
+    schemaMismatch
+  };
+  codes_t code;
+  int version = -1;
 };
-// verify a sqlite3* object for use from apb.
-// For e.g. loading from a dump on disk.
-// It is recommended to use PRAGMA quick_check
-// before verifying for use with apb.
+// verify a db has the expected schema
+// for use with apb.
 [[nodiscard]] std::expected<apb_verify_result_t, int> apb_verify_schema (
     sqlite3* conn
 );
 
-// FIXME: since we're going composable, should add a "check db filled and valid"
-// function so users can easily verify that they've done it right and the
-// db is full and interally consistent.
-// This can be composed with verify_schema.
-// But what would this actually test though? I guess that any alignment which
-// has reads has the correct number of reads, that any inserted reference matches
-// the pileup span length, and an sqlite3 integrity check. And perhaps that
-// ncig matches cig bytes (but can this be a check/trigger in the schema?).
-// That all reads cover the locus?
-// That locus and alignment tables have some content.
-// enum class apb_validate_result_t : uint8_t {
-//   success,
-//   corrupt,
-//   readsMismatch
-// };
-// [[nodiscard]] std::expected<apb_validate_result_t, int> apb_validate_db (sqlite3* conn);
+// verify that the content of an apb db is well formed
+struct apb_validate_result_t {
+  enum codes_t : uint8_t {
+    success,
+    failedIntegrityCheck,
+    failedForeignKeyCheck
+  };
+  codes_t code;
+  std::optional<std::string> problems = std::nullopt;
+};
+[[nodiscard]] std::expected<apb_validate_result_t, int> apb_validate_db (
+    sqlite3* conn
+);
 
 // insert metadata for a single alignment file into db
 // returns id for that alignment file for use when subsequently inserting pileup.
@@ -76,7 +74,7 @@ struct apb_input_record1_t {
 
   std::optional<char> base = std::nullopt;
   std::optional<uint8_t> baseQual = std::nullopt;
-  int32_t qPos = -1;
+  int32_t qPos_0ho = -1;
   int indel = INT_MAX;
   bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
 
@@ -85,7 +83,7 @@ struct apb_input_record1_t {
   std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
 
   std::optional<std::string> mtidName = std::nullopt;
-  std::optional<int64_t> mStart = std::nullopt;
+  std::optional<int64_t> mStart_0ho = std::nullopt;
 
   std::string auxJson;
 
@@ -106,7 +104,7 @@ struct apb_input_record1_t {
 // Returns SQLITE_OK on success, sqlite err code on failure.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] int apb_insert_locus (
-    sqlite3* conn, const std::string& contigName, int64_t pos,
-    int64_t span0Start, int64_t span0End,
+    sqlite3* conn, const std::string& contigName, int64_t pos_0ho,
+    int64_t spanStart_0ho, int64_t spanEnd_0ho,
     std::optional<std::string_view> ref
 );

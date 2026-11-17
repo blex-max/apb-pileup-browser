@@ -43,16 +43,16 @@ apb_input_record1_t make_record (const TestRecord& tr, int64_t pos_0ho)
   rec.start_0ho = tr.start_0ho;
   rec.end_0ho = tr.end_0ho;
   rec.mapQ = tr.mapQ;
-  rec.qPos = static_cast<int32_t> (pos_0ho - tr.start_0ho);
+  rec.qPos_0ho = static_cast<int32_t> (pos_0ho - tr.start_0ho);
   rec.indel = 0;
-  rec.isHead = rec.qPos == 0;
+  rec.isHead = rec.qPos_0ho == 0;
   // use simple fixed values for testing
   constexpr char k_base = 'A';
   constexpr uint8_t k_qual = 30;
   const auto readLen = static_cast<size_t> (tr.end_0ho - tr.start_0ho);
   const auto cigel =
       static_cast<uint32_t> (bam_cigar_gen (readLen, BAM_CMATCH));
-  rec.isTail = static_cast<size_t> (rec.qPos) == readLen - 1;
+  rec.isTail = static_cast<size_t> (rec.qPos_0ho) == readLen - 1;
   rec.base = k_base;
   rec.baseQual = k_qual;
   rec.seq = std::string (readLen, k_base);

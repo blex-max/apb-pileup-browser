@@ -20,4 +20,8 @@
     std::optional<size_t> loadLimitDepth
 );
 
+[[nodiscard]] std::expected<sqlite3*, std::string> ingest_db_auto (
+    const std::filesystem::path& dbPath, bool useDisk
+);
+
 void ingest_demo (sqlite3* conn);

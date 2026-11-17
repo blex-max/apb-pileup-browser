@@ -19,16 +19,11 @@ struct dump_err_t {
     sqlite3* conn, std::string_view path
 );
 
-struct load_err_t {
+struct load_status_t {
   enum Codes : uint8_t {
     openFail,
     copyFail,
     contentCorrupt,
-    appMismatch,
-    verMismatch,
-    schemaMismatch,
-    pragmaMismatch,
-    sqlFail
   };
   Codes code;
   std::optional<int> rc = std::nullopt;
@@ -40,12 +35,12 @@ struct load_err_t {
 // schema, and has a locus metadata row. Well-formedness of that row
 // is left to caller.
 // FIXME: is there actually a good reason not to just use the
-// dump on disk? I haven't profiled...
-[[nodiscard]] std::expected<sqlite3*, load_err_t> load_from_disk (
-    std::string_view path
+// db on disk rather than loading into memory? I haven't profiled...
+[[nodiscard]] std::expected<load_status_t, int> load_from_disk (
+    sqlite3* br_connDest, sqlite3* br_connSrc
 );
 
 // Formats a load_from_disk failure into a user-facing error.
 std::string apb_describe_load_failure (
-    std::string_view path, const load_err_t& err
+    std::string_view path, const load_status_t& err
 );

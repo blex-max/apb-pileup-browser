@@ -19,6 +19,7 @@
 #include "generic/describe.hpp"
 #include "generic/transform_hts.hpp"
 #include "model/apb_db.hpp"
+#include "model/schema.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 
@@ -77,6 +78,7 @@ std::expected<void, std::string> ingest_sam_auto (
     }
   };
 
+  // FIXME: extract locus conversion to separate fn
   // convert locus from string
   std::string locusContigName;
   hts_pos_t locusPos;
@@ -447,7 +449,173 @@ std::expected<void, std::string> ingest_sam_auto (
   }
 
   // FIXME: incomplete - must finally call (not yet existing) db verifaction method
+  // Am I sure that's necessary in a non debug release?
   return {};
+}
+
+std::expected<sqlite3*, std::string> ingest_db_auto (
+    const std::filesystem::path& dbPath, bool useDisk
+)
+{
+  sqlite3* connSrc = nullptr;
+  Defer cleanup_src ([&]() { sqlite3_close_v2 (connSrc); });
+  if (const auto rc = sqlite3_open_v2 (
+          dbPath.c_str(), &connSrc, SQLITE_OPEN_READONLY, NULL
+      );
+      rc != SQLITE_OK) {
+    // the error belongs to o_fileDb, the handle that failed to open
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when opening database at {}, reporting: "
+            "{} ({}) - {}",
+            dbPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
+        )
+    );
+  }
+
+  // FIXME: should we be setting the fk pragma here?
+  // I assume so but must confirm.
+  if (const auto rc = sqlite3_exec (
+          connSrc, schema::sqlSetFK.data(), NULL, NULL, NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when setting foreign key pragma on "
+            "database, "
+            "reporting: {} ({}) - {}",
+            dbPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
+        )
+    );
+  }
+
+  /* validate */
+  if (const auto ret = apb_verify_schema (connSrc); !ret) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure during schema verfication, reporting: {} - "
+            "{}",
+            sqlite3_errstr (ret.error()), sqlite3_errmsg (connSrc)
+        )
+    );
+  }
+  else {
+    const auto& status = *ret;
+    switch (status.code) {
+    case apb_verify_result_t::success:
+      break;
+    case apb_verify_result_t::verMismatch:
+      return std::unexpected (
+          fmt::format (
+              "db at {} is using an outdated or unknown "
+              "version of the apb schema and cannot be read by this "
+              "version of apb (expected schema version {}, got {}).",
+              dbPath, APB_SCHEMA_VER, status.version
+          )
+      );
+    case apb_verify_result_t::schemaMismatch:
+      return std::unexpected (
+          fmt::format (
+              "db at {} does not have expected apb schema", dbPath
+          )
+      );
+    case apb_verify_result_t::fkNotEnabled:
+      // FIXME: this is on us, not the user
+      return std::unexpected (
+          fmt::format (
+              "db at {} has correct schema, but the "
+              "connection does not have foreign keys enabled",
+              dbPath
+          )
+      );
+    }
+  }
+  if (const auto ret = apb_validate_db (connSrc); !ret) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure during database validation, reporting: {} - "
+            "{}",
+            sqlite3_errstr (ret.error()), sqlite3_errmsg (connSrc)
+        )
+    );
+  }
+  else {
+    const auto& status = *ret;
+    switch (status.code) {
+    case apb_validate_result_t::success:
+      break;
+    case apb_validate_result_t::failedIntegrityCheck:
+      std::unexpected (
+          fmt::format (
+              "db at {} failed integrity check and is "
+              "therefore not an operable apb database. The "
+              "problems were:\n{}",
+              dbPath, status.problems.value()
+          )
+      );
+    case apb_validate_result_t::failedForeignKeyCheck:
+      std::unexpected (
+          fmt::format (
+              "db at {} failed foreign key check and is "
+              "therefore not an operable apb database: The "
+              "problems were:\n{}",
+              dbPath, status.problems.value()
+          )
+      );
+    }
+  }
+
+  if (useDisk) {
+    cleanup_src.cancel();
+    return connSrc;
+  }
+
+  /* else copy to memory */
+  sqlite3* connDest = nullptr;
+  Defer cleanup_dest ([&]() {
+    sqlite3_close_v2 (connDest);
+  });  // cancel on success
+  // use backup api to copy db into memory.
+  if (const auto rc = sqlite3_open (":memory:", &connDest);
+      rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when opening in-memory database, "
+            "reporting: {} ({}) - "
+            "{}",
+            sqlite3_errstr (rc), rc, sqlite3_errmsg (connDest)
+        )
+    );
+  }
+
+  sqlite3_backup* o_backup = nullptr;
+  Defer cleanup_backup ([&]() { sqlite3_backup_finish (o_backup); });
+
+  if (o_backup = sqlite3_backup_init (connDest, "main", connSrc, "main");
+      o_backup == NULL) {
+    // errors from backup_init are
+    // stored on the destination handle.
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when copying database from {}, "
+            "reporting: {} ({}) - {}",
+            dbPath, sqlite3_errstr (sqlite3_errcode (connDest)),
+            sqlite3_errcode (connDest), sqlite3_errmsg (connDest)
+        )
+    );
+  }
+  if (const auto rc = sqlite3_backup_step (o_backup, -1);
+      rc != SQLITE_DONE) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when copying database from {}, "
+            "reporting: {} ({}) - {}",
+            dbPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connDest)
+        )
+    );
+  }
+  cleanup_dest.cancel();
+  return connDest;
 }
 
 /* demo */
@@ -611,7 +779,7 @@ void ingest_demo (sqlite3* conn)
               refSeq[static_cast<size_t> (refPos - winStart)];
           char b;
           if (refPos == pos) {
-            rec.qPos = static_cast<int32_t> (seq.size());
+            rec.qPos_0ho = static_cast<int32_t> (seq.size());
             b = allele == Allele::Alt ? pileupAlt : refBase;
           }
           else {
@@ -626,7 +794,7 @@ void ingest_demo (sqlite3* conn)
       case BAM_CDEL:
         if (pos >= refPos && pos < refPos + static_cast<int64_t> (len)) {
           // htslib: qpos of a deleted column is the next query base
-          rec.qPos = static_cast<int32_t> (seq.size());
+          rec.qPos_0ho = static_cast<int32_t> (seq.size());
           rec.isDel = true;
         }
         refPos += static_cast<int64_t> (len);
@@ -642,7 +810,7 @@ void ingest_demo (sqlite3* conn)
         break;
       }
     }
-    APB_ASSERT (rec.qPos >= 0);
+    APB_ASSERT (rec.qPos_0ho >= 0);
     rec.end_0ho = refPos;
 
     std::vector<uint8_t> qual (seq.size());
@@ -650,7 +818,7 @@ void ingest_demo (sqlite3* conn)
       q = qualVals[static_cast<size_t> (qualValPicker (rng))];
     }
 
-    const auto qPos = static_cast<size_t> (rec.qPos);
+    const auto qPos = static_cast<size_t> (rec.qPos_0ho);
     rec.isHead = qPos == 0;
     rec.isTail = qPos == seq.size() - 1;
     rec.isRefSkip = false;  // not in demo
@@ -670,7 +838,7 @@ void ingest_demo (sqlite3* conn)
     }
     // unmapped mate sits at this read's position, per SAM recommended
     // practice (bwa, minimap2, fixmate, htsjdk)
-    rec.mStart = rec.start_0ho;
+    rec.mStart_0ho = rec.start_0ho;
     if (mateUnmappedDist (rng)) {
       flag |= BAM_FMUNMAP;
     }
@@ -678,7 +846,7 @@ void ingest_demo (sqlite3* conn)
       flag |= BAM_FPROPER_PAIR;
       // FR orientation: mate on the opposite strand, facing this read
       const auto d = mateDistGen (rng);
-      rec.mStart = isRev ? rec.start_0ho - d : rec.start_0ho + d;
+      rec.mStart_0ho = isRev ? rec.start_0ho - d : rec.start_0ho + d;
       if (!isRev) {
         flag |= BAM_FMREVERSE;
       }

@@ -138,7 +138,7 @@
 static bool valid (const apb_input_record1_t& rec) noexcept
 {
   return rec.start_0ho >= 0 && rec.end_0ho > rec.start_0ho &&
-         rec.qPos >= 0 &&
+         rec.qPos_0ho >= 0 &&
          (!rec.seq || !rec.rawQual ||
           rec.seq->size() == rec.rawQual->size()) &&
          rec.nCig == rec.rawCig.size() && !rec.rawCig.empty();
@@ -151,7 +151,7 @@ static std::string to_string (const apb_input_record1_t& rec)
   s += ", end: ";
   s += std::to_string (rec.end_0ho);
   s += ", qPos: ";
-  s += std::to_string (rec.qPos);
+  s += std::to_string (rec.qPos_0ho);
   s += ", nCig: ";
   s += std::to_string (rec.nCig);
   s += ", rawCig.size: ";
@@ -178,10 +178,10 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
       const auto nCig = br_b1->core.n_cigar;
       const auto* br_cig = bam_get_cigar (br_b1);
 
-      r1.qPos = p1.qpos;
+      r1.qPos_0ho = p1.qpos;
       r1.start_0ho = br_b1->core.pos;
       if (br_b1->core.mpos >= 0) {  // <0 == unaligned (or no mate)
-        r1.mStart = br_b1->core.mpos;
+        r1.mStart_0ho = br_b1->core.mpos;
       }
 
       r1.indel = p1.indel;

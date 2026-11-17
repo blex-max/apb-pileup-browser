@@ -34,9 +34,7 @@ static int exec_sql (sqlite3* conn, const std::string_view sql)
 
 int apb_create_schema (sqlite3* conn)
 {
-  TRY_OK_INT (exec_sql (conn, schema::sqlSetAppId));
   TRY_OK_INT (exec_sql (conn, schema::sqlSetVersion));
-  TRY_OK_INT (exec_sql (conn, schema::sqlSetTempStoreMemory));
   TRY_OK_INT (exec_sql (conn, schema::sqlSetFK));
   TRY_OK_INT (exec_sql (conn, schema::sqlCreateLocusTable));
   TRY_OK_INT (exec_sql (conn, schema::sqlCreateFileTable));
@@ -98,30 +96,17 @@ static int schema_fingerprint (sqlite3* conn, std::string& result)
 
 std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
 {
-  int pragmaResult;
-  if (const auto rc =
-          read_int_pragma (conn, "PRAGMA application_id;", pragmaResult);
+  int connSchemaVersion;
+  if (const auto rc = read_int_pragma (
+          conn, "PRAGMA user_version;", connSchemaVersion
+      );
       rc != SQLITE_OK) {
     return std::unexpected (rc);
   }
-  if (pragmaResult != APB_APP_ID) {
-    return apb_verify_result_t::appMismatch;
-  }
-  if (const auto rc =
-          read_int_pragma (conn, "PRAGMA user_version;", pragmaResult);
-      rc != SQLITE_OK) {
-    return std::unexpected (rc);
-  }
-  if (pragmaResult != APB_SCHEMA_VER) {
-    return apb_verify_result_t::verMismatch;
-  }
-  if (const auto rc =
-          read_int_pragma (conn, "PRAGMA foreign_keys;", pragmaResult);
-      rc != SQLITE_OK) {
-    return std::unexpected (rc);
-  }
-  if (pragmaResult != 1) {
-    return apb_verify_result_t::pragmaMismatch;
+  if (connSchemaVersion != APB_SCHEMA_VER) {
+    return apb_verify_result_t{
+        apb_verify_result_t::verMismatch, connSchemaVersion
+    };
   }
   // Verify the loaded schema matches apb's expected schema.
   sqlite3* refdb = nullptr;
@@ -144,10 +129,103 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
     return std::unexpected (rc);
   }
   if (refPrint != testPrint) {
-    return apb_verify_result_t::schemaMismatch;
+    return apb_verify_result_t{
+        apb_verify_result_t::schemaMismatch, connSchemaVersion
+    };
   }
 
-  return apb_verify_result_t::success;
+  int fkResult;
+  if (const auto rc =
+          read_int_pragma (conn, "PRAGMA foreign_keys;", fkResult);
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  if (fkResult != 1) {
+    return apb_verify_result_t{
+        apb_verify_result_t::fkNotEnabled, connSchemaVersion
+    };
+  }
+
+  return apb_verify_result_t{
+      apb_verify_result_t::success, connSchemaVersion
+  };
+}
+
+
+std::expected<apb_validate_result_t, int> apb_validate_db (
+    sqlite3* br_conn
+)
+{
+  {
+    // Integrity check tests schema constraints
+    // e.g. CHECK and STRICT
+    sqlite3_stmt* o_stmt = nullptr;
+    if (const auto rc = sqlite3_prepare_v2 (
+            br_conn, "PRAGMA integrity_check;", -1, &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      return std::unexpected (rc);
+    }
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+    std::string problems;
+    int rc;
+    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+      const auto* msg =
+          reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0));
+      if (std::string_view{msg} != "ok") {
+        problems += msg;
+        problems += '\n';
+      }
+    }
+    if (rc != SQLITE_DONE) {
+      return std::unexpected (rc);
+    }
+    if (!problems.empty()) {
+      return apb_validate_result_t{
+          .code = apb_validate_result_t::failedIntegrityCheck,
+          .problems = problems
+      };
+    }
+  }
+  {
+    // FK check finds orphaned rows; not covered by integrity_check
+    sqlite3_stmt* o_stmt = nullptr;
+    if (const auto rc = sqlite3_prepare_v2 (
+            br_conn, "PRAGMA foreign_key_check;", -1, &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      return std::unexpected (rc);
+    }
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+    // one row per violation: table, rowid, parent, fkid
+    std::string problems;
+    int rc;
+    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+      const auto* table =
+          reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 0));
+      const auto* parent =
+          reinterpret_cast<const char*> (sqlite3_column_text (o_stmt, 2));
+      problems += table;
+      problems += " rowid ";
+      problems += std::to_string (sqlite3_column_int64 (o_stmt, 1));
+      problems += " -> ";
+      problems += parent;
+      problems += '\n';
+    }
+    if (rc != SQLITE_DONE) {
+      return std::unexpected (rc);
+    }
+    if (!problems.empty()) {
+      return apb_validate_result_t{
+          .code = apb_validate_result_t::failedForeignKeyCheck,
+          .problems = problems
+      };
+    }
+  }
+
+  return apb_validate_result_t{.code = apb_validate_result_t::success};
 }
 
 // insert pileup into db for a single alignment file.
@@ -199,7 +277,7 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
       TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, rec1.qPos + 1));
+    TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, rec1.qPos_0ho + 1));
     TRY_OK_INT (sqlite3_bind_int (o_stmt, col++, rec1.indel));
     TRY_OK_INT (
         sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.isDel))
@@ -248,9 +326,9 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
       TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
     }
 
-    if (rec1.mStart) {
+    if (rec1.mStart_0ho) {
       TRY_OK_INT (
-          sqlite3_bind_int64 (o_stmt, col++, rec1.mStart.value() + 1)
+          sqlite3_bind_int64 (o_stmt, col++, rec1.mStart_0ho.value() + 1)
       );
     }
     else {
@@ -287,8 +365,8 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
 }
 
 [[nodiscard]] int apb_insert_locus (
-    sqlite3* conn, const std::string& contigName, int64_t pos,
-    int64_t span0Start, int64_t span0End,
+    sqlite3* conn, const std::string& contigName, int64_t pos_0ho,
+    int64_t spanStart_0ho, int64_t spanEnd_0ho,
     std::optional<std::string_view> ref
 )
 {
@@ -299,11 +377,14 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
   APB_ASSERT (conn != nullptr);
   APB_ASSERT (!contigName.empty());
   APB_ASSERT (
-      span0Start >= 0 && span0End > span0Start, span0Start, span0End
+      spanStart_0ho >= 0 && spanEnd_0ho > spanStart_0ho, spanStart_0ho,
+      spanEnd_0ho
   );
-  APB_ASSERT (pos >= 0, pos);
-  APB_ASSERT (pos >= span0Start, pos, span0Start);
-  APB_ASSERT (pos < span0End, pos, span0End);  // end-exclusive
+  APB_ASSERT (pos_0ho >= 0, pos_0ho);
+  APB_ASSERT (pos_0ho >= spanStart_0ho, pos_0ho, spanStart_0ho);
+  APB_ASSERT (
+      pos_0ho < spanEnd_0ho, pos_0ho, spanEnd_0ho
+  );  // end-exclusive
   if (ref) {
     APB_ASSERT (!ref->empty());
   }
@@ -334,9 +415,9 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
   TRY_OK_INT (sqlite3_bind_text (
       o_stmt, col++, contigName.c_str(), -1, SQLITE_TRANSIENT
   ));
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, pos + 1));
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, span0Start + 1));
-  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, span0End));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, pos_0ho + 1));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, spanStart_0ho + 1));
+  TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, spanEnd_0ho));
   if (!ref) {
     TRY_OK_INT (sqlite3_bind_null (o_stmt, col++));
   }
@@ -412,7 +493,7 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   full.start_0ho = 94;
   full.end_0ho = 104;
   full.mapQ = 60;
-  full.qPos = 6;
+  full.qPos_0ho = 6;
   full.indel = 2;
   full.isHead = true;
   full.isRefSkip = true;
@@ -425,7 +506,7 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   full.rawCig = {k_cig10M};
   full.nCig = 1;
   full.mtidName = "chr2";
-  full.mStart = 499;
+  full.mStart_0ho = 499;
   full.auxJson = R"({"NM":1})";
 
   // every optional empty
@@ -435,7 +516,7 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   empty.start_0ho = 99;
   empty.end_0ho = 105;
   empty.mapQ = 0;
-  empty.qPos = 0;
+  empty.qPos_0ho = 0;
   empty.indel = 0;
   empty.isDel = true;
   empty.isTail = true;

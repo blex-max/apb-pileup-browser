@@ -26,6 +26,7 @@
 #include "ingest.hpp"
 #include "log.hpp"
 #include "model/apb_db.hpp"
+#include "model/schema.hpp"
 #include "tui/manual.hpp"
 #include "tui/query.hpp"
 #include "tui/run.hpp"
@@ -40,6 +41,8 @@
 // clang-format off
 static constexpr std::string_view cliHelp =
     R"txt(usage: apb [options] LOCUS ALN...
+       apb [options] DB
+       apb --demo
 
  apb is a terminal-based genome browser designed for
  viewing and querying reads at specific loci. It features
@@ -53,29 +56,44 @@ static constexpr std::string_view cliHelp =
  Type `help` and press enter in the TUI for in-app help.
 
 arguments:
+  LOCUS     genomic locus, e.g. chr1:12345 (1-based).
   ALN...    alignment file/s (sam/bam/cram).
-  LOCUS     genomic locus, e.g. chr1:12345 (1-based)
+OR
+  DB        path to a prexisting apb database dump.
 
 options:
   -r, --ref FASTA     reference fasta; TUI will display
-                      divergence from reference in reads
-                      (invalid with --demo/--db)
-  --demo              view demo data, in place of
-                      LOCUS/ALN.
-  --db PATH           load from a dumped db at PATH, in
-                      place of LOCUS/ALN/REF.
-                      (mutually exclusive with --demo)
-  --dump PATH         convert pileup to sqlite3 database,
-                      dump to disk at PATH, and exit.
-                      (invalid with --db)
-  --manual            Print the apb manual to stdout and exit.
-  --log PATH          Log additional information to PATH.
-                      Useful for debugging.
-  -0, --zero-based    treat LOCUS as 0-based (e.g. from a BED
-                      file) instead of 1-based. Not valid
-                      with --demo/--db.
+                      divergence from reference in reads.
+                      (Invalid with DB; apb databases
+                      hold the reference slice internally)
+  --dump PATH         Dump the database to PATH as an
+                      sqlite database dump.
+  --no-tui            Build the locus database and exit,
+                      without opening the TUI.
+                      Ignored without --dump.
+  --use-disk          Do not keep the database in memory
+                      instead stream to a temporary file
+                      or the path provided to --dump and
+                      open a connection to that file on
+                      disk.
+                      If used with DB, connect directly
+                      to the database at DB on disk
+                      rather than copying into memory.
+                      Useful if you are RAM-bound and are
+                      loading very large pileups.
+                      Implies --no-limit-mem.
   --no-limit-mem      Remove the default limits of ~)txt" STR(GB_LIMIT) R"txt(Gb max
-                      pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file.
+                      pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file
+                      when loading into memory.
+  -0, --zero-based    treat the LOCUS argument as 0-based
+                      (e.g. from a BED file), instead of
+                      1-based, at the CLI.
+                      The TUI will still show 1-based
+                      coordinates.
+  --manual            Print the apb manual to stdout and exit.
+  --demo              View demo data.
+                      Ignores all other arguments except --log.
+  --log PATH          Log debug info to PATH.
   -h, --help          show this help message and exit.
   -v, --version       print version information and exit.
 
@@ -110,8 +128,10 @@ struct ApbCliArgs {
 
   bool zeroBased = false;
   bool limitMemUsage = true;
+  bool useDisk = false;
 
-  bool hiddenFlushLogOnWrite = false;
+  // for debugging (see parse_args)
+  bool autoflush = false;
 };
 
 static std::expected<ApbCliArgs, std::string> parse_args (
@@ -156,7 +176,7 @@ int main (int argc, char** argv)
     return EXIT_FAILURE;
   }
   const ApbCliArgs& args = *argRet;
-  apb_log::init (args.logPath, '\n', args.hiddenFlushLogOnWrite);
+  apb_log::init (args.logPath, '\n', args.autoflush);
   Defer log_deinit ([]() { apb_log::deinit(); });
 
   /* config */
@@ -177,6 +197,8 @@ int main (int argc, char** argv)
   case ApbMode::locus: {
     APB_ASSERT (!args.locus.empty());
     APB_ASSERT (!args.alnPaths.empty());
+    // FIXME: this is stupid. Should be within the ingest TU,
+    // and those fns can all return a conn.
     if (!init_db (conn)) {
       return EXIT_FAILURE;
     }
@@ -200,39 +222,34 @@ int main (int argc, char** argv)
     if (!init_db (conn)) {
       return EXIT_FAILURE;
     }
+    // NOTE: demo always loads db into memory.
     ingest_demo (conn);
     break;
   }
   case ApbMode::db: {
     APB_ASSERT (args.dbPath);
     APB_ASSERT (!args.dbPath.value().empty());
-    auto loadRet = load_from_disk (args.dbPath.value().string());
-    if (!loadRet) {
-      std::cerr << "Error: "
-                << apb_describe_load_failure (
-                       args.dbPath.value().string(), loadRet.error()
-                   )
-                << std::endl;
+    if (const auto ret = ingest_db_auto (*args.dbPath, args.useDisk);
+        !ret) {
+      std::cerr << "Error: " << ret.error() << std::endl;
       return EXIT_FAILURE;
     }
-    conn = *loadRet;
-    // load_from_disk only checks the metadata row exists
-    if (!get_locus_data (conn).valid()) {
-      std::cerr << fmt::format (
-                       "Error: database at {} appears to be "
-                       "corrupt:\nlocus metadata in database is "
-                       "invalid or corrupt.",
-                       args.dbPath.value()
-                   )
-                << std::endl;
-      return EXIT_FAILURE;
+    else {
+      conn = *ret;
     }
     break;
   }
   case ApbMode::UNSET:
-    APB_UNREACHABLE ("CLI code malformed; mode unset");
+  default:
+    APB_UNREACHABLE ("CLI code malformed; mode unset or unknown");
   }
 
+  // FIXME: Don't dump and exit unless --no-tui.
+  // FIXME: if --stream
+  // open the dump path without ever loading into memory,
+  // and in locus mode gently stream the pileup into it.
+  // That means ingest pathways need to change.
+  // FIXME: only relevant to locus and demo modes.
   if (args.dumpPath) {
     if (const auto ret =
             dump_to_disk (conn, args.dumpPath.value().string());
@@ -318,7 +335,7 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         OPT_VAL_OR_EXIT ("--log", argsOut.logPath);
       }
       else if (arg == "--autoflush") {
-        argsOut.hiddenFlushLogOnWrite = true;
+        argsOut.autoflush = true;
       }
       else if (arg == "--db") {
         if (argsOut.mode == ApbMode::db) {
@@ -337,6 +354,9 @@ static std::expected<ApbCliArgs, std::string> parse_args (
       }
       else if (arg == "--no-limit-mem") {
         argsOut.limitMemUsage = false;
+      }
+      else if (arg == "--stream") {
+        argsOut.useDisk = true;
       }
       else if (arg.starts_with ("-")) {
         EXIT_W_USAGE (fmt::format ("unrecognized argument: {}", arg));
