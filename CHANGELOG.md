@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## UNRELEASED - PLACEHOLDER
+
+**PLACEHOLDER: draft notes gathered during the ingest/CLI rework on `dev`. Not final; version number, wording and contents to be settled at release.**
+
+- DB is now positional: `apb my.db` replaces `apb --db my.db`.
+- New `-u, --use-disk`: stream the database to a temporary file on disk (deleted on exit) rather than holding it in memory. With DB, connect to DB on disk rather than copying it into memory.
+- New `-d` short form for `--dump`. `--dump` now builds the database directly at PATH and exits.
+- `--dump` and the in-TUI `dump` command refuse to overwrite an existing file.
+- Options which have no effect in a given mode (e.g. `--dump` with DB) are now errors.
+- `--ref`, `--dump` and `--log` reject a value starting with `-` (i.e. a missing value followed by another option).
+
 ## v0.5.1
 
 Patch to make modal interface clearer in helptext

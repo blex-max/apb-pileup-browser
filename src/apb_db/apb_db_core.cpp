@@ -1,4 +1,4 @@
-#include "apb_db.hpp"
+#include "apb_db_core.hpp"
 
 #include <sqlite3.h>
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-#include "schema.hpp"
+#include "apb_db_schema.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 
@@ -102,6 +102,9 @@ std::expected<apb_verify_result_t, int> apb_verify_schema (sqlite3* conn)
       );
       rc != SQLITE_OK) {
     return std::unexpected (rc);
+  }
+  if (connSchemaVersion == 0) {
+    return apb_verify_result_t{apb_verify_result_t::versionUnset, 0};
   }
   if (connSchemaVersion != APB_SCHEMA_VER) {
     return apb_verify_result_t{
@@ -224,6 +227,27 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
       };
     }
   }
+  {
+    // schema caps locus rows at one; check there is one
+    sqlite3_stmt* o_stmt = nullptr;
+    if (const auto rc = sqlite3_prepare_v2 (
+            br_conn, "SELECT EXISTS (SELECT 1 FROM locus_metadata);", -1,
+            &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      return std::unexpected (rc);
+    }
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+    if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
+      return std::unexpected (rc);
+    }
+    if (sqlite3_column_int (o_stmt, 0) == 0) {
+      return apb_validate_result_t{
+          .code = apb_validate_result_t::missingLocus
+      };
+    }
+  }
 
   return apb_validate_result_t{.code = apb_validate_result_t::success};
 }
@@ -249,7 +273,7 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
 
   /* bind to statement */
   // CONVERTS FROM 0-INDEXED apb_pileup_t TO 1-INDEXED DB REPRESENTATION
-  // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (schema.hpp)
+  // INSERTION ORDER TIED TO SCHEMA; BE CAREFUL! (apb_db_schema.hpp)
   for (const auto& rec1 : recs) {
     int col = 1;
     TRY_OK_INT (sqlite3_bind_text (

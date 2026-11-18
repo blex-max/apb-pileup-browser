@@ -10,78 +10,77 @@
 #include <array>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <random>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
+#include "apb_db/apb_db_core.hpp"
+#include "apb_db/apb_db_helpers.hpp"
+#include "apb_db/apb_db_schema.hpp"
+#include "apb_db/apb_db_transform_hts.hpp"
 #include "generic/describe.hpp"
-#include "generic/transform_hts.hpp"
-#include "model/apb_db.hpp"
-#include "model/schema.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 
-struct PileupCapture {
+
+struct pileup_capture_t {
   htsFile* br_fh = nullptr;
   hts_itr_t* o_it = nullptr;  // owned; freed by PileupIterator::destroy
 };
 extern "C" {
 int pileup_func (void* br_data, bam1_t* br_b)
 {
-  const PileupCapture* br_d = (PileupCapture*)(br_data);
+  const pileup_capture_t* br_d = (pileup_capture_t*)(br_data);
   // No filtering
   return sam_itr_next (br_d->br_fh, br_d->o_it, br_b);
 }
 }
+struct pileup_iterator_t {
+  pileup_capture_t* o_cap = nullptr;
+  bam_plp_t o_plp = nullptr;
+  const bam_pileup1_t* br_plpArr = nullptr;
+  size_t nPlp = 0;
 
-std::expected<void, std::string> ingest_sam_auto (
-    sqlite3* conn, const std::vector<std::filesystem::path>& alnPaths,
-    const std::string& locus,
-    const std::optional<std::filesystem::path>& refPath, bool zeroBased,
-    std::optional<size_t> loadLimitBytes,
-    std::optional<size_t> loadLimitDepth
+  void destroy() noexcept
+  {
+    if (o_cap != nullptr) {
+      hts_itr_destroy (o_cap->o_it);
+      delete o_cap;
+    }
+    if (o_plp != nullptr) {
+      bam_plp_destroy (o_plp);
+    }
+    br_plpArr = nullptr;
+  }
+};
+struct aln_file_t {
+  htsFile* o_fh = nullptr;
+  sam_hdr_t* o_hdr = nullptr;
+  hts_idx_t* o_idx = nullptr;
+  std::filesystem::path path;
+  uint32_t locusTid = UINT32_MAX;
+
+  void destroy() const noexcept
+  {
+    hts_idx_destroy (o_idx);
+    sam_hdr_destroy (o_hdr);
+    hts_close (o_fh);
+  }
+};
+struct locus_t {
+  std::string contig;
+  hts_pos_t pos_0ho;
+};
+
+static std::expected<locus_t, std::string> parse_locus (
+    const std::string& locus, bool zeroBasedInputLocus
 )
 {
-  // helper types for this fn
-  struct AlnFile {
-    htsFile* o_fh = nullptr;
-    sam_hdr_t* o_hdr = nullptr;
-    hts_idx_t* o_idx = nullptr;
-    std::filesystem::path path;
-    uint32_t locusTid = UINT32_MAX;
-
-    void destroy() const noexcept
-    {
-      hts_idx_destroy (o_idx);
-      sam_hdr_destroy (o_hdr);
-      hts_close (o_fh);
-    }
-  };
-  struct PileupIterator {
-    PileupCapture* o_cap = nullptr;
-    bam_plp_t o_plp = nullptr;
-    const bam_pileup1_t* br_plpArr = nullptr;
-    size_t nPlp = 0;
-
-    void destroy() noexcept
-    {
-      if (o_cap != nullptr) {
-        hts_itr_destroy (o_cap->o_it);
-        delete o_cap;
-      }
-      if (o_plp != nullptr) {
-        bam_plp_destroy (o_plp);
-      }
-      br_plpArr = nullptr;
-    }
-  };
-
-  // FIXME: extract locus conversion to separate fn
-  // convert locus from string
-  std::string locusContigName;
-  hts_pos_t locusPos;
+  locus_t out;
   const auto locusStrSepPos = locus.find_last_of (':');
   if (locusStrSepPos == 0) {
     return std::unexpected (
@@ -103,7 +102,7 @@ std::expected<void, std::string> ingest_sam_auto (
           locus.end(), isdigit
       )) {
     try {
-      locusPos = std::stoll (locus.substr (locusStrSepPos + 1));
+      out.pos_0ho = std::stoll (locus.substr (locusStrSepPos + 1));
     }
     catch (const std::exception& ex) {
       return std::unexpected (
@@ -123,20 +122,138 @@ std::expected<void, std::string> ingest_sam_auto (
   }
   if (locus[0] == '{' && locus[locusStrSepPos - 1] == '}') {
     // discard disambiguating braces
-    locusContigName = locus.substr (1, locusStrSepPos - 2);
+    out.contig = locus.substr (1, locusStrSepPos - 2);
   }
   else {
-    locusContigName = locus.substr (0, locusStrSepPos);
+    out.contig = locus.substr (0, locusStrSepPos);
   }
 
-  if (!zeroBased) {
-    if (locusPos == 0) {
+  if (!zeroBasedInputLocus) {
+    // shift result to zero based
+    if (out.pos_0ho == 0) {
       return std::unexpected (
           "Invalid locus specifier for one-based input; position is less "
           "than 1"
       );
     }
-    locusPos--;
+    out.pos_0ho--;
+  }
+
+  return out;
+}
+
+// close a db from open_new_db, removing its file if it has one
+static void discard_new_db (sqlite3* conn, const db_target_t& target)
+{
+  // uncommitted transaction rolls back on close
+  sqlite3_close_v2 (conn);
+  if (target.kind == db_target_t::file) {
+    std::error_code ec;  // best effort
+    std::filesystem::remove (target.path, ec);
+  }
+}
+
+// open a new apb db at target, with schema created inside an open
+// transaction. Caller commits, or discard_new_db on failure.
+static conn_or_failmsg_t open_new_db (const db_target_t& target)
+{
+  std::string name;
+  switch (target.kind) {
+  case db_target_t::memory:
+    name = ":memory:";
+    break;
+  case db_target_t::tempFile:
+    name = "";  // sqlite private temp db
+    break;
+  case db_target_t::file:
+    if (std::error_code ec; std::filesystem::exists (
+            std::filesystem::symlink_status (target.path, ec)
+        )) {
+      return std::unexpected (
+          fmt::format (
+              "{} already exists; refusing to overwrite", target.path
+          )
+      );
+    }
+    name = target.path.string();
+    break;
+  }
+
+  sqlite3* conn = nullptr;
+  Defer conn_cleanup ([&]() {
+    discard_new_db (conn, target);
+  });  // cancel on success
+
+  int rc = sqlite3_open_v2 (
+      name.c_str(), &conn, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL
+  );
+  if (rc == SQLITE_OK) {
+    // fk pragma is a no-op inside a transaction
+    rc = sqlite3_exec (conn, schema::sqlSetFK.data(), NULL, NULL, NULL);
+  }
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
+  }
+  if (rc == SQLITE_OK) {
+    // in transaction; failed ingest leaves no schema behind
+    rc = apb_create_schema (conn);
+  }
+
+  if (rc == SQLITE_OK) {
+    conn_cleanup.cancel();
+    return conn;
+  }
+  if (rc == SQLITE_NOMEM) {
+    // FIXME: nomem might be worth failing gracefully on elsewhere also,
+    // since running out of memory on a cluster interactive session
+    // or head node is not implausible.
+    return std::unexpected (
+        "Failed to initialise database before "
+        "attempting to load pileup with out of memory error. "
+        "Are you in a memory constrained environment?"
+    );
+  }
+  switch (target.kind) {
+  case db_target_t::memory:
+    break;
+  case db_target_t::tempFile:
+    return std::unexpected (
+        fmt::format (
+            "Failed to create temporary database file (is TMPDIR "
+            "writable?), reporting: {} - {}",
+            sqlite3_errstr (rc), sqlite3_errmsg (conn)
+        )
+    );
+  case db_target_t::file:
+    return std::unexpected (
+        fmt::format (
+            "Failed to create database at {}, reporting: {} - {}",
+            target.path, sqlite3_errstr (rc), sqlite3_errmsg (conn)
+        )
+    );
+  }
+  APB_UNREACHABLE (
+      "failed to initialise in-memory apb database", rc,
+      sqlite3_errstr (rc), sqlite3_errmsg (conn)
+  );
+}
+
+conn_or_failmsg_t ingest_sam_auto (
+    const db_target_t& target, const std::string& locus,
+    bool zeroBasedLocus,
+    const std::vector<std::filesystem::path>& alnPaths,
+    const std::optional<std::filesystem::path>& refPath,
+    std::optional<size_t> loadLimitBytes,
+    std::optional<size_t> loadLimitDepth
+)
+{
+  // cheap validation before the db (possibly a file) is created
+  locus_t parsedLocus;
+  if (const auto ret = parse_locus (locus, zeroBasedLocus); !ret) {
+    return std::unexpected (ret.error());
+  }
+  else {
+    parsedLocus = *ret;
   }
 
   // load reference if provided
@@ -159,25 +276,27 @@ std::expected<void, std::string> ingest_sam_auto (
     }
   });
 
+  sqlite3* conn = nullptr;
+  if (const auto ret = open_new_db (target); !ret) {
+    return std::unexpected (ret.error());
+  }
+  else {
+    conn = *ret;
+  }
+  Defer conn_cleanup ([&]() {
+    discard_new_db (conn, target);
+  });  // cancel on success
+
   // iterate alignment paths. Open, validate, pileup,
   // transform to db
   bool contigFound = false;
   bool readsFoundAtLocus = false;
   uint64_t estLocusBytes = 0;
-  int64_t span0Start = INT64_MAX;
-  int64_t span0End = 0;
+  int64_t spanStart_0ho = INT64_MAX;
+  int64_t spanEnd_0ho = 0;
   std::vector<apb_input_record1_t> inputRecBuf;
-  if (const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
-      rc != SQLITE_OK) {
-    return std::unexpected (
-        fmt::format (
-            "Failed to begin database transaction, reporting: {} - {}",
-            sqlite3_errstr (rc), sqlite3_errmsg (conn)
-        )
-    );
-  }
   for (const auto& fp : alnPaths) {
-    AlnFile aln;
+    aln_file_t aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
 
     aln.path = fp;
@@ -202,14 +321,14 @@ std::expected<void, std::string> ingest_sam_auto (
 
     bool alnHasContig = false;
     switch (const auto rc =
-                sam_hdr_name2tid (aln.o_hdr, locusContigName.c_str());
+                sam_hdr_name2tid (aln.o_hdr, parsedLocus.contig.c_str());
             rc) {
     case -2:
       return std::unexpected (
           fmt::format (
               "Error while attempting to retrive contig id for contig "
               "{} from alignment file {}",
-              locusContigName, aln.path
+              parsedLocus.contig, aln.path
           )
       );
     case -1:
@@ -220,7 +339,7 @@ std::expected<void, std::string> ingest_sam_auto (
       aln.locusTid = static_cast<uint32_t> (rc);
     };
 
-    PileupIterator pileup;
+    pileup_iterator_t pileup;
     Defer pileup_destroy ([&pileup]() { pileup.destroy(); });
     if (alnHasContig) {
       /*
@@ -231,8 +350,8 @@ std::expected<void, std::string> ingest_sam_auto (
       */
 
       auto* o_alnIter = sam_itr_queryi (
-          aln.o_idx, static_cast<int> (aln.locusTid), locusPos,
-          locusPos + 1
+          aln.o_idx, static_cast<int> (aln.locusTid), parsedLocus.pos_0ho,
+          parsedLocus.pos_0ho + 1
       );
       if (o_alnIter == NULL) {
         // FIXME: is this (and pileup iterator fail) actually plausible?
@@ -244,7 +363,7 @@ std::expected<void, std::string> ingest_sam_auto (
         );
       }
 
-      pileup.o_cap = new PileupCapture{aln.o_fh, o_alnIter};
+      pileup.o_cap = new pileup_capture_t{aln.o_fh, o_alnIter};
       pileup.o_plp = bam_plp_init (pileup_func, pileup.o_cap);
       if (pileup.o_plp == NULL) {
         return std::unexpected (
@@ -254,9 +373,14 @@ std::expected<void, std::string> ingest_sam_auto (
             )
         );
       }
-      bam_plp_set_maxcnt (
-          pileup.o_plp, loadLimitDepth ? *loadLimitDepth : INT_MAX
-      );
+      // +1 so exceeding the limit is detectable below.
+      // htslib takes int; anything above INT_MAX is effectively uncapped
+      const int maxCnt = loadLimitDepth
+                             ? static_cast<int> (std::min<size_t> (
+                                   *loadLimitDepth, INT_MAX - 1
+                               )) + 1
+                             : INT_MAX;
+      bam_plp_set_maxcnt (pileup.o_plp, maxCnt);
 
       int64_t plpPos = -1;
       int plpTid = -1;
@@ -275,16 +399,16 @@ std::expected<void, std::string> ingest_sam_auto (
               )
           );
         }
-        if (plpPos < locusPos) {
+        if (plpPos < parsedLocus.pos_0ho) {
           continue;  // yet to reach locus
         }
-        if (plpPos > locusPos) {
+        if (plpPos > parsedLocus.pos_0ho) {
           break;
         }
         // else locus found (implying reads present)
         pileup.br_plpArr = br_plpArr;
         pileup.nPlp = static_cast<size_t> (nPlp);
-        if (loadLimitDepth && pileup.nPlp >= *loadLimitDepth) {
+        if (loadLimitDepth && pileup.nPlp > *loadLimitDepth) {
           return std::unexpected (
               fmt::format (
                   "Pileup at locus exceeds {} reads in alignment file {}, "
@@ -315,8 +439,8 @@ std::expected<void, std::string> ingest_sam_auto (
               bam_cigar2rlen (
                   static_cast<int> (b1->core.n_cigar), bam_get_cigar (b1)
               );
-          span0Start = std::min (span0Start, rStart);
-          span0End = std::max (span0End, rEnd);
+          spanStart_0ho = std::min (spanStart_0ho, rStart);
+          spanEnd_0ho = std::max (spanEnd_0ho, rEnd);
         }
         break;
       }
@@ -403,18 +527,20 @@ std::expected<void, std::string> ingest_sam_auto (
       hts_pos_t regLen;
       // uses closed coordinates, hence -1
       auto* o_fetch = faidx_fetch_seq64 (
-          *ff, locusContigName.c_str(), span0Start, span0End - 1, &regLen
+          *ff, parsedLocus.contig.c_str(), spanStart_0ho, spanEnd_0ho - 1,
+          &regLen
       );
       if (o_fetch == NULL) {
         return std::unexpected (
             fmt::format (
                 "Failed to fetch reference region from fasta at {} "
                 "for span {}:{}-{}",
-                refPath.value(), locusContigName, span0Start, span0End
+                refPath.value(), parsedLocus.contig, spanStart_0ho,
+                spanEnd_0ho
             )
         );
       }
-      if (regLen < (span0End - span0Start)) {
+      if (regLen < (spanEnd_0ho - spanStart_0ho)) {
         return std::unexpected (
             "Reference too short! Fasta missing coverage for pileup span."
         );
@@ -424,7 +550,8 @@ std::expected<void, std::string> ingest_sam_auto (
     }
 
     if (const auto rc = apb_insert_locus (
-            conn, locusContigName, locusPos, span0Start, span0End, refSlice
+            conn, parsedLocus.contig, parsedLocus.pos_0ho, spanStart_0ho,
+            spanEnd_0ho, refSlice
         );
         rc != SQLITE_OK) {
       return std::unexpected (apb_describe_sqlite_failure (
@@ -438,6 +565,23 @@ std::expected<void, std::string> ingest_sam_auto (
     );
   }
 
+  // catch transform/insert bugs before committing
+  if (const auto ret = apb_validate_db (conn); !ret) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure during database validation, reporting: {} - "
+            "{}",
+            sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
+        )
+    );
+  }
+  else if (ret->code != apb_validate_result_t::success) {
+    APB_UNREACHABLE (
+        "newly built apb database failed validation",
+        static_cast<int> (ret->code), ret->problems.value_or ("")
+    );
+  }
+
   if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     return std::unexpected (
@@ -448,19 +592,18 @@ std::expected<void, std::string> ingest_sam_auto (
     );
   }
 
-  // FIXME: incomplete - must finally call (not yet existing) db verifaction method
-  // Am I sure that's necessary in a non debug release?
-  return {};
+  conn_cleanup.cancel();
+  return conn;
 }
 
-std::expected<sqlite3*, std::string> ingest_db_auto (
-    const std::filesystem::path& dbPath, bool useDisk
+conn_or_failmsg_t ingest_db_auto (
+    const std::filesystem::path& dbInputPath, bool useDisk
 )
 {
   sqlite3* connSrc = nullptr;
   Defer cleanup_src ([&]() { sqlite3_close_v2 (connSrc); });
   if (const auto rc = sqlite3_open_v2 (
-          dbPath.c_str(), &connSrc, SQLITE_OPEN_READONLY, NULL
+          dbInputPath.c_str(), &connSrc, SQLITE_OPEN_READONLY, NULL
       );
       rc != SQLITE_OK) {
     // the error belongs to o_fileDb, the handle that failed to open
@@ -468,13 +611,12 @@ std::expected<sqlite3*, std::string> ingest_db_auto (
         fmt::format (
             "sqlite3 failure when opening database at {}, reporting: "
             "{} ({}) - {}",
-            dbPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
+            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
         )
     );
   }
 
-  // FIXME: should we be setting the fk pragma here?
-  // I assume so but must confirm.
+  // per connection; apb_verify_schema requires it
   if (const auto rc = sqlite3_exec (
           connSrc, schema::sqlSetFK.data(), NULL, NULL, NULL
       );
@@ -482,9 +624,8 @@ std::expected<sqlite3*, std::string> ingest_db_auto (
     return std::unexpected (
         fmt::format (
             "sqlite3 failure when setting foreign key pragma on "
-            "database, "
-            "reporting: {} ({}) - {}",
-            dbPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
+            "database at {}, reporting: {} ({}) - {}",
+            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
         )
     );
   }
@@ -504,30 +645,30 @@ std::expected<sqlite3*, std::string> ingest_db_auto (
     switch (status.code) {
     case apb_verify_result_t::success:
       break;
+    case apb_verify_result_t::versionUnset:
+      return std::unexpected (
+          fmt::format (
+              "db at {} is not an apb database (user_version not set)",
+              dbInputPath
+          )
+      );
     case apb_verify_result_t::verMismatch:
       return std::unexpected (
           fmt::format (
               "db at {} is using an outdated or unknown "
               "version of the apb schema and cannot be read by this "
               "version of apb (expected schema version {}, got {}).",
-              dbPath, APB_SCHEMA_VER, status.version
+              dbInputPath, APB_SCHEMA_VER, status.version
           )
       );
     case apb_verify_result_t::schemaMismatch:
       return std::unexpected (
           fmt::format (
-              "db at {} does not have expected apb schema", dbPath
+              "db at {} does not have expected apb schema", dbInputPath
           )
       );
     case apb_verify_result_t::fkNotEnabled:
-      // FIXME: this is on us, not the user
-      return std::unexpected (
-          fmt::format (
-              "db at {} has correct schema, but the "
-              "connection does not have foreign keys enabled",
-              dbPath
-          )
-      );
+      APB_UNREACHABLE ("fk pragma not set on db connection before verify");
     }
   }
   if (const auto ret = apb_validate_db (connSrc); !ret) {
@@ -545,21 +686,29 @@ std::expected<sqlite3*, std::string> ingest_db_auto (
     case apb_validate_result_t::success:
       break;
     case apb_validate_result_t::failedIntegrityCheck:
-      std::unexpected (
+      return std::unexpected (
           fmt::format (
               "db at {} failed integrity check and is "
               "therefore not an operable apb database. The "
               "problems were:\n{}",
-              dbPath, status.problems.value()
+              dbInputPath, status.problems.value()
           )
       );
     case apb_validate_result_t::failedForeignKeyCheck:
-      std::unexpected (
+      return std::unexpected (
           fmt::format (
               "db at {} failed foreign key check and is "
               "therefore not an operable apb database: The "
               "problems were:\n{}",
-              dbPath, status.problems.value()
+              dbInputPath, status.problems.value()
+          )
+      );
+    case apb_validate_result_t::missingLocus:
+      return std::unexpected (
+          fmt::format (
+              "db at {} has no locus metadata and is therefore not an "
+              "operable apb database",
+              dbInputPath
           )
       );
     }
@@ -588,32 +737,29 @@ std::expected<sqlite3*, std::string> ingest_db_auto (
     );
   }
 
-  sqlite3_backup* o_backup = nullptr;
-  Defer cleanup_backup ([&]() { sqlite3_backup_finish (o_backup); });
+  if (const auto rc = apb_copy_db (connSrc, connDest); rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when copying database from {}, "
+            "reporting: {} ({})",
+            dbInputPath, sqlite3_errstr (rc), rc
+        )
+    );
+  }
+  // not carried over by the copy
+  if (const auto rc = sqlite3_exec (
+          connDest, schema::sqlSetFK.data(), NULL, NULL, NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "sqlite3 failure when setting foreign key pragma on "
+            "in-memory database, reporting: {} ({}) - {}",
+            sqlite3_errstr (rc), rc, sqlite3_errmsg (connDest)
+        )
+    );
+  }
 
-  if (o_backup = sqlite3_backup_init (connDest, "main", connSrc, "main");
-      o_backup == NULL) {
-    // errors from backup_init are
-    // stored on the destination handle.
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure when copying database from {}, "
-            "reporting: {} ({}) - {}",
-            dbPath, sqlite3_errstr (sqlite3_errcode (connDest)),
-            sqlite3_errcode (connDest), sqlite3_errmsg (connDest)
-        )
-    );
-  }
-  if (const auto rc = sqlite3_backup_step (o_backup, -1);
-      rc != SQLITE_DONE) {
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure when copying database from {}, "
-            "reporting: {} ({}) - {}",
-            dbPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connDest)
-        )
-    );
-  }
   cleanup_dest.cancel();
   return connDest;
 }
@@ -649,9 +795,18 @@ static char mutate_base (char refBase, std::mt19937& rng)
   return b;
 }
 
-void ingest_demo (sqlite3* conn)
+conn_or_failmsg_t ingest_demo (const db_target_t& target)
 {
-  APB_ASSERT (conn != nullptr);
+  sqlite3* conn = nullptr;
+  if (const auto ret = open_new_db (target); !ret) {
+    return std::unexpected (ret.error());
+  }
+  else {
+    conn = *ret;
+  }
+  Defer conn_cleanup ([&]() {
+    discard_new_db (conn, target);
+  });  // cancel on success
 
   constexpr std::string_view demoContig = "demo-contig";
   constexpr int64_t pos = 10'000'000;
@@ -875,10 +1030,6 @@ void ingest_demo (sqlite3* conn)
     spanEnd_0ho = std::max (rec.end_0ho, spanEnd_0ho);
   }
 
-  APB_ASSERT (
-      const auto rc = sqlite3_exec (conn, "BEGIN;", NULL, NULL, NULL);
-      rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
-  );
   for (size_t i = 0; i < alns.size(); ++i) {
     auto& aln = alns[i];
     std::sort (begin (aln), end (aln), [] (const auto& a, const auto& b) {
@@ -919,8 +1070,25 @@ void ingest_demo (sqlite3* conn)
       );
       rc == SQLITE_OK, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
+  // catch demo generation bugs before committing
+  if (const auto ret = apb_validate_db (conn); !ret) {
+    APB_UNREACHABLE (
+        "sqlite3 failure validating demo database",
+        sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
+    );
+  }
+  else if (ret->code != apb_validate_result_t::success) {
+    APB_UNREACHABLE (
+        "demo database failed validation", static_cast<int> (ret->code),
+        ret->problems.value_or ("")
+    );
+  }
+
   APB_ASSERT (
       const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
       rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
   );
+
+  conn_cleanup.cancel();
+  return conn;
 }

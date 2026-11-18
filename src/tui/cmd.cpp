@@ -9,14 +9,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "generic/db_io.hpp"
+#include "apb_db/apb_db_helpers.hpp"
 #include "generic/describe.hpp"
 #include "helpblocks.hpp"
 #include "log.hpp"
@@ -30,7 +32,6 @@
 namespace g_db = tui_state::db;
 namespace g_ui = tui_state::ui;
 
-// view type into the command registry
 using CmdResult = std::pair<bool, std::string>;
 struct Cmd {
   std::span<const std::string_view> names;
@@ -493,14 +494,39 @@ static constexpr Cmd dumpCmd{
         return {false, CMD_FMT_MISUSE("takes a single argument", dumpCmd)};
       }
 
-      const std::string path{tokens[0]};
-      if (const auto ret = dump_to_disk (g_db::conn, path); !ret) {
-        return {false, apb_describe_sqlite_failure (
-            "Failed to dump database to disk", ret.error().rc,
-            ret.error().dumpConnMsg
+      const std::filesystem::path path{tokens[0]};
+      if (std::error_code ec; std::filesystem::exists (
+              std::filesystem::symlink_status (path, ec)
+          )) {
+        return {false, fmt::format (
+            "{} already exists; refusing to overwrite", path.string()
         )};
       }
-      return {true, fmt::format ("Dumped database to {}", path)};
+
+      sqlite3* o_dest = nullptr;
+      bool success = false;
+      Defer dest_cleanup ([&]() {
+        sqlite3_close_v2 (o_dest);
+        if (!success) {
+          std::error_code ec;  // best effort
+          std::filesystem::remove (path, ec);
+        }
+      });
+      if (const auto rc = sqlite3_open (path.c_str(), &o_dest);
+          rc != SQLITE_OK) {
+        return {false, apb_describe_sqlite_failure (
+            "Failed to dump database to disk", rc, sqlite3_errmsg (o_dest)
+        )};
+      }
+      // dest errmsg is unreliable once the copy has finished
+      if (const auto rc = apb_copy_db (g_db::conn, o_dest);
+          rc != SQLITE_OK) {
+        return {false, apb_describe_sqlite_failure (
+            "Failed to dump database to disk", rc, std::nullopt
+        )};
+      }
+      success = true;
+      return {true, fmt::format ("Dumped database to {}", path.string())};
     }
 };
 

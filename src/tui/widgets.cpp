@@ -16,12 +16,12 @@
 #include <string_view>
 #include <vector>
 
+#include "apb_db/apb_db_schema.hpp"
 #include "drawing_chars.hpp"
 #include "extb/box/box.hpp"
 #include "extb/box/span.hpp"
 #include "extb/extb.hpp"
 #include "helpblocks.hpp"
-#include "model/schema.hpp"
 #include "query.hpp"
 #include "tui/state.hpp"
 #include "tui_assert.hpp"

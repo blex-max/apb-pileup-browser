@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "model/schema.hpp"
+#include "apb_db/apb_db_schema.hpp"
 #include "tui_assert.hpp"
 #include "utility/cleanup.hpp"
 
@@ -276,9 +276,9 @@ int set_query (const QueryFragments& query)
 
 #ifndef DOCTEST_CONFIG_DISABLE
 
+#include "apb_db/apb_db_core.hpp"
 #include "doctest.h"
 #include "fixtures.hpp"
-#include "model/apb_db.hpp"
 
 namespace {
 

@@ -1,4 +1,4 @@
-#include "transform_hts.hpp"
+#include "apb_db_transform_hts.hpp"
 
 #include <optional>
 #include <string>
@@ -451,7 +451,7 @@ TEST_CASE ("aux1_to_json")
 
 // FIXME:
 // tests for transform_pileup1
-// Previously covered (removed test, model/apb_db.cpp): SAM text parsed
+// Previously covered (removed test, apb_db/apb_db_core.cpp): SAM text parsed
 // via sam_parse1, piled up by htslib (bam_plp64_auto) at chr1:100,
 // inserted, rows read back. Per-read cases:
 // - normal: mate on other contig -> mtid name, mstart

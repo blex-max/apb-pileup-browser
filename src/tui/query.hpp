@@ -25,7 +25,7 @@ struct PileupMetadata {
   int16_t nAln = -1;
 
   // Should be redundant with metadata's schema CHECK constraints
-  // (schema.hpp) - kept as a backstop.
+  // (apb_db_schema.hpp) - kept as a backstop.
   bool valid() const noexcept
   {
     return !contig.empty() && start > 0 && end >= start && pos >= start &&

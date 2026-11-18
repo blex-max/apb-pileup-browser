@@ -2,26 +2,41 @@
 
 #include <sqlite3.h>
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
+using conn_or_failmsg_t = std::expected<sqlite3*, std::string>;
+
+// where a newly built db lives
+struct db_target_t {
+  enum Kind : uint8_t {
+    memory,
+    tempFile,  // removed on close
+    file,  // must not already exist; removed on failure
+  };
+  Kind kind = memory;
+  std::filesystem::path path;  // file only
+};
+
 // ingest pileup from disk
-// returns expected void/str since any failure
+// returns expected conn/str since any failure
 // is a top-level crash which can be fully described
 // and exited upon.
-[[nodiscard]] std::expected<void, std::string> ingest_sam_auto (
-    sqlite3* conn, const std::vector<std::filesystem::path>& alnPaths,
-    const std::string& locus,
-    const std::optional<std::filesystem::path>& refPath, bool zeroBased,
+[[nodiscard]] conn_or_failmsg_t ingest_sam_auto (
+    const db_target_t& target, const std::string& locus,
+    bool zeroBasedLocus,
+    const std::vector<std::filesystem::path>& alnPaths,
+    const std::optional<std::filesystem::path>& refPath,
     std::optional<size_t> loadLimitBytes,
     std::optional<size_t> loadLimitDepth
 );
 
-[[nodiscard]] std::expected<sqlite3*, std::string> ingest_db_auto (
-    const std::filesystem::path& dbPath, bool useDisk
+[[nodiscard]] conn_or_failmsg_t ingest_db_auto (
+    const std::filesystem::path& dbInputPath, bool useDisk
 );
 
-void ingest_demo (sqlite3* conn);
+[[nodiscard]] conn_or_failmsg_t ingest_demo (const db_target_t& target);

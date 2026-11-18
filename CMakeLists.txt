@@ -82,10 +82,10 @@ set(APB_COMPILE_DEFINITIONS
 add_executable(apb
   src/tui/log.cpp
   src/utility/abort_fatal.cpp
-  src/model/apb_db.cpp
-  src/generic/db_io.cpp
+  src/apb_db/apb_db_core.cpp
+  src/apb_db/apb_db_helpers.cpp
   src/generic/describe.cpp
-  src/generic/transform_hts.cpp
+  src/apb_db/apb_db_transform_hts.cpp
   src/tui/tb2_impl.cpp
   src/tui/cmd.cpp
   src/tui/event.cpp
@@ -133,10 +133,10 @@ if(APB_BUILD_TESTS)
   add_executable(apb-tests
     tests/test.cpp
     tests/fixtures.cpp
-    src/generic/db_io.cpp
+    src/apb_db/apb_db_helpers.cpp
     src/generic/describe.cpp
-    src/generic/transform_hts.cpp
-    src/model/apb_db.cpp
+    src/apb_db/apb_db_transform_hts.cpp
+    src/apb_db/apb_db_core.cpp
     src/tui/cmd.cpp
     src/tui/query.cpp
     src/tui/state.cpp

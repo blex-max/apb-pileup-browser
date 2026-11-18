@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <expected>
@@ -18,22 +17,24 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
-#include "generic/db_io.hpp"
-#include "generic/describe.hpp"
 #include "ingest.hpp"
 #include "log.hpp"
-#include "model/apb_db.hpp"
-#include "model/schema.hpp"
 #include "tui/manual.hpp"
-#include "tui/query.hpp"
 #include "tui/run.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 #include "utility/stringify.hpp"
 #include "version.hpp"
+
+// max pileup size, to prevent accidentally loading
+// some RAM-destroying pileup.
+#define DEPTH_LIMIT 500'000
+#define GB_LIMIT 4
 
 // NOTE: helptext is not constructed from
 // CLI definition. Must regularly check they
@@ -42,7 +43,7 @@
 static constexpr std::string_view cliHelp =
     R"txt(usage: apb [options] LOCUS ALN...
        apb [options] DB
-       apb --demo
+       apb [options] --demo
 
  apb is a terminal-based genome browser designed for
  viewing and querying reads at specific loci. It features
@@ -59,43 +60,49 @@ arguments:
   LOCUS     genomic locus, e.g. chr1:12345 (1-based).
   ALN...    alignment file/s (sam/bam/cram).
 OR
-  DB        path to a prexisting apb database dump.
+  DB        path to a preexisting apb database dump.
 
 options:
-  -r, --ref FASTA     reference fasta; TUI will display
-                      divergence from reference in reads.
-                      (Invalid with DB; apb databases
-                      hold the reference slice internally)
-  --dump PATH         Dump the database to PATH as an
-                      sqlite database dump.
-  --no-tui            Build the locus database and exit,
-                      without opening the TUI.
-                      Ignored without --dump.
-  --use-disk          Do not keep the database in memory
-                      instead stream to a temporary file
-                      or the path provided to --dump and
-                      open a connection to that file on
-                      disk.
-                      If used with DB, connect directly
-                      to the database at DB on disk
-                      rather than copying into memory.
-                      Useful if you are RAM-bound and are
-                      loading very large pileups.
-                      Implies --no-limit-mem.
-  --no-limit-mem      Remove the default limits of ~)txt" STR(GB_LIMIT) R"txt(Gb max
-                      pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file
-                      when loading into memory.
-  -0, --zero-based    treat the LOCUS argument as 0-based
-                      (e.g. from a BED file), instead of
-                      1-based, at the CLI.
-                      The TUI will still show 1-based
-                      coordinates.
-  --manual            Print the apb manual to stdout and exit.
-  --demo              View demo data.
-                      Ignores all other arguments except --log.
-  --log PATH          Log debug info to PATH.
-  -h, --help          show this help message and exit.
-  -v, --version       print version information and exit.
+  -r, --ref FASTA         reference fasta; TUI will display
+                          divergence from reference in reads.
+                          Invalid with DB; apb databases
+                          hold the reference slice internally.
+  -u, --use-disk          If used with LOCUS ALN... or --demo,
+                          do not keep the database in memory.
+                          Instead stream to a temporary file
+                          and open a connection to that file
+                          on disk. The file is created under
+                          TMPDIR if set, and deleted on exit.
+                          If used with DB, connect directly
+                          to the database at DB on disk
+                          rather than copying into memory.
+                          Useful if you are RAM-bound and are
+                          loading very large pileups.
+                          Invalid with --dump.
+  -d, --dump PATH         Dump the database to PATH as an
+                          sqlite database dump for use
+                          outside of apb, and exit.
+                          PATH must not already exist.
+                          Invalid with DB and --use-disk.
+  --no-limit-mem          Remove the default limits of ~)txt" STR(GB_LIMIT) R"txt(Gb max
+                          pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file.
+                          Limits apply with --use-disk and
+                          --dump also, since reads are held in
+                          memory while loading.
+                          Invalid with DB and --demo.
+  -0, --zero-based        treat the LOCUS argument as 0-based
+                          (e.g. from a BED file), instead of
+                          1-based, at the CLI.
+                          The TUI will still show 1-based
+                          coordinates.
+                          Invalid with DB and --demo.
+  --manual                Print the apb manual to stdout and exit.
+  --demo                  View demo data.
+                          Invalid with all other arguments
+                          except --use-disk, --dump and --log.
+  --log PATH              Log debug info to PATH.
+  -h, --help              show this help message and exit.
+  -v, --version           print version information and exit.
 
  **IMPORTANT**:
   apb displays all coordinate data in
@@ -114,58 +121,42 @@ options:
 "\napb version " APB_VERSION "\n";
 // clang-format on
 
-enum class ApbMode : uint8_t { locus, demo, db, UNSET };
-struct ApbCliArgs {
-  ApbMode mode = ApbMode::UNSET;
-  std::string locus;
-  std::vector<std::filesystem::path> alnPaths;
+struct cli_args_t {
+  // per-mode args
+  struct locus_args_t {
+    std::string locus;
+    std::vector<std::filesystem::path> alnPaths;
+    std::optional<std::filesystem::path> refPath = std::nullopt;
+    bool zeroBased = false;
+    bool limitMemUsage = true;
+    db_target_t newDb;  // file target means --dump
+  };
+  struct db_args_t {
+    std::filesystem::path path;
+    bool useDisk = false;
+  };
+  struct demo_args_t {
+    db_target_t newDb;  // file target means --dump
+  };
 
-  std::optional<std::filesystem::path> refPath = std::nullopt;
-  std::optional<std::filesystem::path> dumpPath = std::nullopt;
-  std::optional<std::filesystem::path> dbPath = std::nullopt;
+  std::variant<locus_args_t, db_args_t, demo_args_t> mode;
 
   std::optional<std::filesystem::path> logPath = std::nullopt;
-
-  bool zeroBased = false;
-  bool limitMemUsage = true;
-  bool useDisk = false;
-
   // for debugging (see parse_args)
   bool autoflush = false;
 };
 
-static std::expected<ApbCliArgs, std::string> parse_args (
+// I forgot how much I hate std::variant.
+// FIXME: a better name than Overloaded, in snake_case
+template <class... Ts>
+struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+
+static std::expected<cli_args_t, std::string> parse_args (
     int argc, char** argv
 );
 
-// Opens a new in-memory apb database into `conn`. Caller must
-// close (including on failure). Reports failure to stderr.
-static bool init_db (sqlite3*& conn)
-{
-  int rc = sqlite3_open (":memory:", &conn);
-  if (rc == SQLITE_OK) {
-    rc = apb_create_schema (conn);
-  }
-  switch (rc) {
-  case SQLITE_OK:
-    return true;
-    // more cases may be added if they're outside of apb's control
-  case SQLITE_NOMEM:
-    // FIXME: nomem might be worth failing gracefully on throughout,
-    // since running out of memory on a cluster interactive session
-    // or head node is not implausible.
-    std::cerr << "Error: failed to initialise database BEFORE "
-                 "attempting to load pileup with out of memory error. "
-                 "Are you in a memory constrained environment?"
-              << std::endl;
-    return false;
-  default:
-    APB_UNREACHABLE (
-        "failed to initialise apb database", rc, sqlite3_errstr (rc),
-        sqlite3_errmsg (conn)
-    );
-  }
-}
 
 int main (int argc, char** argv)
 {
@@ -175,7 +166,7 @@ int main (int argc, char** argv)
     std::cerr << argRet.error() << std::endl;
     return EXIT_FAILURE;
   }
-  const ApbCliArgs& args = *argRet;
+  const cli_args_t& args = *argRet;
   apb_log::init (args.logPath, '\n', args.autoflush);
   Defer log_deinit ([]() { apb_log::deinit(); });
 
@@ -193,76 +184,47 @@ int main (int argc, char** argv)
   sqlite3* conn = nullptr;
   Defer db_shutdown ([&conn]() { sqlite3_close_v2 (conn); });
 
-  switch (args.mode) {
-  case ApbMode::locus: {
-    APB_ASSERT (!args.locus.empty());
-    APB_ASSERT (!args.alnPaths.empty());
-    // FIXME: this is stupid. Should be within the ingest TU,
-    // and those fns can all return a conn.
-    if (!init_db (conn)) {
-      return EXIT_FAILURE;
-    }
-    /* bounds */
-    constexpr size_t kDepthLimit = 500'000;
-    constexpr size_t kBytesLimit = static_cast<size_t> (4) * 1'000'000'000;
-    if (const auto ret = ingest_sam_auto (
-            conn, args.alnPaths, args.locus, args.refPath, args.zeroBased,
-            args.limitMemUsage ? std::make_optional (kBytesLimit)
-                               : std::nullopt,
-            args.limitMemUsage ? std::make_optional (kDepthLimit)
-                               : std::nullopt
-        );
-        !ret) {
-      std::cerr << "Error: " << ret.error() << std::endl;
-      return EXIT_FAILURE;
-    }
-    break;
+  const auto ingestRet = std::visit (
+      Overloaded{
+          [] (const cli_args_t::locus_args_t& a) {
+            APB_ASSERT (!a.locus.empty());
+            APB_ASSERT (!a.alnPaths.empty());
+            /* bounds */
+            constexpr size_t kDepthLimit = DEPTH_LIMIT;
+            constexpr size_t kBytesLimit =
+                static_cast<size_t> (GB_LIMIT) * 1'000'000'000;
+            return ingest_sam_auto (
+                a.newDb, a.locus, a.zeroBased, a.alnPaths, a.refPath,
+                a.limitMemUsage ? std::make_optional (kBytesLimit)
+                                : std::nullopt,
+                a.limitMemUsage ? std::make_optional (kDepthLimit)
+                                : std::nullopt
+            );
+          },
+          [] (const cli_args_t::db_args_t& a) {
+            return ingest_db_auto (a.path, a.useDisk);
+          },
+          [] (const cli_args_t::demo_args_t& a) {
+            return ingest_demo (a.newDb);
+          },
+      },
+      args.mode
+  );
+  if (!ingestRet) {
+    std::cerr << "Error: " << ingestRet.error() << std::endl;
+    return EXIT_FAILURE;
   }
-  case ApbMode::demo: {
-    if (!init_db (conn)) {
-      return EXIT_FAILURE;
-    }
-    // NOTE: demo always loads db into memory.
-    ingest_demo (conn);
-    break;
-  }
-  case ApbMode::db: {
-    APB_ASSERT (args.dbPath);
-    APB_ASSERT (!args.dbPath.value().empty());
-    if (const auto ret = ingest_db_auto (*args.dbPath, args.useDisk);
-        !ret) {
-      std::cerr << "Error: " << ret.error() << std::endl;
-      return EXIT_FAILURE;
-    }
-    else {
-      conn = *ret;
-    }
-    break;
-  }
-  case ApbMode::UNSET:
-  default:
-    APB_UNREACHABLE ("CLI code malformed; mode unset or unknown");
-  }
+  conn = *ingestRet;
 
-  // FIXME: Don't dump and exit unless --no-tui.
-  // FIXME: if --stream
-  // open the dump path without ever loading into memory,
-  // and in locus mode gently stream the pileup into it.
-  // That means ingest pathways need to change.
-  // FIXME: only relevant to locus and demo modes.
-  if (args.dumpPath) {
-    if (const auto ret =
-            dump_to_disk (conn, args.dumpPath.value().string());
-        !ret) {
-      std::cerr << "Error: "
-                << apb_describe_sqlite_failure (
-                       "Failed to dump database to disk", ret.error().rc,
-                       ret.error().dumpConnMsg
-                   )
-                << std::endl;
-      return EXIT_FAILURE;
-    }
-    // dump succeeded, don't launch TUI.
+  const bool dumped = std::visit (
+      Overloaded{
+          [] (const cli_args_t::db_args_t&) { return false; },
+          [] (const auto& a) { return a.newDb.kind == db_target_t::file; },
+      },
+      args.mode
+  );
+  if (dumped) {
+    // db was built at the dump path; don't launch TUI.
     return EXIT_SUCCESS;
   }
 
@@ -272,7 +234,7 @@ int main (int argc, char** argv)
 // returns expected type/str since any failure
 // is a top-level crash which can be fully described
 // and should be exited upon.
-static std::expected<ApbCliArgs, std::string> parse_args (
+static std::expected<cli_args_t, std::string> parse_args (
     int argc, char** argv
 )
 {
@@ -280,8 +242,16 @@ static std::expected<ApbCliArgs, std::string> parse_args (
   // CLI; see helptext above. Confirm
   // they match when making changes.
 
+  cli_args_t argsOut;
+
+  // collected before mode is known
   std::vector<std::string> posArgV;
-  ApbCliArgs argsOut;
+  bool demo = false;
+  bool zeroBased = false;
+  bool useDisk = false;
+  bool limitMemUsage = true;
+  std::optional<std::filesystem::path> refPath = std::nullopt;
+  std::optional<std::filesystem::path> dumpPath = std::nullopt;
 
 #define EXIT_W_USAGE(_msg) \
   return std::unexpected (fmt::format ("{}\n{}\n", (_msg), cliHelp))
@@ -290,9 +260,10 @@ static std::expected<ApbCliArgs, std::string> parse_args (
   {
     /* collect and validate inputs */
     int i = 1;
+// takes the next token as the value; rejects one that looks like a flag
 #define OPT_VAL_OR_EXIT(_flag_name, _out_str)                   \
   do {                                                          \
-    if (i + 1 >= argc) {                                        \
+    if (i + 1 >= argc || *argv[i + 1] == '-') {                 \
       EXIT_W_USAGE (                                            \
           fmt::format ("{} requires an argument", (_flag_name)) \
       );                                                        \
@@ -315,48 +286,30 @@ static std::expected<ApbCliArgs, std::string> parse_args (
         std::exit (EXIT_SUCCESS);
       }
       else if (arg == "-0" || arg == "--zero-based") {
-        argsOut.zeroBased = true;
+        zeroBased = true;
       }
       else if (arg == "--demo") {
-        if (argsOut.mode == ApbMode::demo) {
-          EXIT_W_USAGE ("--demo specified more than once");
-        }
-        if (argsOut.mode != ApbMode::UNSET) {
-          EXIT_W_USAGE (
-              "arguments --db and --demo are mutually exclusive"
-          );
-        }
-        argsOut.mode = ApbMode::demo;
+        demo = true;
       }
-      else if (arg == "--dump") {
-        OPT_VAL_OR_EXIT ("--dump", argsOut.dumpPath);
+      else if (arg == "-u" || arg == "--use-disk") {
+        useDisk = true;
+      }
+      else if (arg == "-d" || arg == "--dump") {
+        OPT_VAL_OR_EXIT ("--dump", dumpPath);
       }
       else if (arg == "--log") {
         OPT_VAL_OR_EXIT ("--log", argsOut.logPath);
       }
       else if (arg == "--autoflush") {
+        /* hidden option to enable immediate
+        write on logging for live trace */
         argsOut.autoflush = true;
       }
-      else if (arg == "--db") {
-        if (argsOut.mode == ApbMode::db) {
-          EXIT_W_USAGE ("--db specified more than once");
-        }
-        OPT_VAL_OR_EXIT ("--db", argsOut.dbPath);
-        if (argsOut.mode != ApbMode::UNSET) {
-          EXIT_W_USAGE (
-              "arguments --db and --demo are mutually exclusive"
-          );
-        }
-        argsOut.mode = ApbMode::db;
-      }
       else if (arg == "-r" || arg == "--ref") {
-        OPT_VAL_OR_EXIT ("--ref", argsOut.refPath);
+        OPT_VAL_OR_EXIT ("--ref", refPath);
       }
       else if (arg == "--no-limit-mem") {
-        argsOut.limitMemUsage = false;
-      }
-      else if (arg == "--stream") {
-        argsOut.useDisk = true;
+        limitMemUsage = false;
       }
       else if (arg.starts_with ("-")) {
         EXIT_W_USAGE (fmt::format ("unrecognized argument: {}", arg));
@@ -376,43 +329,72 @@ static std::expected<ApbCliArgs, std::string> parse_args (
   }
 
   /* validate args */
-  if (argsOut.mode == ApbMode::demo) {
-    if (argsOut.refPath) {
+  if (dumpPath && useDisk) {
+    EXIT_W_USAGE ("--dump is not valid with --use-disk");
+  }
+  db_target_t newDb;
+  if (dumpPath) {
+    newDb = {.kind = db_target_t::file, .path = *dumpPath};
+  }
+  else if (useDisk) {
+    newDb.kind = db_target_t::tempFile;
+  }
+
+  if (demo) {
+    if (refPath) {
       EXIT_W_USAGE ("--ref is not valid with --demo");
     }
     if (!posArgV.empty()) {
       EXIT_W_USAGE ("--demo takes no positional arguments");
     }
-    if (argsOut.zeroBased) {
+    if (zeroBased) {
       EXIT_W_USAGE ("-0/--zero-based is not valid with --demo");
     }
+    if (!limitMemUsage) {
+      EXIT_W_USAGE ("--no-limit-mem is not valid with --demo");
+    }
+    argsOut.mode = cli_args_t::demo_args_t{.newDb = newDb};
   }
-  else if (argsOut.mode == ApbMode::db) {
-    if (!posArgV.empty()) {
-      EXIT_W_USAGE ("--db takes no positional arguments");
-    }
-    if (argsOut.refPath) {
-      EXIT_W_USAGE ("--ref is not valid with --db");
-    }
-    if (argsOut.dumpPath) {
-      EXIT_W_USAGE ("--dump is not valid with --db");
-    }
-    if (argsOut.zeroBased) {
-      EXIT_W_USAGE ("-0/--zero-based is not valid with --db");
-    }
+  else if (posArgV.empty()) {
+    EXIT_W_USAGE ("expected LOCUS ALN... or DB (or pass --demo)");
   }
-  else {
-    // locus mode
-    argsOut.mode = ApbMode::locus;
-    if (posArgV.size() < 2) {
-      EXIT_W_USAGE (
-          "expected LOCUS ALN...\n\t(or pass --demo / --db PATH)"
+  else if (posArgV.size() == 1) {
+    if (refPath) {
+      EXIT_W_USAGE ("--ref is not valid with DB");
+    }
+    if (dumpPath) {
+      EXIT_W_USAGE ("--dump is not valid with DB");
+    }
+    if (zeroBased) {
+      EXIT_W_USAGE ("-0/--zero-based is not valid with DB");
+    }
+    if (!limitMemUsage) {
+      EXIT_W_USAGE ("--no-limit-mem is not valid with DB");
+    }
+
+    const std::filesystem::path dbUserPath{posArgV[0]};
+    if (std::error_code ec; !std::filesystem::exists (dbUserPath, ec)) {
+      return std::unexpected (
+          fmt::format (
+              "No database found at {} (to load a locus, pass LOCUS "
+              "ALN...)",
+              dbUserPath
+          )
       );
     }
+    if (std::error_code ec;
+        std::filesystem::is_directory (dbUserPath, ec)) {
+      return std::unexpected (
+          fmt::format ("Path {} resolves to a directory", dbUserPath)
+      );
+    }
+    argsOut.mode =
+        cli_args_t::db_args_t{.path = dbUserPath, .useDisk = useDisk};
+  }
+  else {
     if (posArgV.size() > 100) {
       EXIT_W_USAGE ("apb takes a maximum of 99 alignments");
     }
-    argsOut.locus = posArgV[0];
 
     /* --- verify paths --- */
     std::vector<std::filesystem::path> alnUserPaths;
@@ -456,7 +438,14 @@ static std::expected<ApbCliArgs, std::string> parse_args (
     }
     // we know at this point that all paths are unique paths
     // to existing files (and not directories).
-    argsOut.alnPaths = alnUserPaths;
+    argsOut.mode = cli_args_t::locus_args_t{
+        .locus = posArgV[0],
+        .alnPaths = alnUserPaths,
+        .refPath = refPath,
+        .zeroBased = zeroBased,
+        .limitMemUsage = limitMemUsage,
+        .newDb = newDb,
+    };
   }
 
   return argsOut;

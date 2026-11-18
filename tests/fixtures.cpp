@@ -10,8 +10,8 @@
 #include <string_view>
 #include <vector>
 
+#include "apb_db/apb_db_core.hpp"
 #include "doctest.h"
-#include "model/apb_db.hpp"
 #include "utility/cleanup.hpp"
 
 namespace test {

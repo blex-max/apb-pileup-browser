@@ -1,7 +1,6 @@
-// This TU provides an interface between htslib data
-// and the database defined by apb.
-// Callers should compose these functions as needed,
-// see tui/ingest.cpp::ingest_sam_auto for a complete exapmle.
+// This TU provides a basic interface for the database defined by apb.
+// Callers should compose these functions as needed
+// (See tui ingestion logic for an example).
 // Transactions (begin/commit) and bounds (e.g. memory usage)
 // to be handled by caller.
 #pragma once
@@ -23,6 +22,7 @@
 struct apb_verify_result_t {
   enum codes_t : uint8_t {
     success,
+    versionUnset,
     verMismatch,
     fkNotEnabled,
     schemaMismatch
@@ -30,8 +30,7 @@ struct apb_verify_result_t {
   codes_t code;
   int version = -1;
 };
-// verify a db has the expected schema
-// for use with apb.
+// verify a db has the expected schema for use with apb.
 [[nodiscard]] std::expected<apb_verify_result_t, int> apb_verify_schema (
     sqlite3* conn
 );
@@ -41,7 +40,8 @@ struct apb_validate_result_t {
   enum codes_t : uint8_t {
     success,
     failedIntegrityCheck,
-    failedForeignKeyCheck
+    failedForeignKeyCheck,
+    missingLocus
   };
   codes_t code;
   std::optional<std::string> problems = std::nullopt;
@@ -92,6 +92,7 @@ struct apb_input_record1_t {
 };
 
 // insert pileup into db for a single alignment file.
+// Returns SQLITE_OK on success, sqlite err code on failure.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] int apb_insert_records (
     sqlite3* conn, std::span<const apb_input_record1_t> recs,
