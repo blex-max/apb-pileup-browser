@@ -14,11 +14,10 @@ using conn_or_failmsg_t = std::expected<sqlite3*, std::string>;
 // where a newly built db lives
 struct db_target_t {
   enum Kind : uint8_t {
-    memory,
     tempFile,  // removed on close
     file,  // must not already exist; removed on failure
   };
-  Kind kind = memory;
+  Kind kind = tempFile;
   std::filesystem::path path;  // file only
 };
 
@@ -35,8 +34,9 @@ struct db_target_t {
     std::optional<size_t> loadLimitDepth
 );
 
+// opens the db at dbInputPath directly, read-only
 [[nodiscard]] conn_or_failmsg_t ingest_db_auto (
-    const std::filesystem::path& dbInputPath, bool useDisk
+    const std::filesystem::path& dbInputPath
 );
 
 [[nodiscard]] conn_or_failmsg_t ingest_demo (const db_target_t& target);

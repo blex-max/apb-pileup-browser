@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -19,7 +20,6 @@
 #include <vector>
 
 #include "apb_db/apb_db_core.hpp"
-#include "apb_db/apb_db_helpers.hpp"
 #include "apb_db/apb_db_schema.hpp"
 #include "apb_db/apb_db_transform_hts.hpp"
 #include "generic/describe.hpp"
@@ -159,9 +159,6 @@ static conn_or_failmsg_t open_new_db (const db_target_t& target)
 {
   std::string name;
   switch (target.kind) {
-  case db_target_t::memory:
-    name = ":memory:";
-    break;
   case db_target_t::tempFile:
     name = "";  // sqlite private temp db
     break;
@@ -214,8 +211,6 @@ static conn_or_failmsg_t open_new_db (const db_target_t& target)
     );
   }
   switch (target.kind) {
-  case db_target_t::memory:
-    break;
   case db_target_t::tempFile:
     return std::unexpected (
         fmt::format (
@@ -233,8 +228,7 @@ static conn_or_failmsg_t open_new_db (const db_target_t& target)
     );
   }
   APB_UNREACHABLE (
-      "failed to initialise in-memory apb database", rc,
-      sqlite3_errstr (rc), sqlite3_errmsg (conn)
+      "unhandled db_target_t kind", static_cast<int> (target.kind)
   );
 }
 
@@ -565,23 +559,6 @@ conn_or_failmsg_t ingest_sam_auto (
     );
   }
 
-  // catch transform/insert bugs before committing
-  if (const auto ret = apb_validate_db (conn); !ret) {
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure during database validation, reporting: {} - "
-            "{}",
-            sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
-        )
-    );
-  }
-  else if (ret->code != apb_validate_result_t::success) {
-    APB_UNREACHABLE (
-        "newly built apb database failed validation",
-        static_cast<int> (ret->code), ret->problems.value_or ("")
-    );
-  }
-
   if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
       rc != SQLITE_OK) {
     return std::unexpected (
@@ -596,47 +573,67 @@ conn_or_failmsg_t ingest_sam_auto (
   return conn;
 }
 
-conn_or_failmsg_t ingest_db_auto (
-    const std::filesystem::path& dbInputPath, bool useDisk
-)
+// percent-encode a path for use in an sqlite URI filename
+static std::string uri_encode_path (const std::filesystem::path& path)
 {
-  sqlite3* connSrc = nullptr;
-  Defer cleanup_src ([&]() { sqlite3_close_v2 (connSrc); });
+  static constexpr std::string_view kHex = "0123456789ABCDEF";
+  std::string out;
+  for (const char ch : path.string()) {
+    const auto c = static_cast<unsigned char> (ch);
+    if (std::isalnum (c) || c == '/' || c == '-' || c == '.' || c == '_' ||
+        c == '~') {
+      out += static_cast<char> (c);
+    }
+    else {
+      out += '%';
+      out += kHex[c >> 4];
+      out += kHex[c & 0xF];
+    }
+  }
+  return out;
+}
+
+conn_or_failmsg_t ingest_db_auto (const std::filesystem::path& dbInputPath)
+{
+  sqlite3* conn = nullptr;
+  Defer conn_cleanup ([&]() { sqlite3_close_v2 (conn); });
+  // immutable: apb never writes to DB, so skip locking, which is
+  // unreliable on network filesystems
+  const auto uri =
+      "file:" + uri_encode_path (dbInputPath) + "?immutable=1";
   if (const auto rc = sqlite3_open_v2 (
-          dbInputPath.c_str(), &connSrc, SQLITE_OPEN_READONLY, NULL
+          uri.c_str(), &conn, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, NULL
       );
       rc != SQLITE_OK) {
-    // the error belongs to o_fileDb, the handle that failed to open
     return std::unexpected (
         fmt::format (
             "sqlite3 failure when opening database at {}, reporting: "
             "{} ({}) - {}",
-            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
+            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (conn)
         )
     );
   }
 
   // per connection; apb_verify_schema requires it
-  if (const auto rc = sqlite3_exec (
-          connSrc, schema::sqlSetFK.data(), NULL, NULL, NULL
-      );
+  if (const auto rc =
+          sqlite3_exec (conn, schema::sqlSetFK.data(), NULL, NULL, NULL);
       rc != SQLITE_OK) {
     return std::unexpected (
         fmt::format (
             "sqlite3 failure when setting foreign key pragma on "
             "database at {}, reporting: {} ({}) - {}",
-            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (connSrc)
+            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (conn)
         )
     );
   }
 
   /* validate */
-  if (const auto ret = apb_verify_schema (connSrc); !ret) {
+  if (const auto ret = apb_verify_schema (conn); !ret) {
     return std::unexpected (
         fmt::format (
             "sqlite3 failure during schema verfication, reporting: {} - "
             "{}",
-            sqlite3_errstr (ret.error()), sqlite3_errmsg (connSrc)
+            sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
         )
     );
   }
@@ -671,12 +668,12 @@ conn_or_failmsg_t ingest_db_auto (
       APB_UNREACHABLE ("fk pragma not set on db connection before verify");
     }
   }
-  if (const auto ret = apb_validate_db (connSrc); !ret) {
+  if (const auto ret = apb_validate_db (conn); !ret) {
     return std::unexpected (
         fmt::format (
             "sqlite3 failure during database validation, reporting: {} - "
             "{}",
-            sqlite3_errstr (ret.error()), sqlite3_errmsg (connSrc)
+            sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
         )
     );
   }
@@ -714,54 +711,8 @@ conn_or_failmsg_t ingest_db_auto (
     }
   }
 
-  if (useDisk) {
-    cleanup_src.cancel();
-    return connSrc;
-  }
-
-  /* else copy to memory */
-  sqlite3* connDest = nullptr;
-  Defer cleanup_dest ([&]() {
-    sqlite3_close_v2 (connDest);
-  });  // cancel on success
-  // use backup api to copy db into memory.
-  if (const auto rc = sqlite3_open (":memory:", &connDest);
-      rc != SQLITE_OK) {
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure when opening in-memory database, "
-            "reporting: {} ({}) - "
-            "{}",
-            sqlite3_errstr (rc), rc, sqlite3_errmsg (connDest)
-        )
-    );
-  }
-
-  if (const auto rc = apb_copy_db (connSrc, connDest); rc != SQLITE_OK) {
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure when copying database from {}, "
-            "reporting: {} ({})",
-            dbInputPath, sqlite3_errstr (rc), rc
-        )
-    );
-  }
-  // not carried over by the copy
-  if (const auto rc = sqlite3_exec (
-          connDest, schema::sqlSetFK.data(), NULL, NULL, NULL
-      );
-      rc != SQLITE_OK) {
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure when setting foreign key pragma on "
-            "in-memory database, reporting: {} ({}) - {}",
-            sqlite3_errstr (rc), rc, sqlite3_errmsg (connDest)
-        )
-    );
-  }
-
-  cleanup_dest.cancel();
-  return connDest;
+  conn_cleanup.cancel();
+  return conn;
 }
 
 /* demo */
@@ -918,7 +869,6 @@ conn_or_failmsg_t ingest_demo (const db_target_t& target)
     if (feature == AlignmentFeature::TailClip) {
       pushOp (clipLenGen (rng), BAM_CSOFT_CLIP);
     }
-    rec.nCig = rec.rawCig.size();
 
     // Walk the CIGAR to build the read sequence, tracking ref and query
     // cursors. The pileup column is inside an M op, or a D op for Del.
@@ -1040,11 +990,12 @@ conn_or_failmsg_t ingest_demo (const db_target_t& target)
     alnPath.append (".bam");
 
     int alnId;
+    // sqlite failures are reachable with a disk target (e.g. disk full)
     if (const auto ret = apb_insert_aln (conn, alnPath, true); !ret) {
-      APB_UNREACHABLE (
-          "demo insertion malformed", sqlite3_errstr (ret.error()),
+      return std::unexpected (apb_describe_sqlite_failure (
+          "Failed to insert demo alignment file", ret.error(),
           sqlite3_errmsg (conn)
-      );
+      ));
     }
     else {
       alnId = *ret;
@@ -1052,10 +1003,9 @@ conn_or_failmsg_t ingest_demo (const db_target_t& target)
 
     if (const auto rc = apb_insert_records (conn, aln, alnId);
         rc != SQLITE_OK) {
-      APB_UNREACHABLE (
-          "demo insertion malformed", sqlite3_errstr (rc),
-          sqlite3_errmsg (conn)
-      );
+      return std::unexpected (apb_describe_sqlite_failure (
+          "Failed to insert demo alignment data", rc, sqlite3_errmsg (conn)
+      ));
     }
   }
 
@@ -1063,31 +1013,24 @@ conn_or_failmsg_t ingest_demo (const db_target_t& target)
       static_cast<size_t> (spanStart_0ho - winStart),
       static_cast<size_t> (spanEnd_0ho - spanStart_0ho)
   );
-  APB_ASSERT (
-      const auto rc = apb_insert_locus (
+  if (const auto rc = apb_insert_locus (
           conn, std::string{demoContig}, pos, spanStart_0ho, spanEnd_0ho,
           ref
       );
-      rc == SQLITE_OK, sqlite3_errstr (rc), sqlite3_errmsg (conn)
-  );
-  // catch demo generation bugs before committing
-  if (const auto ret = apb_validate_db (conn); !ret) {
-    APB_UNREACHABLE (
-        "sqlite3 failure validating demo database",
-        sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
+      rc != SQLITE_OK) {
+    return std::unexpected (apb_describe_sqlite_failure (
+        "Failed to insert demo locus metadata", rc, sqlite3_errmsg (conn)
+    ));
+  }
+  if (const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
+      rc != SQLITE_OK) {
+    return std::unexpected (
+        fmt::format (
+            "Failed to commit database transaction, reporting: {} - {}",
+            sqlite3_errstr (rc), sqlite3_errmsg (conn)
+        )
     );
   }
-  else if (ret->code != apb_validate_result_t::success) {
-    APB_UNREACHABLE (
-        "demo database failed validation", static_cast<int> (ret->code),
-        ret->problems.value_or ("")
-    );
-  }
-
-  APB_ASSERT (
-      const auto rc = sqlite3_exec (conn, "COMMIT;", NULL, NULL, NULL);
-      rc == SQLITE_OK, rc, sqlite3_errstr (rc), sqlite3_errmsg (conn)
-  );
 
   conn_cleanup.cancel();
   return conn;

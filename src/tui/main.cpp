@@ -67,28 +67,16 @@ options:
                           divergence from reference in reads.
                           Invalid with DB; apb databases
                           hold the reference slice internally.
-  -u, --use-disk          If used with LOCUS ALN... or --demo,
-                          do not keep the database in memory.
-                          Instead stream to a temporary file
-                          and open a connection to that file
-                          on disk. The file is created under
-                          TMPDIR if set, and deleted on exit.
-                          If used with DB, connect directly
-                          to the database at DB on disk
-                          rather than copying into memory.
-                          Useful if you are RAM-bound and are
-                          loading very large pileups.
-                          Invalid with --dump.
   -d, --dump PATH         Dump the database to PATH as an
                           sqlite database dump for use
                           outside of apb, and exit.
                           PATH must not already exist.
-                          Invalid with DB and --use-disk.
+                          Invalid with DB.
   --no-limit-mem          Remove the default limits of ~)txt" STR(GB_LIMIT) R"txt(Gb max
                           pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file.
-                          Limits apply with --use-disk and
-                          --dump also, since reads are held in
-                          memory while loading.
+                          Limits apply with --dump also, since
+                          reads are held in memory while
+                          loading.
                           Invalid with DB and --demo.
   -0, --zero-based        treat the LOCUS argument as 0-based
                           (e.g. from a BED file), instead of
@@ -99,7 +87,7 @@ options:
   --manual                Print the apb manual to stdout and exit.
   --demo                  View demo data.
                           Invalid with all other arguments
-                          except --use-disk, --dump and --log.
+                          except --dump and --log.
   --log PATH              Log debug info to PATH.
   -h, --help              show this help message and exit.
   -v, --version           print version information and exit.
@@ -107,6 +95,12 @@ options:
  **IMPORTANT**:
   apb displays all coordinate data in
   1-based closed coordinates.
+
+ Unless --dump is given, pileups (and demo data)
+ are loaded into a temporary database file,
+ created under SQLITE_TMPDIR, or else TMPDIR,
+ if set, and deleted on exit. Set SQLITE_TMPDIR
+ to control the temporary area used.
 
  On startup you will be focused at the in-app
  command prompt at the bottom of the TUI.
@@ -133,7 +127,6 @@ struct cli_args_t {
   };
   struct db_args_t {
     std::filesystem::path path;
-    bool useDisk = false;
   };
   struct demo_args_t {
     db_target_t newDb;  // file target means --dump
@@ -202,7 +195,7 @@ int main (int argc, char** argv)
             );
           },
           [] (const cli_args_t::db_args_t& a) {
-            return ingest_db_auto (a.path, a.useDisk);
+            return ingest_db_auto (a.path);
           },
           [] (const cli_args_t::demo_args_t& a) {
             return ingest_demo (a.newDb);
@@ -248,7 +241,6 @@ static std::expected<cli_args_t, std::string> parse_args (
   std::vector<std::string> posArgV;
   bool demo = false;
   bool zeroBased = false;
-  bool useDisk = false;
   bool limitMemUsage = true;
   std::optional<std::filesystem::path> refPath = std::nullopt;
   std::optional<std::filesystem::path> dumpPath = std::nullopt;
@@ -291,9 +283,6 @@ static std::expected<cli_args_t, std::string> parse_args (
       else if (arg == "--demo") {
         demo = true;
       }
-      else if (arg == "-u" || arg == "--use-disk") {
-        useDisk = true;
-      }
       else if (arg == "-d" || arg == "--dump") {
         OPT_VAL_OR_EXIT ("--dump", dumpPath);
       }
@@ -329,15 +318,9 @@ static std::expected<cli_args_t, std::string> parse_args (
   }
 
   /* validate args */
-  if (dumpPath && useDisk) {
-    EXIT_W_USAGE ("--dump is not valid with --use-disk");
-  }
   db_target_t newDb;
   if (dumpPath) {
     newDb = {.kind = db_target_t::file, .path = *dumpPath};
-  }
-  else if (useDisk) {
-    newDb.kind = db_target_t::tempFile;
   }
 
   if (demo) {
@@ -388,8 +371,7 @@ static std::expected<cli_args_t, std::string> parse_args (
           fmt::format ("Path {} resolves to a directory", dbUserPath)
       );
     }
-    argsOut.mode =
-        cli_args_t::db_args_t{.path = dbUserPath, .useDisk = useDisk};
+    argsOut.mode = cli_args_t::db_args_t{.path = dbUserPath};
   }
   else {
     if (posArgV.size() > 100) {

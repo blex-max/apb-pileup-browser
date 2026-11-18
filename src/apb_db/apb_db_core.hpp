@@ -88,7 +88,6 @@ struct apb_input_record1_t {
   std::string auxJson;
 
   std::vector<uint32_t> rawCig;
-  size_t nCig = SIZE_MAX;
 };
 
 // insert pileup into db for a single alignment file.

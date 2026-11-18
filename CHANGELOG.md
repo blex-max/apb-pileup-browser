@@ -4,7 +4,7 @@
 
 <placeholder notes>
 - DB is now positional: `apb my.db` replaces `apb --db my.db`.
-- New `-u, --use-disk`: stream the database to a temporary file on disk (deleted on exit) rather than holding it in memory. With DB, connect to DB on disk rather than copying it into memory.
+- apb now loads pileups into a temporary database file (under SQLITE_TMPDIR or TMPDIR, deleted on exit) rather than holding them in memory, and opens DB directly (read-only) rather than copying it into memory.
 - New `-d` short form for `--dump`. `--dump` now builds the database directly at PATH and exits.
 - `--dump` and the in-TUI `dump` command refuse to overwrite an existing file.
 - Options which have no effect in a given mode (e.g. `--dump` with DB) are now errors.

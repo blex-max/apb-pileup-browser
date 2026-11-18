@@ -141,7 +141,7 @@ static bool valid (const apb_input_record1_t& rec) noexcept
          rec.qPos_0ho >= 0 &&
          (!rec.seq || !rec.rawQual ||
           rec.seq->size() == rec.rawQual->size()) &&
-         rec.nCig == rec.rawCig.size() && !rec.rawCig.empty();
+         !rec.rawCig.empty();
 }
 
 static std::string to_string (const apb_input_record1_t& rec)
@@ -152,8 +152,6 @@ static std::string to_string (const apb_input_record1_t& rec)
   s += std::to_string (rec.end_0ho);
   s += ", qPos: ";
   s += std::to_string (rec.qPos_0ho);
-  s += ", nCig: ";
-  s += std::to_string (rec.nCig);
   s += ", rawCig.size: ";
   s += std::to_string (rec.rawCig.size());
   s += '}';
@@ -195,7 +193,6 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
       r1.flag = br_b1->core.flag;
       r1.mapQ = br_b1->core.qual;
       r1.rawCig = {br_cig, br_cig + nCig};
-      r1.nCig = br_b1->core.n_cigar;
 
       /* stringify mtid, if available */
       // '=' if same contig as this read, per SAM RNEXT convention;

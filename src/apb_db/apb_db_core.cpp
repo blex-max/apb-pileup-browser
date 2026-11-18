@@ -371,11 +371,11 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
 
     TRY_OK_INT (sqlite3_bind_blob (
         o_stmt, col++, rec1.rawCig.data(),
-        static_cast<int> (rec1.nCig << 2), SQLITE_TRANSIENT
+        static_cast<int> (rec1.rawCig.size() << 2), SQLITE_TRANSIENT
     ));
-    TRY_OK_INT (
-        sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.nCig))
-    );
+    TRY_OK_INT (sqlite3_bind_int (
+        o_stmt, col++, static_cast<int> (rec1.rawCig.size())
+    ));
     TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, alnId));
 
     if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_DONE) {
@@ -528,7 +528,6 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   full.baseQual = 38;  // qual[6]
   full.cig = "10M";
   full.rawCig = {k_cig10M};
-  full.nCig = 1;
   full.mtidName = "chr2";
   full.mStart_0ho = 499;
   full.auxJson = R"({"NM":1})";
@@ -546,7 +545,6 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   empty.isTail = true;
   empty.cig = "6M";
   empty.rawCig = {k_cig6M};
-  empty.nCig = 1;
 
   const std::vector<apb_input_record1_t> recs{full, empty};
   REQUIRE (apb_insert_records (conn, recs, *alnId) == SQLITE_OK);

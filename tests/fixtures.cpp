@@ -58,7 +58,6 @@ apb_input_record1_t make_record (const TestRecord& tr, int64_t pos_0ho)
   rec.seq = std::string (readLen, k_base);
   rec.rawQual = std::vector<uint8_t> (readLen, k_qual);
   rec.rawCig = {cigel};
-  rec.nCig = rec.rawCig.size();
   rec.cig = std::to_string (readLen) + bam_cigar_opchr (cigel);
   return rec;
 }
