@@ -1,9 +1,8 @@
 # CHANGELOG
 
-## UNRELEASED - PLACEHOLDER
+## Next Release
 
-**PLACEHOLDER: draft notes gathered during the ingest/CLI rework on `dev`. Not final; version number, wording and contents to be settled at release.**
-
+<placeholder notes>
 - DB is now positional: `apb my.db` replaces `apb --db my.db`.
 - New `-u, --use-disk`: stream the database to a temporary file on disk (deleted on exit) rather than holding it in memory. With DB, connect to DB on disk rather than copying it into memory.
 - New `-d` short form for `--dump`. `--dump` now builds the database directly at PATH and exits.
