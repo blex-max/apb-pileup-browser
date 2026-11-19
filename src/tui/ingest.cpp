@@ -155,7 +155,7 @@ static void discard_new_db (
   }
 }
 
-// open a new apb db at dbOutPath (see ingest.hpp), with schema created
+// open a new apb with schema created
 // inside an open transaction. Caller commits, or discard_new_db on
 // failure.
 static conn_or_failmsg_t open_new_db (
@@ -219,7 +219,7 @@ static conn_or_failmsg_t open_new_db (
   }
   return std::unexpected (
       fmt::format (
-          "Failed to create temporary database file (is TMPDIR "
+          "Failed to create temporary database file (is temp area"
           "writable?), reporting: {} - {}",
           sqlite3_errstr (rc), sqlite3_errmsg (conn)
       )
@@ -574,8 +574,8 @@ static std::string uri_encode_path (const std::filesystem::path& path)
   std::string out;
   for (const char ch : path.string()) {
     const auto c = static_cast<unsigned char> (ch);
-    if (std::isalnum (c) || c == '/' || c == '-' || c == '.' || c == '_' ||
-        c == '~') {
+    if ((std::isalnum (c) != 0) || c == '/' || c == '-' || c == '.' ||
+        c == '_' || c == '~') {
       out += static_cast<char> (c);
     }
     else {
