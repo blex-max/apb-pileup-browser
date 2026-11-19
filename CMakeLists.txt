@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.22)
 
 project(apb
-  LANGUAGES CXX
+  LANGUAGES C CXX
   VERSION 0.5.1
 )
 
@@ -125,6 +125,12 @@ target_link_libraries(apb
   ${HTSLIB_TARGET}
   PkgConfig::DEPS
 )
+
+# sqlite3 loadable extension; lib name must match its sqlite3_<name>_init
+add_library(apbext SHARED src/apb_sqlite_ext/apb_ext.c)
+set_target_properties(apbext PROPERTIES C_STANDARD 17 C_STANDARD_REQUIRED ON)
+# headers only: API arrives via the init pointer, so don't link sqlite3
+target_include_directories(apbext PRIVATE ${DEPS_INCLUDE_DIRS})
 
 # Tests are co-located with the code they test and compiled out of apb.
 # Any source containing tests must be listed here.
