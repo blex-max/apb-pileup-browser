@@ -86,6 +86,8 @@ PileupMetadata get_locus_data (sqlite3* conn)
 
 namespace tui_state::db {
 
+// FIXME: it would be more convenient for testing etc.
+// to take a context object of ptrs to all relevant globals
 int set_query (const QueryFragments& query)
 {
   std::string userQuerySuffix;
@@ -284,44 +286,6 @@ namespace {
 
 namespace g_db = tui_state::db;
 
-// DbFixture manages the the globals relevant to set query for
-// the duration of a test (by scoping). On creation, the globals
-// are appropriately populated and on destruction the destructor
-// cleans the up for the next test.
-// struct DbFixture {
-//   explicit DbFixture (const std::vector<test::ExtraFile>& extraFiles = {})
-//   {
-//     g_db::conn = test::new_db();
-//     test::seed_conn_with_reads (g_db::conn, extraFiles);
-//     g_db::locusInfo = get_locus_data (g_db::conn);
-//   }
-//   ~DbFixture()
-//   {
-//     sqlite3_finalize (g_db::displayStmt);
-//     g_db::displayStmt = nullptr;
-//     sqlite3_close_v2 (g_db::conn);
-//     g_db::conn = nullptr;
-//     g_db::userQuery = {};
-//     g_db::queryEmptyFiles.clear();
-//     g_db::nStmtRows = 0;
-//   }
-//   DbFixture (const DbFixture&) = delete;
-//   DbFixture& operator= (const DbFixture&) = delete;
-// };
-
-// struct query_test_state_t {
-//   query_test_state_t()
-//   {
-//     // set up globals for testing
-//     sqlite3* conn = nullptr;
-//     REQUIRE (sqlite3_open (":memory:", &conn) == SQLITE_OK);
-//     REQUIRE (apb_create_schema (conn) == SQLITE_OK);
-//   }
-//   ~query_test_state_t() {}
-// };
-
-// void exec (const char* sql) { test::exec_ok (g_db::conn, sql); }
-
 // qnames of the page the render loop would fetch
 std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
 {
@@ -353,6 +317,7 @@ std::string row_path (sqlite3_stmt* stmt)
 // FIXME: complete implemententation here!
 TEST_CASE ("set_query behaviour")
 {
+  Defer backstop_cleanup ([]() { sqlite3_close_v2 (g_db::conn); });
   SUBCASE ("Behaviour expectatations in normal use")
   {
     // wipe any existing data, set up fresh db for test
@@ -362,7 +327,9 @@ TEST_CASE ("set_query behaviour")
     sqlite3_close_v2 (g_db::conn);
     g_db::conn = nullptr;
     REQUIRE (sqlite3_open (":memory:", &g_db::conn) == SQLITE_OK);
+    Defer db_cleanup ([]() { sqlite3_close_v2 (g_db::conn); });
     REQUIRE (apb_create_schema (g_db::conn) == SQLITE_OK);
+    //FIXME get locus data
 #define DEF_TEST_REC(test_qname, test_mapq) \
   test::TestRecord{                         \
       .qname = (test_qname),                \
@@ -375,9 +342,9 @@ TEST_CASE ("set_query behaviour")
         test::TestAln{
             "test1.bam",
             std::vector<test::TestRecord>{
-                DEF_TEST_REC ("read1_f1", 50),
+                DEF_TEST_REC ("read1_f1", 51),
                 DEF_TEST_REC ("read2_f1", 50),
-                DEF_TEST_REC ("read3_f1", 50),
+                DEF_TEST_REC ("read3_f1", 49),
             },
             true
         },
@@ -386,7 +353,7 @@ TEST_CASE ("set_query behaviour")
             std::vector<test::TestRecord>{
                 DEF_TEST_REC ("read1_f2", 30),
                 DEF_TEST_REC ("read2_f2", 70),
-                DEF_TEST_REC ("read3_f3", 80),
+                DEF_TEST_REC ("read3_f2", 80),
             },
             true
         },
@@ -396,70 +363,61 @@ TEST_CASE ("set_query behaviour")
     test::seed_conn_with_reads (
         g_db::conn, testAlns, "test-chr", 150, true
     );
-    REQUIRE (g_db::set_query ({}) == SQLITE_OK);
-    REQUIRE (g_db::nQueryRows == 6);
 
-    // leave the old stmt mid-iteration, as render does when the page fills
-    sqlite3_reset (g_db::displayStmt);
-    sqlite3_bind_int64 (g_db::displayStmt, 1, 0);
-    sqlite3_bind_int64 (g_db::displayStmt, 2, 10);
-    REQUIRE (sqlite3_step (g_db::displayStmt) == SQLITE_ROW);
+    SUBCASE ("Basic where works as expected during paging")
+    {
+      REQUIRE (g_db::set_query ({}) == SQLITE_OK);
+      REQUIRE (g_db::nQueryRows == 6);
 
-    REQUIRE (
-        g_db::set_query (
-            {.where = {"qname = 'read2_f1'"}, .orderBy = {}}
-        ) == SQLITE_OK
-    );
-    CHECK (g_db::nQueryRows == 1);
-    CHECK (
-        fetch_page_qnames (0, 10) == std::vector<std::string>{"read2_f1"}
-    );
+      // leave the old stmt mid-iteration, as render does when the page fills
+      sqlite3_reset (g_db::displayStmt);
+      sqlite3_bind_int64 (g_db::displayStmt, 1, 0);
+      sqlite3_bind_int64 (g_db::displayStmt, 2, 10);
+      REQUIRE (sqlite3_step (g_db::displayStmt) == SQLITE_ROW);
+
+      REQUIRE (
+          g_db::set_query (
+              {.where = {"qname = 'read2_f1'"}, .orderBy = {}}
+          ) == SQLITE_OK
+      );
+      CHECK (g_db::nQueryRows == 1);
+      CHECK (
+          fetch_page_qnames (0, 10) == std::vector<std::string>{"read2_f1"}
+      );
+    }
+    SUBCASE ("ordering uses path as primary sort key")
+    {
+      REQUIRE (
+          g_db::set_query ({.where = {}, .orderBy = {"mapq DESC"}}) ==
+          SQLITE_OK
+      );
+      CHECK (g_db::nQueryRows == 6);
+      CHECK (
+          fetch_page_qnames (0, 10) == std::vector<std::string>{
+                                           "read1_f1",
+                                           "read2_f1",
+                                           "read3_f1",
+                                           "read3_f2",
+                                           "read2_f2",
+                                           "read1_f2",
+                                       }
+      );
+    }
+    SUBCASE ("failure leaves active query untouched")
+    {
+      const auto* const stmtBefore = g_db::displayStmt;
+      const auto pageBefore = fetch_page_qnames (0, 10);
+      const auto nRowsBefore = g_db::nQueryRows;
+
+      REQUIRE (
+          g_db::set_query ({.where = {"nonsense &Daflkj ="}}) != SQLITE_OK
+      );
+
+      CHECK (g_db::displayStmt == stmtBefore);
+      CHECK (g_db::nQueryRows == nRowsBefore);
+      CHECK (fetch_page_qnames (0, 10) == pageBefore);
+    }
   }
-
-  // FIXME: incoroporate into above test case
-  // SUBCASE ("Path is the primary sort key")
-  // {
-  //   DbFixture fx ({{"b.bam", true}});
-  //   copy_reads_to_file (2);
-
-  //   REQUIRE (g_db::set_query ({.orderBy = "mapq DESC"}) == SQLITE_OK);
-
-  //   sqlite3_stmt* stmt = g_db::displayStmt;
-  //   sqlite3_reset (stmt);
-  //   sqlite3_bind_int64 (stmt, 1, 0);
-  //   sqlite3_bind_int64 (stmt, 2, 10);
-  //   std::vector<std::string> paths;
-  //   while (sqlite3_step (stmt) == SQLITE_ROW) {
-  //     paths.push_back (row_path (stmt));
-  //   }
-  //   sqlite3_reset (stmt);
-  //   // grouped by file, not interleaved by mapq
-  //   CHECK (
-  //       paths ==
-  //       std::vector<std::string>{
-  //           "b.bam", "b.bam", "b.bam", "test.bam", "test.bam", "test.bam"
-  //       }
-  //   );
-  // }
-
-
-  // SUBCASE ("failure leaves the active query untouched")
-  // {
-  //   DbFixture fx;
-  //   REQUIRE (
-  //       g_db::set_query ({.where = {"flag = 99"}, .orderBy = ""}) ==
-  //       SQLITE_OK
-  //   );
-  //   const auto* const stmtBefore = g_db::displayStmt;
-  //   const auto pageBefore = fetch_page (0, 10);
-
-  //   CHECK (g_db::set_query ({.where = {"nonsense ="}}) != SQLITE_OK);
-
-  //   CHECK (g_db::displayStmt == stmtBefore);
-  //   CHECK (g_db::nQueryRows == 2);
-  //   CHECK (g_db::userQuery.where == "flag = 99");
-  //   CHECK (fetch_page (0, 10) == pageBefore);
-  // }
 
   // SUBCASE ("files without reads are correctly classified")
   // {

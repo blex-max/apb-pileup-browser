@@ -139,6 +139,8 @@ static std::expected<cli_args_t, std::string> parse_args (
 
 int main (int argc, char** argv)
 {
+  // FIXME: it would be nice to have an arena allocator
+  // for the ingestion/transformation
   /* setup */
   auto argRet = parse_args (argc, argv);
   if (!argRet) {
@@ -172,7 +174,7 @@ int main (int argc, char** argv)
       constexpr size_t kDepthLimit = DEPTH_LIMIT;
       constexpr size_t kBytesLimit =
           static_cast<size_t> (GB_LIMIT) * 1'000'000'000;
-      return ingest_sam_auto (
+      return ingest_sam (
           args.dumpPath, args.locus, args.zeroBased, args.alnPaths,
           args.refPath,
           args.limitMemUsage ? std::make_optional (kBytesLimit)
@@ -182,7 +184,7 @@ int main (int argc, char** argv)
       );
     }
     case cli_args_t::mode_t::db:
-      return ingest_db_auto (args.dbPath);
+      return ingest_db (args.dbPath);
     case cli_args_t::mode_t::demo:
       return ingest_demo (args.dumpPath);
     }

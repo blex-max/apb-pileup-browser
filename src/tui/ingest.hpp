@@ -18,7 +18,7 @@ using conn_or_failmsg_t = std::expected<sqlite3*, std::string>;
 // returns expected conn/str since any failure
 // is a top-level crash which can be fully described
 // and exited upon.
-[[nodiscard]] conn_or_failmsg_t ingest_sam_auto (
+[[nodiscard]] conn_or_failmsg_t ingest_sam (
     const std::optional<std::filesystem::path>& dbOutPath,
     const std::string& locus, bool zeroBasedLocus,
     const std::vector<std::filesystem::path>& alnPaths,
@@ -28,7 +28,7 @@ using conn_or_failmsg_t = std::expected<sqlite3*, std::string>;
 );
 
 // opens the db at dbInputPath directly, read-only
-[[nodiscard]] conn_or_failmsg_t ingest_db_auto (
+[[nodiscard]] conn_or_failmsg_t ingest_db (
     const std::filesystem::path& dbInputPath
 );
 

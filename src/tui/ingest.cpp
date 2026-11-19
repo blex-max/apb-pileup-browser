@@ -226,7 +226,7 @@ static conn_or_failmsg_t open_new_db (
   );
 }
 
-conn_or_failmsg_t ingest_sam_auto (
+conn_or_failmsg_t ingest_sam (
     const std::optional<std::filesystem::path>& dbOutPath,
     const std::string& locus, bool zeroBasedLocus,
     const std::vector<std::filesystem::path>& alnPaths,
@@ -235,7 +235,6 @@ conn_or_failmsg_t ingest_sam_auto (
     std::optional<size_t> loadLimitDepth
 )
 {
-  // cheap validation before the db (possibly a file) is created
   locus_t parsedLocus;
   if (const auto ret = parse_locus (locus, zeroBasedLocus); !ret) {
     return std::unexpected (ret.error());
@@ -282,7 +281,7 @@ conn_or_failmsg_t ingest_sam_auto (
   uint64_t estLocusBytes = 0;
   int64_t spanStart_0ho = INT64_MAX;
   int64_t spanEnd_0ho = 0;
-  std::vector<apb_input_record1_t> inputRecBuf;
+  std::array<apb_input_record1_t, 5000> inputRecBuf;
   for (const auto& fp : alnPaths) {
     aln_file_t aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
@@ -462,43 +461,44 @@ conn_or_failmsg_t ingest_sam_auto (
     }
     readsFoundAtLocus = true;
 
-    if (inputRecBuf.size() < pileup.nPlp) {
-      // grow buffer
-      inputRecBuf.resize (pileup.nPlp);
-    }
-    size_t iter_nrec = 0;
-    /* transform and insert */
-    if (const auto ret = apb_transform_pileup1 (
-            {pileup.br_plpArr, pileup.nPlp}, inputRecBuf,
-            [&aln] (int mtid) {
-              return sam_hdr_tid2name (aln.o_hdr, mtid);
-            }
-        );
-        !ret) {
-      const auto& err = ret.error();
-      switch (err.code) {
-      case transform_p1_err_t::aux_parse_fail:
-        return std::unexpected (
-            fmt::format (
-                "Unspecified failure in htslib when attempting to parse "
-                "aux tag in read {}. Is tag data corrupt?",
-                bam_get_qname (err.b)
-            )
-        );
+
+    const auto* pEnd = pileup.br_plpArr + pileup.nPlp;
+    size_t p1Consumed = 0;
+    size_t nBufValid = 0;
+    // consume records in chunks
+    while (p1Consumed < pileup.nPlp) {
+      if (const auto ret = apb_transform_pileup1 (
+              {pileup.br_plpArr + p1Consumed, pEnd}, inputRecBuf,
+              [&aln] (int mtid) {
+                return sam_hdr_tid2name (aln.o_hdr, mtid);
+              }
+          );
+          !ret) {
+        const auto& err = ret.error();
+        switch (err.code) {
+        case transform_p1_err_t::aux_parse_fail:
+          return std::unexpected (
+              fmt::format (
+                  "Unspecified failure in htslib when attempting to parse "
+                  "aux tag in read {}. Is tag data corrupt?",
+                  bam_get_qname (err.b)
+              )
+          );
+        }
       }
-    }
-    else {
-      iter_nrec = *ret;
-    }
-    APB_ASSERT (iter_nrec == pileup.nPlp, iter_nrec, pileup.nPlp);
-    if (const auto rc = apb_insert_records (
-            conn, {inputRecBuf.data(), iter_nrec}, alnID
-        );
-        rc != SQLITE_OK) {
-      return std::unexpected (apb_describe_sqlite_failure (
-          "Failed to transform/insert alignment data", rc,
-          sqlite3_errmsg (conn)
-      ));
+      else {
+        p1Consumed += *ret;
+        nBufValid = *ret;
+      }
+      if (const auto rc = apb_insert_records (
+              conn, {begin (inputRecBuf), begin (inputRecBuf) + nBufValid},
+              alnID
+          );
+          rc != SQLITE_OK) {
+        return std::unexpected (apb_describe_sqlite_failure (
+            "Failed to insert alignment data", rc, sqlite3_errmsg (conn)
+        ));
+      }
     }
   }
 
@@ -587,7 +587,7 @@ static std::string uri_encode_path (const std::filesystem::path& path)
   return out;
 }
 
-conn_or_failmsg_t ingest_db_auto (const std::filesystem::path& dbInputPath)
+conn_or_failmsg_t ingest_db (const std::filesystem::path& dbInputPath)
 {
   sqlite3* conn = nullptr;
   Defer conn_cleanup ([&]() { sqlite3_close_v2 (conn); });
@@ -829,9 +829,9 @@ conn_or_failmsg_t ingest_demo (
 
     const auto pushOp = [&rec] (size_t len, int op) {
       const auto cigel = static_cast<uint32_t> (bam_cigar_gen (len, op));
-      rec.rawCig.push_back (cigel);
-      rec.cig += std::to_string (len);
-      rec.cig += bam_cigar_opchr (cigel);
+      rec.cigOps.push_back (cigel);
+      rec.cigStr += std::to_string (len);
+      rec.cigStr += bam_cigar_opchr (cigel);
     };
     const auto allele = static_cast<Allele> (allelePicker (rng));
     const auto feature =
@@ -871,7 +871,7 @@ conn_or_failmsg_t ingest_demo (
     std::string seq;
     int64_t nm = 0;  // edit distance, for the NM tag
     auto refPos = rec.start_0ho;
-    for (const auto cig : rec.rawCig) {
+    for (const auto cig : rec.cigOps) {
       const size_t len = bam_cigar_oplen (cig);
       switch (bam_cigar_op (cig)) {
       case BAM_CMATCH:

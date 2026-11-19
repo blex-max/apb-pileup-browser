@@ -5,6 +5,7 @@
 <placeholder notes>
 - DB is now positional: `apb my.db` replaces `apb --db my.db`.
 - apb now loads pileups into a temporary database file (under SQLITE_TMPDIR or TMPDIR, deleted on exit) rather than holding them in memory, and opens DB directly (read-only) rather than copying it into memory.
+- Runtime memory usage is now minimal for most use cases and bounded to approximately the usage of the htslib pileup engine for large pileups - apb streams transformed records to the database without holding them in memory.
 - New `-d` short form for `--dump`. `--dump` now builds the database directly at PATH and exits.
 - `--dump` and the in-TUI `dump` command refuse to overwrite an existing file.
 - Options which have no effect in a given mode (e.g. `--dump` with DB) are now errors.

@@ -1,8 +1,11 @@
 #include "apb_db_transform_hts.hpp"
 
+#include <htslib/sam.h>
+
 #include <optional>
 #include <string>
 
+#include "apb_db/apb_db_core.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 
@@ -10,7 +13,7 @@
 /* tag conversion helper */
 // converts the first aux tag in `aux` to a json entry.
 // `aux` starts at a tag's 2-ch key and may run on past it.
-// returns the bytes after the converted tag, or an emptry span
+// returns the bytes after the converted tag, or an empty span
 // if there are no more tags. On failure to parse, returns nullopt.
 [[nodiscard]] static std::optional<std::span<const uint8_t>> aux1_to_json (
     std::span<const uint8_t> aux, std::string* out
@@ -141,7 +144,7 @@ static bool valid (const apb_input_record1_t& rec) noexcept
          rec.qPos_0ho >= 0 &&
          (!rec.seq || !rec.rawQual ||
           rec.seq->size() == rec.rawQual->size()) &&
-         !rec.rawCig.empty();
+         !rec.cigOps.empty();
 }
 
 static std::string to_string (const apb_input_record1_t& rec)
@@ -152,11 +155,12 @@ static std::string to_string (const apb_input_record1_t& rec)
   s += std::to_string (rec.end_0ho);
   s += ", qPos: ";
   s += std::to_string (rec.qPos_0ho);
-  s += ", rawCig.size: ";
-  s += std::to_string (rec.rawCig.size());
+  s += ", cigOps.size: ";
+  s += std::to_string (rec.cigOps.size());
   s += '}';
   return s;
 }
+
 // Convert a bam_pileup1_t
 // into the pileup database
 // interface type.
@@ -170,6 +174,7 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
   for (; i < plpIn.size() && i < recordsOut.size(); i++) {
     const auto& p1 = plpIn[i];
     auto& r1 = recordsOut[i];
+    r1 = {};  // several fields below are set only conditionally
 
     {
       const auto* br_b1 = p1.b;
@@ -192,7 +197,7 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
       r1.qName = bam_get_qname (br_b1);
       r1.flag = br_b1->core.flag;
       r1.mapQ = br_b1->core.qual;
-      r1.rawCig = {br_cig, br_cig + nCig};
+      r1.cigOps = {br_cig, br_cig + nCig};
 
       /* stringify mtid, if available */
       // '=' if same contig as this read, per SAM RNEXT convention;
@@ -241,11 +246,10 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
 
       {
         /* stringify cigar */
-        r1.cig.clear();  // only appended to, so must clear
         for (size_t opi = 0; opi < nCig; opi++) {
           const auto cigel = br_cig[opi];
-          r1.cig += std::to_string (bam_cigar_oplen (cigel));
-          r1.cig += bam_cigar_opchr (cigel);
+          r1.cigStr += std::to_string (bam_cigar_oplen (cigel));
+          r1.cigStr += bam_cigar_opchr (cigel);
         }
 
         r1.end_0ho = r1.start_0ho +
@@ -255,7 +259,6 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
       {
         /* aux to json; left empty if no aux tags present */
         auto& auxJson = r1.auxJson;
-        auxJson.clear();
         // aux tags run from bam_get_aux to the end of the record
         std::span<const uint8_t> auxRest{
             bam_get_aux (br_b1), br_b1->data + br_b1->l_data
@@ -461,5 +464,21 @@ TEST_CASE ("aux1_to_json")
 // - head / tail / onebase (1M): is_head, is_tail
 // - no aux tags: tags NULL
 // Seq/qual were distinct per index, so base/basequal checked qpos.
+// FIXME: but you know what do bam1_t ingest pathway first and
+// collecting reads around locus as it may change this pathway anyway
+
+TEST_CASE ("apb_transform_pileup1")
+{
+  // const auto p1arr = std::to_array<bam_pileup1_t> ({{
+  //     .b = bam_init1(),
+  //     .qpos = 0,
+  //     .indel = 0,
+  //     .is_del = false,
+  //     .is_head = false,
+  //     .is_tail = false,
+  //     .is_refskip = false,
+  //     // Other fields unused.
+  // }});
+}
 
 #endif

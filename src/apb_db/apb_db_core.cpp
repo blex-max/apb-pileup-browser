@@ -316,8 +316,8 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
         sqlite3_bind_int (o_stmt, col++, static_cast<int> (rec1.isRefSkip))
     );
     TRY_OK_INT (sqlite3_bind_text (
-        o_stmt, col++, rec1.cig.data(), static_cast<int> (rec1.cig.size()),
-        SQLITE_TRANSIENT
+        o_stmt, col++, rec1.cigStr.data(),
+        static_cast<int> (rec1.cigStr.size()), SQLITE_TRANSIENT
     ));
 
     if (rec1.seq) {
@@ -370,11 +370,11 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
     }
 
     TRY_OK_INT (sqlite3_bind_blob (
-        o_stmt, col++, rec1.rawCig.data(),
-        static_cast<int> (rec1.rawCig.size() << 2), SQLITE_TRANSIENT
+        o_stmt, col++, rec1.cigOps.data(),
+        static_cast<int> (rec1.cigOps.size() << 2), SQLITE_TRANSIENT
     ));
     TRY_OK_INT (sqlite3_bind_int (
-        o_stmt, col++, static_cast<int> (rec1.rawCig.size())
+        o_stmt, col++, static_cast<int> (rec1.cigOps.size())
     ));
     TRY_OK_INT (sqlite3_bind_int64 (o_stmt, col++, alnId));
 
@@ -526,8 +526,8 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
       std::vector<uint8_t>{32, 33, 34, 35, 36, 37, 38, 39, 40, 41};
   full.base = 'C';  // seq[6]
   full.baseQual = 38;  // qual[6]
-  full.cig = "10M";
-  full.rawCig = {k_cig10M};
+  full.cigStr = "10M";
+  full.cigOps = {k_cig10M};
   full.mtidName = "chr2";
   full.mStart_0ho = 499;
   full.auxJson = R"({"NM":1})";
@@ -543,8 +543,8 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   empty.indel = 0;
   empty.isDel = true;
   empty.isTail = true;
-  empty.cig = "6M";
-  empty.rawCig = {k_cig6M};
+  empty.cigStr = "6M";
+  empty.cigOps = {k_cig6M};
 
   const std::vector<apb_input_record1_t> recs{full, empty};
   REQUIRE (apb_insert_records (conn, recs, *alnId) == SQLITE_OK);

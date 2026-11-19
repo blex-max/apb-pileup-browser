@@ -29,10 +29,8 @@ struct transform_p1_err_t {
 // to the offending bam1_t and the reason for failure
 // (currently, the only expected failure mode is in
 // aux parsing).
-// NOTE: overwrites elements in apb_input_record1_t
-// output elements unconditionally. Does not clear.
-// FIXME: must test overwrite path is complete -
-// no old data left behind.
+// NOTE: each written output element is reset to
+// default before being filled.
 [[nodiscard]] std::expected<size_t, transform_p1_err_t>
 apb_transform_pileup1 (
     std::span<const bam_pileup1_t> plpIn,

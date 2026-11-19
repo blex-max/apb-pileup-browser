@@ -16,9 +16,6 @@ namespace test {
 // A new empty in-memory apb db. Caller closes.
 sqlite3* new_db();
 
-// REQUIREs sql runs OK on conn
-void exec_ok (sqlite3* conn, const char* sql);
-
 // A simplified custom input record definition for testing purposes
 struct TestRecord {
   const char* qname;
@@ -36,10 +33,5 @@ void seed_conn_with_reads (
     sqlite3* conn, std::span<const TestAln> alns,
     const std::string& contig, int64_t pos_0ho, bool withRef
 );
-
-std::filesystem::path temp_db_path (std::string_view name);
-
-// Every column of every row of `sql`'s result, as one string.
-std::string digest (sqlite3* conn, const char* sql);
 
 }  // namespace test

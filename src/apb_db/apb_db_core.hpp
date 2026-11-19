@@ -78,7 +78,7 @@ struct apb_input_record1_t {
   int indel = INT_MAX;
   bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
 
-  std::string cig;
+  std::string cigStr;
   std::optional<std::string> seq = std::nullopt;
   std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
 
@@ -87,7 +87,7 @@ struct apb_input_record1_t {
 
   std::string auxJson;
 
-  std::vector<uint32_t> rawCig;
+  std::vector<uint32_t> cigOps;
 };
 
 // insert pileup into db for a single alignment file.

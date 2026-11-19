@@ -4,7 +4,6 @@
 #include <htslib/sam.h>
 
 #include <cstdint>
-#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -12,7 +11,6 @@
 
 #include "apb_db/apb_db_core.hpp"
 #include "doctest.h"
-#include "utility/cleanup.hpp"
 
 namespace test {
 
@@ -22,13 +20,6 @@ sqlite3* new_db()
   REQUIRE (sqlite3_open (":memory:", &conn) == SQLITE_OK);
   REQUIRE (apb_create_schema (conn) == SQLITE_OK);
   return conn;
-}
-
-void exec_ok (sqlite3* conn, const char* sql)
-{
-  REQUIRE (
-      sqlite3_exec (conn, sql, nullptr, nullptr, nullptr) == SQLITE_OK
-  );
 }
 
 namespace {
@@ -57,8 +48,8 @@ apb_input_record1_t make_record (const TestRecord& tr, int64_t pos_0ho)
   rec.baseQual = k_qual;
   rec.seq = std::string (readLen, k_base);
   rec.rawQual = std::vector<uint8_t> (readLen, k_qual);
-  rec.rawCig = {cigel};
-  rec.cig = std::to_string (readLen) + bam_cigar_opchr (cigel);
+  rec.cigOps = {cigel};
+  rec.cigStr = std::to_string (readLen) + bam_cigar_opchr (cigel);
   return rec;
 }
 
@@ -100,42 +91,6 @@ void seed_conn_with_reads (
           withRef ? std::optional<std::string_view>{ref} : std::nullopt
       ) == SQLITE_OK
   );
-}
-
-std::filesystem::path temp_db_path (std::string_view name)
-{
-  return std::filesystem::temp_directory_path() / name;
-}
-
-// Every column of every row of `sql`'s result, as one string.
-std::string digest (sqlite3* conn, const char* sql)
-{
-  sqlite3_stmt* o_stmt = nullptr;
-  REQUIRE (sqlite3_prepare_v2 (conn, sql, -1, &o_stmt, NULL) == SQLITE_OK);
-  Defer stmtCleanup ([&]() { sqlite3_finalize (o_stmt); });
-  std::string out;
-  while (sqlite3_step (o_stmt) == SQLITE_ROW) {
-    for (int i = 0; i < sqlite3_column_count (o_stmt); ++i) {
-      if (sqlite3_column_type (o_stmt, i) == SQLITE_NULL) {
-        out += "NULL";
-      }
-      else if (sqlite3_column_type (o_stmt, i) == SQLITE_BLOB) {
-        const auto* br_blob =
-            static_cast<const uint8_t*> (sqlite3_column_blob (o_stmt, i));
-        for (int j = 0; j < sqlite3_column_bytes (o_stmt, i); ++j) {
-          out += fmt::format ("{:02x}", br_blob[j]);
-        }
-      }
-      else {
-        out += reinterpret_cast<const char*> (
-            sqlite3_column_text (o_stmt, i)
-        );
-      }
-      out += '|';
-    }
-    out += '\n';
-  }
-  return out;
 }
 
 }  // namespace test
