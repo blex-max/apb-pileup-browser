@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <expected>
@@ -19,7 +20,7 @@
 #include <string_view>
 #include <system_error>
 #include <unordered_set>
-#include <variant>
+#include <utility>
 #include <vector>
 
 #include "ingest.hpp"
@@ -96,54 +97,39 @@ options:
   apb displays all coordinate data in
   1-based closed coordinates.
 
- Unless --dump is given, pileups (and demo data)
- are loaded into a temporary database file,
- created under SQLITE_TMPDIR, or else TMPDIR,
- if set, and deleted on exit. Set SQLITE_TMPDIR
- to control the temporary area used.
+ Databases from SAM data and demo mode are created as a
+ temporary database file and deleted on exit.
+ Set $SQLITE_TMPDIR to control the temporary area used.
 
- On startup you will be focused at the in-app
- command prompt at the bottom of the TUI.
- Try typing "help" and submitting with Enter,
- or focus the read viewer with Esc and navigate
- with the arrow keys.
+ On startup you will be focused at the in-app command
+ prompt at the bottom of the TUI. Try typing "help"
+ and submitting with Enter, or focus the read viewer
+ with Esc and navigate with the arrow keys.
  Press Ctrl-C to quit.
-
- See README.md for project background and development
- information.
 )txt"
 "\napb version " APB_VERSION "\n";
 // clang-format on
 
+// fields are only meaningful in the modes noted;
+// parse_args rejects any set outside them
 struct cli_args_t {
-  // per-mode args
-  struct locus_args_t {
-    std::string locus;
-    std::vector<std::filesystem::path> alnPaths;
-    std::optional<std::filesystem::path> refPath = std::nullopt;
-    bool zeroBased = false;
-    bool limitMemUsage = true;
-    db_target_t newDb;  // file target means --dump
-  };
-  struct db_args_t {
-    std::filesystem::path path;
-  };
-  struct demo_args_t {
-    db_target_t newDb;  // file target means --dump
-  };
+  enum class mode_t : uint8_t { locus, db, demo };
+  mode_t mode = mode_t::locus;
 
-  std::variant<locus_args_t, db_args_t, demo_args_t> mode;
+  // locus
+  std::string locus;
+  std::vector<std::filesystem::path> alnPaths;
+  std::optional<std::filesystem::path> refPath = std::nullopt;
+  bool zeroBased = false;
+  bool limitMemUsage = true;
+  // db
+  std::filesystem::path dbPath;
+  // locus, demo
+  std::optional<std::filesystem::path> dumpPath = std::nullopt;
 
   std::optional<std::filesystem::path> logPath = std::nullopt;
   // for debugging (see parse_args)
   bool autoflush = false;
-};
-
-// I forgot how much I hate std::variant.
-// FIXME: a better name than Overloaded, in snake_case
-template <class... Ts>
-struct Overloaded : Ts... {
-  using Ts::operator()...;
 };
 
 static std::expected<cli_args_t, std::string> parse_args (
@@ -177,46 +163,38 @@ int main (int argc, char** argv)
   sqlite3* conn = nullptr;
   Defer db_shutdown ([&conn]() { sqlite3_close_v2 (conn); });
 
-  const auto ingestRet = std::visit (
-      Overloaded{
-          [] (const cli_args_t::locus_args_t& a) {
-            APB_ASSERT (!a.locus.empty());
-            APB_ASSERT (!a.alnPaths.empty());
-            /* bounds */
-            constexpr size_t kDepthLimit = DEPTH_LIMIT;
-            constexpr size_t kBytesLimit =
-                static_cast<size_t> (GB_LIMIT) * 1'000'000'000;
-            return ingest_sam_auto (
-                a.newDb, a.locus, a.zeroBased, a.alnPaths, a.refPath,
-                a.limitMemUsage ? std::make_optional (kBytesLimit)
-                                : std::nullopt,
-                a.limitMemUsage ? std::make_optional (kDepthLimit)
-                                : std::nullopt
-            );
-          },
-          [] (const cli_args_t::db_args_t& a) {
-            return ingest_db_auto (a.path);
-          },
-          [] (const cli_args_t::demo_args_t& a) {
-            return ingest_demo (a.newDb);
-          },
-      },
-      args.mode
-  );
+  const auto ingestRet = [&args]() -> conn_or_failmsg_t {
+    switch (args.mode) {
+    case cli_args_t::mode_t::locus: {
+      APB_ASSERT (!args.locus.empty());
+      APB_ASSERT (!args.alnPaths.empty());
+      /* bounds */
+      constexpr size_t kDepthLimit = DEPTH_LIMIT;
+      constexpr size_t kBytesLimit =
+          static_cast<size_t> (GB_LIMIT) * 1'000'000'000;
+      return ingest_sam_auto (
+          args.dumpPath, args.locus, args.zeroBased, args.alnPaths,
+          args.refPath,
+          args.limitMemUsage ? std::make_optional (kBytesLimit)
+                             : std::nullopt,
+          args.limitMemUsage ? std::make_optional (kDepthLimit)
+                             : std::nullopt
+      );
+    }
+    case cli_args_t::mode_t::db:
+      return ingest_db_auto (args.dbPath);
+    case cli_args_t::mode_t::demo:
+      return ingest_demo (args.dumpPath);
+    }
+    APB_UNREACHABLE ("unhandled cli mode", static_cast<int> (args.mode));
+  }();
   if (!ingestRet) {
     std::cerr << "Error: " << ingestRet.error() << std::endl;
     return EXIT_FAILURE;
   }
   conn = *ingestRet;
 
-  const bool dumped = std::visit (
-      Overloaded{
-          [] (const cli_args_t::db_args_t&) { return false; },
-          [] (const auto& a) { return a.newDb.kind == db_target_t::file; },
-      },
-      args.mode
-  );
-  if (dumped) {
+  if (args.dumpPath) {
     // db was built at the dump path; don't launch TUI.
     return EXIT_SUCCESS;
   }
@@ -240,10 +218,6 @@ static std::expected<cli_args_t, std::string> parse_args (
   // collected before mode is known
   std::vector<std::string> posArgV;
   bool demo = false;
-  bool zeroBased = false;
-  bool limitMemUsage = true;
-  std::optional<std::filesystem::path> refPath = std::nullopt;
-  std::optional<std::filesystem::path> dumpPath = std::nullopt;
 
 #define EXIT_W_USAGE(_msg) \
   return std::unexpected (fmt::format ("{}\n{}\n", (_msg), cliHelp))
@@ -278,13 +252,13 @@ static std::expected<cli_args_t, std::string> parse_args (
         std::exit (EXIT_SUCCESS);
       }
       else if (arg == "-0" || arg == "--zero-based") {
-        zeroBased = true;
+        argsOut.zeroBased = true;
       }
       else if (arg == "--demo") {
         demo = true;
       }
       else if (arg == "-d" || arg == "--dump") {
-        OPT_VAL_OR_EXIT ("--dump", dumpPath);
+        OPT_VAL_OR_EXIT ("--dump", argsOut.dumpPath);
       }
       else if (arg == "--log") {
         OPT_VAL_OR_EXIT ("--log", argsOut.logPath);
@@ -295,10 +269,10 @@ static std::expected<cli_args_t, std::string> parse_args (
         argsOut.autoflush = true;
       }
       else if (arg == "-r" || arg == "--ref") {
-        OPT_VAL_OR_EXIT ("--ref", refPath);
+        OPT_VAL_OR_EXIT ("--ref", argsOut.refPath);
       }
       else if (arg == "--no-limit-mem") {
-        limitMemUsage = false;
+        argsOut.limitMemUsage = false;
       }
       else if (arg.starts_with ("-")) {
         EXIT_W_USAGE (fmt::format ("unrecognized argument: {}", arg));
@@ -318,40 +292,35 @@ static std::expected<cli_args_t, std::string> parse_args (
   }
 
   /* validate args */
-  db_target_t newDb;
-  if (dumpPath) {
-    newDb = {.kind = db_target_t::file, .path = *dumpPath};
-  }
-
   if (demo) {
-    if (refPath) {
+    if (argsOut.refPath) {
       EXIT_W_USAGE ("--ref is not valid with --demo");
     }
     if (!posArgV.empty()) {
       EXIT_W_USAGE ("--demo takes no positional arguments");
     }
-    if (zeroBased) {
+    if (argsOut.zeroBased) {
       EXIT_W_USAGE ("-0/--zero-based is not valid with --demo");
     }
-    if (!limitMemUsage) {
+    if (!argsOut.limitMemUsage) {
       EXIT_W_USAGE ("--no-limit-mem is not valid with --demo");
     }
-    argsOut.mode = cli_args_t::demo_args_t{.newDb = newDb};
+    argsOut.mode = cli_args_t::mode_t::demo;
   }
   else if (posArgV.empty()) {
     EXIT_W_USAGE ("expected LOCUS ALN... or DB (or pass --demo)");
   }
   else if (posArgV.size() == 1) {
-    if (refPath) {
+    if (argsOut.refPath) {
       EXIT_W_USAGE ("--ref is not valid with DB");
     }
-    if (dumpPath) {
+    if (argsOut.dumpPath) {
       EXIT_W_USAGE ("--dump is not valid with DB");
     }
-    if (zeroBased) {
+    if (argsOut.zeroBased) {
       EXIT_W_USAGE ("-0/--zero-based is not valid with DB");
     }
-    if (!limitMemUsage) {
+    if (!argsOut.limitMemUsage) {
       EXIT_W_USAGE ("--no-limit-mem is not valid with DB");
     }
 
@@ -371,7 +340,8 @@ static std::expected<cli_args_t, std::string> parse_args (
           fmt::format ("Path {} resolves to a directory", dbUserPath)
       );
     }
-    argsOut.mode = cli_args_t::db_args_t{.path = dbUserPath};
+    argsOut.mode = cli_args_t::mode_t::db;
+    argsOut.dbPath = dbUserPath;
   }
   else {
     if (posArgV.size() > 100) {
@@ -420,14 +390,9 @@ static std::expected<cli_args_t, std::string> parse_args (
     }
     // we know at this point that all paths are unique paths
     // to existing files (and not directories).
-    argsOut.mode = cli_args_t::locus_args_t{
-        .locus = posArgV[0],
-        .alnPaths = alnUserPaths,
-        .refPath = refPath,
-        .zeroBased = zeroBased,
-        .limitMemUsage = limitMemUsage,
-        .newDb = newDb,
-    };
+    argsOut.mode = cli_args_t::mode_t::locus;
+    argsOut.locus = posArgV[0];
+    argsOut.alnPaths = std::move (alnUserPaths);
   }
 
   return argsOut;

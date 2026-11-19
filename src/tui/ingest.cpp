@@ -143,42 +143,41 @@ static std::expected<locus_t, std::string> parse_locus (
 }
 
 // close a db from open_new_db, removing its file if it has one
-static void discard_new_db (sqlite3* conn, const db_target_t& target)
+static void discard_new_db (
+    sqlite3* conn, const std::optional<std::filesystem::path>& dbOutPath
+)
 {
   // uncommitted transaction rolls back on close
   sqlite3_close_v2 (conn);
-  if (target.kind == db_target_t::file) {
+  if (dbOutPath) {
     std::error_code ec;  // best effort
-    std::filesystem::remove (target.path, ec);
+    std::filesystem::remove (*dbOutPath, ec);
   }
 }
 
-// open a new apb db at target, with schema created inside an open
-// transaction. Caller commits, or discard_new_db on failure.
-static conn_or_failmsg_t open_new_db (const db_target_t& target)
+// open a new apb db at dbOutPath (see ingest.hpp), with schema created
+// inside an open transaction. Caller commits, or discard_new_db on
+// failure.
+static conn_or_failmsg_t open_new_db (
+    const std::optional<std::filesystem::path>& dbOutPath
+)
 {
-  std::string name;
-  switch (target.kind) {
-  case db_target_t::tempFile:
-    name = "";  // sqlite private temp db
-    break;
-  case db_target_t::file:
-    if (std::error_code ec; std::filesystem::exists (
-            std::filesystem::symlink_status (target.path, ec)
-        )) {
-      return std::unexpected (
-          fmt::format (
-              "{} already exists; refusing to overwrite", target.path
-          )
-      );
-    }
-    name = target.path.string();
-    break;
+  if (std::error_code ec;
+      dbOutPath && std::filesystem::exists (
+                       std::filesystem::symlink_status (*dbOutPath, ec)
+                   )) {
+    return std::unexpected (
+        fmt::format (
+            "{} already exists; refusing to overwrite", *dbOutPath
+        )
+    );
   }
+  // "" is an sqlite private temp db
+  const std::string name = dbOutPath ? dbOutPath->string() : "";
 
   sqlite3* conn = nullptr;
   Defer conn_cleanup ([&]() {
-    discard_new_db (conn, target);
+    discard_new_db (conn, dbOutPath);
   });  // cancel on success
 
   int rc = sqlite3_open_v2 (
@@ -210,31 +209,26 @@ static conn_or_failmsg_t open_new_db (const db_target_t& target)
         "Are you in a memory constrained environment?"
     );
   }
-  switch (target.kind) {
-  case db_target_t::tempFile:
-    return std::unexpected (
-        fmt::format (
-            "Failed to create temporary database file (is TMPDIR "
-            "writable?), reporting: {} - {}",
-            sqlite3_errstr (rc), sqlite3_errmsg (conn)
-        )
-    );
-  case db_target_t::file:
+  if (dbOutPath) {
     return std::unexpected (
         fmt::format (
             "Failed to create database at {}, reporting: {} - {}",
-            target.path, sqlite3_errstr (rc), sqlite3_errmsg (conn)
+            *dbOutPath, sqlite3_errstr (rc), sqlite3_errmsg (conn)
         )
     );
   }
-  APB_UNREACHABLE (
-      "unhandled db_target_t kind", static_cast<int> (target.kind)
+  return std::unexpected (
+      fmt::format (
+          "Failed to create temporary database file (is TMPDIR "
+          "writable?), reporting: {} - {}",
+          sqlite3_errstr (rc), sqlite3_errmsg (conn)
+      )
   );
 }
 
 conn_or_failmsg_t ingest_sam_auto (
-    const db_target_t& target, const std::string& locus,
-    bool zeroBasedLocus,
+    const std::optional<std::filesystem::path>& dbOutPath,
+    const std::string& locus, bool zeroBasedLocus,
     const std::vector<std::filesystem::path>& alnPaths,
     const std::optional<std::filesystem::path>& refPath,
     std::optional<size_t> loadLimitBytes,
@@ -271,14 +265,14 @@ conn_or_failmsg_t ingest_sam_auto (
   });
 
   sqlite3* conn = nullptr;
-  if (const auto ret = open_new_db (target); !ret) {
+  if (const auto ret = open_new_db (dbOutPath); !ret) {
     return std::unexpected (ret.error());
   }
   else {
     conn = *ret;
   }
   Defer conn_cleanup ([&]() {
-    discard_new_db (conn, target);
+    discard_new_db (conn, dbOutPath);
   });  // cancel on success
 
   // iterate alignment paths. Open, validate, pileup,
@@ -746,17 +740,19 @@ static char mutate_base (char refBase, std::mt19937& rng)
   return b;
 }
 
-conn_or_failmsg_t ingest_demo (const db_target_t& target)
+conn_or_failmsg_t ingest_demo (
+    const std::optional<std::filesystem::path>& dbOutPath
+)
 {
   sqlite3* conn = nullptr;
-  if (const auto ret = open_new_db (target); !ret) {
+  if (const auto ret = open_new_db (dbOutPath); !ret) {
     return std::unexpected (ret.error());
   }
   else {
     conn = *ret;
   }
   Defer conn_cleanup ([&]() {
-    discard_new_db (conn, target);
+    discard_new_db (conn, dbOutPath);
   });  // cancel on success
 
   constexpr std::string_view demoContig = "demo-contig";
