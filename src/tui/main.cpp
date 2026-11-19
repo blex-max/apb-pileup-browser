@@ -33,7 +33,7 @@
 #include "version.hpp"
 
 // max pileup size, to prevent accidentally loading
-// some RAM-destroying pileup.
+// some node-destroying pileup.
 #define DEPTH_LIMIT 500'000
 #define GB_LIMIT 4
 
@@ -75,9 +75,6 @@ options:
                           Invalid with DB.
   --no-limit-mem          Remove the default limits of ~)txt" STR(GB_LIMIT) R"txt(Gb max
                           pileup size and )txt" STR(DEPTH_LIMIT) R"txt( reads per file.
-                          Limits apply with --dump also, since
-                          reads are held in memory while
-                          loading.
                           Invalid with DB and --demo.
   -0, --zero-based        treat the LOCUS argument as 0-based
                           (e.g. from a BED file), instead of
