@@ -84,7 +84,7 @@ add_executable(apb
   src/utility/abort_fatal.cpp
   src/apb_db/apb_db_core.cpp
   src/apb_db/apb_db_helpers.cpp
-  src/generic/describe.cpp
+  src/tui/describe.cpp
   src/apb_db/apb_db_transform_hts.cpp
   src/tui/tb2_impl.cpp
   src/tui/cmd.cpp
@@ -134,7 +134,7 @@ if(APB_BUILD_TESTS)
     tests/test.cpp
     tests/fixtures.cpp
     src/apb_db/apb_db_helpers.cpp
-    src/generic/describe.cpp
+    src/tui/describe.cpp
     src/apb_db/apb_db_transform_hts.cpp
     src/apb_db/apb_db_core.cpp
     src/tui/cmd.cpp

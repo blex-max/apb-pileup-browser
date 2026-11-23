@@ -14,11 +14,6 @@
 #include "apb_db/apb_db_core.hpp"
 
 
-struct transform_err_t {
-  enum code_t : uint8_t { aux_parse_fail };
-  code_t code;
-  bam1_t* b;  // pointer to offending record
-};
 // transform htslib pileup records into apb input type
 // for insertion into apb database.
 // Returns a count of records transformed, indicating
@@ -29,20 +24,22 @@ struct transform_err_t {
 // to the offending bam1_t and the reason for failure
 // (currently, the only expected failure mode is in
 // aux parsing).
-// NOTE: each written output element is reset to
-// default before being filled.
+// each output element is reset to
+// defaults before being filled.
+
+struct transform_err_t {
+  enum code_t : uint8_t { aux_parse_fail };
+  code_t code;
+  const bam1_t* b;  // pointer to offending record
+};
+
 [[nodiscard]] std::expected<size_t, transform_err_t>
 apb_transform_pileup1 (
     std::span<const bam_pileup1_t> plpIn, std::span<apb_row1_t> recordsOut,
     const std::function<const char*(int)>& mtid2name
 );
 
-
-// TODO:
-// [[nodiscard]] std::expected<size_t, transform_err_t>
-// apb_transform_bam1 (
-//     std::span<const bam1_t*> samIn,
-//     std::span<apb_input_record1_t> recordsOut,
-//     const std::function<const char*(int)>& mtid2name,
-//     int64_t locusPos_0ho
-// );
+[[nodiscard]] std::expected<size_t, transform_err_t> apb_transform_bam1 (
+    std::span<const bam1_t* const> samIn, std::span<apb_row1_t> recordsOut,
+    const std::function<const char*(int)>& mtid2name, int64_t locusPos_0ho
+);

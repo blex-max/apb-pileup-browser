@@ -200,6 +200,7 @@ inline constexpr std::string_view sqlCreateUserView = R"sql(
     LEFT JOIN contigs c ON c.id = r.mtid_id;
 )sql";
 
+// TODO: for col selection from VIEW:
 // std::unordered_map<std::string, int> col_index (sqlite3_stmt* stmt)
 // {
 //   std::unordered_map<std::string, int> m;
@@ -213,7 +214,7 @@ inline constexpr std::string_view sqlCreateUserView = R"sql(
 // Things to be aware of:
 
 // - Name all expression columns with AS. SQLite only guarantees the result column name when there's an AS alias. For a bare column (SELECT start FROM ...) or SELECT * it uses the column name in practice. For an expression without an alias, the name is officially unspecified. The view already aliases base and basequal, so that's fine.
-// - Duplicate names can clash. A join can produce two columns called id, and emplace keeps only the first. This is another reason the view leaves out p.id.
+// - Duplicate names could clash
 
 struct UserReadViewSelect {
   // TIED TO VIEW COLUMN ORDER
@@ -244,10 +245,6 @@ struct UserReadViewSelect {
     basequal,
     source,
   };
-
-  // FIXME: it's beefier,
-  // but it might make more sense perhaps to have fn ptrs
-  // for each row retrieval.
 };
 
 }  // namespace schema
