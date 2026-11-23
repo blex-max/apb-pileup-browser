@@ -22,7 +22,7 @@
 #include "apb_db/apb_db_core.hpp"
 #include "apb_db/apb_db_schema.hpp"
 #include "apb_db/apb_db_transform_hts.hpp"
-#include "generic/describe.hpp"
+#include "describe.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 

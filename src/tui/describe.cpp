@@ -2,8 +2,6 @@
 
 #include <sqlite3.h>
 
-// FIXME: presumes too much. Not broadly useful.
-// Reconsider, or remove from generic
 std::string apb_describe_sqlite_failure (
     std::string_view what, int rc, std::optional<std::string_view> conn_msg
 )

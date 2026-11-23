@@ -19,7 +19,7 @@
 #include <vector>
 
 #include "apb_db/apb_db_helpers.hpp"
-#include "generic/describe.hpp"
+#include "describe.hpp"
 #include "helpblocks.hpp"
 #include "log.hpp"
 #include "query.hpp"
