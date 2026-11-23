@@ -44,7 +44,7 @@ See the helptext from `apb --help` for the canonical guide to the CLI. Some addi
 
 ## 3) TUI Usage
 
-On starting apb you will enter the TUI. The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
+On starting apb you will enter the TUI. The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, a ring over a base marks an insertion, displayed beneath at `^`, and soft-clipped bases are shown in brackets. The appearance of the alignment pane can be configured with the `toggle` command, for example to display `ACTG...` for bases matching reference, instead of masking with `=`.
 
 ### 3.1) Basic Navigation
 
@@ -235,7 +235,7 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 ### The `dump` Functionality
 
-A dump is a small, self-contained sqlite3 file with just the reads at the specified locus. A few use cases:
+A dump is a small, self-contained sqlite3 file containing the reads at the specified locus. A few use cases:
 
 - Application of complex SQL and downstream use - `sqlite3 my.db` allows for complex querying (`GROUP BY`, aggregates, summaries, etc.) and programmatic use of apb (`apb --dump my.db --ref my.ref chr1:12345 my.bam && sqlite3 -header -csv my.db < query.sql > results.csv`).
 - Sharing - Dumps tend to be quite small files. Sending the dump allows the reciever to view the pileup you're looking at without needing the original alignment files or reference genome (or even `apb` if they're happy just to use `sqlite3`).

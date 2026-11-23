@@ -434,50 +434,93 @@ static constexpr auto toggleDesc = std::to_array<std::string_view> ({
     "             alignment pane.",
     "- insertion: read insertion track in",
     "             alignment pane.",
+    "- anchor:    ring over the base before",
+    "             each insertion.",
     "- table:     table pane.",
     "- sparkline: switch quality track",
     "             between Phred ASCII and a",
     "             quick-look sparkline graph.",
-    "`toggle` accepts any unambiguous substring",
+    "- clips:     soft clips as bases, e.g.",
+    "             (ACGT), or as lengths, s(4).",
+    "- bases:     bases matching the reference",
+    "             in place of `=`, with",
+    "             mismatches highlighted.",
+    "- colour:    colour the reference and read",
+    "             bases not matching it. Also",
+    "             `color`.",
+    "`toggle` accepts any unambiguous prefix",
     "of the argument, e.g. `tg qual`.",
 });
 static constexpr Cmd toggleCmd{
-    toggleNames, "(quality|insertion|table|sparkline)", toggleDesc,
+    toggleNames, "<option>", toggleDesc,
     [] (std::string_view args) -> CmdResult {
       const auto tokens = cmd_split_whitespace (args);
       if (tokens.size() != 1) {
         return {false, CMD_FMT_MISUSE("takes a single argument", toggleCmd)};
       }
-      // get single arg
-      const auto& tok = tokens.back();
+      // get single arg; US spelling
+      const auto tok = tokens.back() == "color" ? std::string_view{"colour"}
+                                                : tokens.back();
 
-      // NOTE: all unambiguous from the first char (so far)
-      static constexpr std::array<std::string_view, 4> opts{
-          "quality", "insertion", "table", "sparkline"
+      static constexpr std::array<std::string_view, 8> opts{
+          "quality",   "insertion", "anchor", "table",
+          "sparkline", "clips",     "bases",  "colour"
       };
+      // reject ambiguous prefixes, e.g. `c`
+      std::vector<std::string_view> matches;
       for (const auto& opt : opts) {
         if (tok == opt.substr (0, tok.length())) {
-          if (opt == "quality") {
-            g_ui::drawQualTrack = !g_ui::drawQualTrack;
-          }
-          else if (opt == "insertion") {
-            g_ui::drawInsTrack = !g_ui::drawInsTrack;
-          }
-          else if (opt == "table") {
-            g_ui::drawTable = !g_ui::drawTable;
-          }
-          else if (opt == "sparkline") {
-            g_ui::drawSparkline = !g_ui::drawSparkline;
-          }
-          else {
-            TUI_UNREACHABLE ("toggle command malformed, unknown opt", opt);
-          }
-          return {true, CMD_GENERIC_SUCCESS};
+          matches.push_back (opt);
         }
       }
-      return {false, CMD_FMT_MISUSE (
-          fmt::format ("Unknown option: \"{}\"", tok), toggleCmd
-      )};
+      if (matches.empty()) {
+        return {false, CMD_FMT_MISUSE (
+            fmt::format ("Unknown option: \"{}\"", tok), toggleCmd
+        )};
+      }
+      if (matches.size() > 1) {
+        return {false, CMD_FMT_MISUSE (
+            fmt::format (
+                "Ambiguous option: \"{}\" ({})", tok,
+                fmt::join (matches, ", ")
+            ),
+            toggleCmd
+        )};
+      }
+
+      const auto opt = matches.front();
+      if (opt == "quality") {
+        g_ui::drawQualTrack = !g_ui::drawQualTrack;
+      }
+      else if (opt == "insertion") {
+        g_ui::drawInsTrack = !g_ui::drawInsTrack;
+      }
+      else if (opt == "anchor") {
+        g_ui::drawAnchor = !g_ui::drawAnchor;
+      }
+      else if (opt == "table") {
+        g_ui::drawTable = !g_ui::drawTable;
+      }
+      else if (opt == "sparkline") {
+        g_ui::drawSparkline = !g_ui::drawSparkline;
+      }
+      else if (opt == "clips") {
+        g_ui::drawClips = !g_ui::drawClips;
+      }
+      else if (opt == "bases") {
+        if (!g_db::locusInfo.refSlice) {
+          // true to clear input; nothing to retry
+          return {true, "No reference loaded, no effect"};
+        }
+        g_ui::drawBases = !g_ui::drawBases;
+      }
+      else if (opt == "colour") {
+        g_ui::drawColour = !g_ui::drawColour;
+      }
+      else {
+        TUI_UNREACHABLE ("toggle command malformed, unknown opt", opt);
+      }
+      return {true, CMD_GENERIC_SUCCESS};
     }
 };
 

@@ -30,6 +30,7 @@ enum indicator : uint16_t {
 
   doubleChevron = 0x00BB,
   downArrow = 0x2193,
+  ellipsis = 0x2026,
 };
 
 enum block : uint16_t {

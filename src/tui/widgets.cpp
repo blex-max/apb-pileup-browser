@@ -171,6 +171,63 @@ bool cmd_widget_is_valid()
     );                                                                \
   } while (false)
 
+// write path to xlim, hiding leading elements to fit, e.g.
+// …/samples/a.bam; if the name alone is too long, truncate
+// it, e.g. …/a.b…
+void write_path (
+    e2::GlobalCell start, int xlim, std::string_view path,
+    const e2::Style& style
+)
+{
+  if (xlim <= start.x) {
+    return;
+  }
+  if (path.size() > static_cast<size_t> (xlim - start.x)) {
+    // first separator leaving room for the ellipsis
+    auto iSep = path.find (
+        '/', path.size() + 1 - static_cast<size_t> (xlim - start.x)
+    );
+    if (iSep == std::string_view::npos) {
+      iSep = path.rfind ('/');  // name only
+    }
+    if (iSep != std::string_view::npos && iSep > 0) {
+      e2::set (start, ellipsis, style);
+      ++start.x;
+      path.remove_prefix (iSep);
+    }
+  }
+  if (path.size() > static_cast<size_t> (xlim - start.x)) {
+    // name alone too long: ellipsis in last cell
+    --xlim;
+    e2::set (e2::GlobalCell{{.x = xlim, .y = start.y}}, ellipsis, style);
+  }
+  e2::write_string (start, xlim, path, style);
+}
+
+// colour for a base if drawColour, e.g. A green; else default
+uintattr_t base_colour (uint32_t base)
+{
+  if (!g_ui::drawColour) {
+    return TB_DEFAULT;
+  }
+  switch (base) {
+  case 'A':
+  case 'a':
+    return TB_GREEN;
+  case 'C':
+  case 'c':
+    return TB_BLUE;
+  case 'G':
+  case 'g':
+    return TB_YELLOW;  // orange, conventionally
+  case 'T':
+  case 't':
+    return TB_RED;
+  default:
+    return TB_DEFAULT;
+  }
+}
+
 }  // namespace
 
 // --- end helpers --- //
@@ -420,6 +477,21 @@ uint32_t qual_char (
   return missing_ch;
 }
 
+bool is_clip (uint32_t op)
+{
+  return bam_cigar_op (op) == BAM_CSOFT_CLIP ||
+         bam_cigar_op (op) == BAM_CHARD_CLIP;
+}
+
+// e.g. s(4), h(4)
+std::string clip_label (uint32_t op)
+{
+  return fmt::format (
+      "{}({})", bam_cigar_op (op) == BAM_CSOFT_CLIP ? 's' : 'h',
+      bam_cigar_oplen (op)
+  );
+}
+
 ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
 {
   return {
@@ -500,6 +572,97 @@ struct Seq1FrameArgs {
   }
 };
 
+// Draw clips outward from the read's aligned span: soft
+// clips as bracketed bases, e.g. (ACGT), if drawClips and
+// seq present, else as labels, e.g. s(4); hard clips as
+// labels, e.g. h(4).
+// Truncated at pan bounds, see draw_main_to_buffer.
+static void clips1 (
+    const int16_t yStart, const ReadAlnFields& readFields,
+    const Seq1FrameArgs& fa, const std::optional<int> qualYOffset,
+    const e2::Style& qualStyle
+)
+{
+  const auto* cig = readFields.cig_br;
+  const auto nCig = readFields.nCig;
+
+  // set cell by genomic position; no-op outside pane
+  const auto setAtGPos = [&fa, yStart] (
+                             int64_t gPos, int dy, uint32_t ch,
+                             const e2::Style& style
+                         ) {
+    const int64_t x = fa.writeStartX + (gPos - fa.writeStartXGPos);
+    if (x >= fa.writeStartX && x < fa.writeLimits.x) {
+      e2::set (
+          e2::GlobalCell{{.x = static_cast<int> (x), .y = yStart + dy}},
+          ch, style
+      );
+    }
+  };
+  const auto asBases = [&readFields] (uint32_t op) {
+    return g_ui::drawClips && bam_cigar_op (op) == BAM_CSOFT_CLIP &&
+           readFields.seq;
+  };
+  const auto clipWidth = [&asBases] (uint32_t op) {
+    return asBases (op) ? static_cast<int64_t> (bam_cigar_oplen (op)) + 2
+                        : static_cast<int64_t> (clip_label (op).size());
+  };
+  const auto drawClip = [&] (int64_t gStart, size_t iOp) {
+    const auto op = cig[iOp];
+    if (!asBases (op)) {
+      const auto label = clip_label (op);
+      for (size_t i = 0; i < label.size(); ++i) {
+        setAtGPos (
+            gStart + static_cast<int64_t> (i), 0,
+            static_cast<unsigned char> (label[i]), none
+        );
+      }
+      return;
+    }
+    const auto len = bam_cigar_oplen (op);
+    const auto qStart =
+        static_cast<size_t> (bam_cigar2qlen (static_cast<int> (iOp), cig));
+    setAtGPos (gStart, 0, '(', bold);
+    for (size_t i = 0; i < len; ++i) {
+      const auto gBase = gStart + 1 + static_cast<int64_t> (i);
+      const auto base = seq_char (readFields.seq, qStart + i);
+      auto baseStyle = dim;
+      baseStyle.fg |= base_colour (base);
+      setAtGPos (gBase, 0, base, baseStyle);
+      if (qualYOffset) {
+        setAtGPos (
+            gBase, *qualYOffset,
+            qual_char (readFields.qual, qStart + i, g_ui::drawSparkline),
+            qualStyle
+        );
+      }
+    }
+    setAtGPos (gStart + len + 1, 0, ')', bold);
+  };
+
+  // leading clips, leftward from read start
+  size_t nLead = 0;
+  while (nLead < nCig && is_clip (cig[nLead])) {
+    ++nLead;
+  }
+  auto gPos = readFields.rStart;
+  for (size_t iOp = nLead; iOp > 0; --iOp) {
+    gPos -= clipWidth (cig[iOp - 1]);
+    drawClip (gPos, iOp - 1);
+  }
+
+  // trailing clips, rightward from read end
+  size_t iTrail = nCig;
+  while (iTrail > nLead && is_clip (cig[iTrail - 1])) {
+    --iTrail;
+  }
+  gPos = readFields.rStart + bam_cigar2rlen (static_cast<int> (nCig), cig);
+  for (size_t iOp = iTrail; iOp < nCig; ++iOp) {
+    drawClip (gPos, iOp);
+    gPos += clipWidth (cig[iOp]);
+  }
+}
+
 static e2::Delta seq1 (
     const int16_t yStart, sqlite3_stmt* br_dbRow, const Seq1FrameArgs& fa
 )
@@ -576,6 +739,12 @@ static e2::Delta seq1 (
       (writeHead.y + trackYOffsetInsQual) < fa.writeLimits.y;
   /* --- end enable optional tracks --- */
 
+  clips1 (
+      yStart, readFields, fa,
+      drawQualTrack ? std::optional{trackYOffsetQual} : std::nullopt,
+      qualStyle
+  );
+
   auto iGc = readFields.rStart;  // genomic coordinate
   size_t iQuery = 0;
   // locus start always <= readFields.rStart
@@ -604,37 +773,18 @@ static e2::Delta seq1 (
             ? static_cast<size_t> (fa.writeStartXGPos - iGc)
             : 0;
 
-    if (opType == BAM_CSOFT_CLIP || opType == BAM_CHARD_CLIP) {
-      // clip label at read start (cut to fit) and at read end
-      const std::string clipLabel =
-          std::string (1, opType == BAM_CSOFT_CLIP ? 's' : 'h') + "(" +
-          std::to_string (opSz) + ")";
-      if (iOp == 0 && startToLEdge > 0) {
-        const int labSz = static_cast<int> (clipLabel.size());
-        const auto shown = clipLabel.substr (
-            static_cast<size_t> (std::max (0, labSz - startToLEdge))
-        );
-        e2::write_string (
-            writeHead - e2::dX (static_cast<int> (shown.size())),
-            fa.writeLimits.x, shown, dim
-        );
-      }
-      if (iOp == readFields.nCig - 1) {
-        // if no space left, no-op
-        e2::write_string (writeHead, fa.writeLimits.x, clipLabel, dim);
-      }
-    }
-
     if (opConsumeType == consumesQueryOnly) {
       if (opType == BAM_CINS && iGc > fa.writeStartXGPos) {
         // insertion
         // where at least one base PRIOR
         // to the insertion is visible
 
-        // modify anchor base
+        // modify anchor base, keeping mismatch highlight/colour
         const auto anchorCell = writeHead - e2::dX (1);
-        e2::clear_attrs (anchorCell);
-        e2::extend (anchorCell, insRingAbove);
+        e2::rm_attr (anchorCell, dim);
+        if (g_ui::drawAnchor) {
+          e2::extend (anchorCell, insRingAbove);
+        }
 
         if (drawInsTrack) {
           auto opInsWriteHead = anchorCell + e2::dY (trackYOffsetIns);
@@ -645,15 +795,17 @@ static e2::Delta seq1 (
           for (size_t i = 0;
                i < opSz && opInsWriteHead.x < fa.writeLimits.x;
                ++i, ++opInsWriteHead.x) {
+            const auto base = seq_char (readFields.seq, iQuery + i);
             set (
-                opInsWriteHead, seq_char (readFields.seq, iQuery + i),
-                readFields.seq ? e2::Style{} : dim
+                opInsWriteHead, base,
+                readFields.seq ? e2::Style{.fg = base_colour (base)} : dim
             );
           }
         }
-        else {
+        else if (!g_ui::drawBases) {
           // extra highlight if bases not unfolded
-          e2::set_attr (anchorCell, {.fg = TB_UNDERLINE});
+          // (underline marks mismatches when bases on)
+          e2::add_attr (anchorCell, {.fg = TB_UNDERLINE});
         }
 
         if (drawInsQualTrack) {
@@ -709,14 +861,23 @@ static e2::Delta seq1 (
         if (!readFields.seq) {
           dispStyle = dim;
         }
-        // mask bases that match the reference with '='.
+        // matches: dim, masked with '=' unless bases on
         else if (ref &&
                  (std::toupper (static_cast<unsigned char> (dispChar)) ==
                   std::toupper (
                       static_cast<unsigned char> ((*ref)[iRefOp + i])
                   ))) {
-          dispChar = '=';
+          if (!g_ui::drawBases) {
+            dispChar = '=';
+          }
           dispStyle = dim;
+        }
+        // mismatches, or no ref: colour; highlight when bases on
+        else {
+          dispStyle.fg = base_colour (dispChar);
+          if (ref && g_ui::drawBases) {
+            dispStyle.fg |= TB_BOLD | TB_UNDERLINE;
+          }
         }
         set (writeHead, dispChar, dispStyle);
         if (drawQualTrack) {
@@ -732,7 +893,7 @@ static e2::Delta seq1 (
       iGc += opSz;
     }
     else if (opConsumeType == consumesNeitherQueryOrRef) {
-      // hard clip: nothing to draw here (label handled above)
+      // hard clip: drawn by clips1
     }
     else {
       // FIXME: should this be an assertion? It implies data corruption
@@ -890,6 +1051,9 @@ void draw_main_to_buffer()
     // db.locusInfo.start. Can be positive when there isn't room
     // to center on pos, e.g. a locus near the start of its contig, or reads
     // that don't extend a full half-pane-width left of pos.
+    // FIXME: bounds exclude clips (see draw_aln::clips1), so
+    // clips at the span edges can't be panned to. Acceptable
+    // for a first pass only.
     const auto marginToPileupStart =
         g_db::locusInfo.start - g_db::locusInfo.pos + alnPaneHalfWidth;
     const auto marginToPileupEnd = std::max (
@@ -913,15 +1077,20 @@ void draw_main_to_buffer()
           std::max<int64_t> (0, -offsetToLocusStart);
       const int64_t startDrawX = std::max<int64_t> (0, offsetToLocusStart);
 
-      e2::write_string (
-          {first (g_viewer::alnPaneRefLine.xspan) +
-               static_cast<int> (startDrawX),
-           g_viewer::alnPaneRefLine.y},
-          last (g_viewer::alnPaneRefLine.xspan),
-          g_db::locusInfo.refSlice->substr (
-              static_cast<size_t> (skipRefBases)
-          )
-      );
+      // per base, for colour
+      const auto& refSlice = *g_db::locusInfo.refSlice;
+      e2::GlobalCell refWriteHead{
+          {.x = first (g_viewer::alnPaneRefLine.xspan) +
+                static_cast<int> (startDrawX),
+           .y = g_viewer::alnPaneRefLine.y}
+      };
+      for (auto i = static_cast<size_t> (skipRefBases);
+           i < refSlice.size() &&
+           refWriteHead.x < last (g_viewer::alnPaneRefLine.xspan);
+           ++i, ++refWriteHead.x) {
+        const auto base = static_cast<unsigned char> (refSlice[i]);
+        e2::set (refWriteHead, base, {.fg = base_colour (base)});
+      }
     }
 
     if (showTable) {
@@ -982,7 +1151,7 @@ void draw_main_to_buffer()
         }
         if (rowFile != headerFile) {
           headerFile = rowFile;
-          e2::write_string (
+          write_path (
               seqWriteHead, seqWriteLim.x, headerFile, {.fg = TB_REVERSE}
           );
           seqWriteHead.y++;
@@ -1016,7 +1185,7 @@ void draw_main_to_buffer()
                                    seqWriteHead.y < seqWriteLim.y;
            ++i) {
         const auto& file = g_db::queryEmptyFiles[i];
-        e2::write_string (
+        write_path (
             seqWriteHead, seqWriteLim.x, file.path, {.fg = TB_REVERSE}
         );
         seqWriteHead.y++;

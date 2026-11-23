@@ -99,6 +99,9 @@ static_assert (
     "rows must be of the same width"
 );
 
+// FIXME: fix ambiguous "no pileup" wording
+// FIXME: fix misleading NULLs for apb-produced
+// databases
 inline constexpr auto tableColumns = std::to_array<std::string_view> ({
     " TABLE REFERENCE                                ",
     "                                                ",
