@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "apb_db/apb_db_schema.hpp"
+#include "sqlite_col.hpp"
 #include "tui_assert.hpp"
 #include "utility/cleanup.hpp"
 
@@ -59,10 +60,14 @@ PileupMetadata get_locus_data (sqlite3* conn)
       )
   };
 
-  out.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
-  out.start =
-      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
-  out.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
+  out.pos = sqlite3_column_int64 (
+      o_stmt, schema::MetaTableSelect::pileup_position
+  );
+  out.start = sqlite3_column_int64 (
+      o_stmt, schema::MetaTableSelect::records_start
+  );
+  out.end =
+      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::records_end);
 
   if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
       SQLITE_NULL) {
@@ -78,7 +83,7 @@ PileupMetadata get_locus_data (sqlite3* conn)
   }
 
   out.nAln = static_cast<int16_t> (
-      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
+      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_sources)
   );
 
   return out;
@@ -100,10 +105,10 @@ int set_query (const QueryFragments& query)
     userQuerySuffix.append ("\n");
   }
 
-  // order by path is mandatory for purposes
+  // order by source is mandatory for purposes
   // of multi-alignment view. Irrelevant
   // for single-file view.
-  userQuerySuffix.append (" ORDER BY path");
+  userQuerySuffix.append (" ORDER BY source");
   if (!query.orderBy.empty()) {
     userQuerySuffix.append (", ");
     userQuerySuffix.append (query.orderBy);
@@ -114,7 +119,7 @@ int set_query (const QueryFragments& query)
     // Materialise temp table of ordered rowids of `reads` from user query,
     // to avoid paying the cost of sorting every frame.
     const auto sqlCreateTempTable = fmt::format (
-        "CREATE TEMP TABLE new_ordered_query AS SELECT id, path_id FROM "
+        "CREATE TEMP TABLE new_ordered_query AS SELECT id, source_id FROM "
         "reads "
         "{}\n;",
         userQuerySuffix
@@ -131,7 +136,7 @@ int set_query (const QueryFragments& query)
         rc != SQLITE_OK) {
       return rc;
     }
-    // FIXME: should path_id be indexed to speed up table creation?
+    // FIXME: should source_id be indexed to speed up table creation?
     if (const auto rc = sqlite3_step (o_createTblStmt);
         rc != SQLITE_DONE) {
       return rc;
@@ -197,13 +202,13 @@ int set_query (const QueryFragments& query)
     TUI_S3_EXPECT (
         sqlite3_prepare_v2 (
             conn,
-            "SELECT a.path, a.has_contig, "
-            "EXISTS (SELECT 1 FROM per_record_data AS r WHERE r.path_id = "
-            "a.id) AS has_any_reads FROM alignment_files AS a LEFT JOIN "
+            "SELECT a.source, a.has_contig, "
+            "EXISTS (SELECT 1 FROM sam_records AS r WHERE r.source_id = "
+            "a.id) AS has_any_reads FROM record_sources AS a LEFT JOIN "
             "(SELECT "
-            "DISTINCT path_id FROM ordered_query) AS o ON o.path_id = "
+            "DISTINCT source_id FROM ordered_query) AS o ON o.source_id = "
             "a.id "
-            "WHERE o.path_id IS NULL ORDER BY a.id;",
+            "WHERE o.source_id IS NULL ORDER BY a.id;",
             -1, &o_alnSelStmt, NULL
         ),
         SQLITE_OK
@@ -296,9 +301,7 @@ std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
   std::vector<std::string> out;
   while (sqlite3_step (stmt) == SQLITE_ROW) {
     out.emplace_back (
-        reinterpret_cast<const char*> (
-            sqlite3_column_text (stmt, schema::UserReadViewSelect::qname)
-        )
+        col_text (stmt, schema::UserReadViewSelect::qname).value_or ("*")
     );
   }
   sqlite3_reset (stmt);
@@ -307,9 +310,8 @@ std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
 
 std::string row_path (sqlite3_stmt* stmt)
 {
-  return reinterpret_cast<const char*> (
-      sqlite3_column_text (stmt, schema::UserReadViewSelect::path)
-  );
+  return col_text (stmt, schema::UserReadViewSelect::source)
+      .value_or ("*");
 }
 
 }  // namespace
@@ -385,7 +387,7 @@ TEST_CASE ("set_query behaviour")
           fetch_page_qnames (0, 10) == std::vector<std::string>{"read2_f1"}
       );
     }
-    SUBCASE ("ordering uses path as primary sort key")
+    SUBCASE ("ordering uses source as primary sort key")
     {
       REQUIRE (
           g_db::set_query ({.where = {}, .orderBy = {"mapq DESC"}}) ==

@@ -157,7 +157,7 @@ Querying is flexible and powerful. Some useful examples:
 
 When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
 ```
-where instr(path, 'PD12345a') and base != 'A'
+where instr(source, 'PD12345a') and base != 'A'
 ```
 
 #### Indels at the Pileup Locus

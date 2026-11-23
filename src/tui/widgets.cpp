@@ -23,6 +23,7 @@
 #include "extb/extb.hpp"
 #include "helpblocks.hpp"
 #include "query.hpp"
+#include "sqlite_col.hpp"
 #include "tui/state.hpp"
 #include "tui_assert.hpp"
 
@@ -40,12 +41,12 @@ constexpr e2::Style bold{.fg = TB_BOLD};
 
 namespace tui_state::ui {
 
+// FIXME: add tests for NULL -> "*"
 constinit std::array<ColMetadata, 10> tableCols{{
     {false, "qpos", 6,
      [] (sqlite3_stmt* row) {
-       return std::to_string (
-           sqlite3_column_int (row, schema::UserReadViewSelect::qpos)
-       );
+       const auto v = col_int64 (row, schema::UserReadViewSelect::qpos);
+       return v ? std::to_string (*v) : std::string{"*"};
      }},
     {true, "basequal", 12,
      [] (sqlite3_stmt* row) {
@@ -60,15 +61,13 @@ constinit std::array<ColMetadata, 10> tableCols{{
      }},
     {true, "flag", 6,
      [] (sqlite3_stmt* row) {
-       return std::to_string (
-           sqlite3_column_int (row, schema::UserReadViewSelect::flag)
-       );
+       const auto v = col_int64 (row, schema::UserReadViewSelect::flag);
+       return v ? std::to_string (*v) : std::string{"*"};
      }},
     {true, "mapq", 6,
      [] (sqlite3_stmt* row) {
-       return std::to_string (
-           sqlite3_column_int (row, schema::UserReadViewSelect::mapq)
-       );
+       const auto v = col_int64 (row, schema::UserReadViewSelect::mapq);
+       return v ? std::to_string (*v) : std::string{"*"};
      }},
     {false, "start", 14,
      [] (sqlite3_stmt* row) {
@@ -78,19 +77,13 @@ constinit std::array<ColMetadata, 10> tableCols{{
      }},
     {false, "end", 14,
      [] (sqlite3_stmt* row) {
-       return std::to_string (
-           sqlite3_column_int64 (row, schema::UserReadViewSelect::end)
-       );
+       const auto v = col_int64 (row, schema::UserReadViewSelect::end);
+       return v ? std::to_string (*v) : std::string{"*"};
      }},
     {true, "cigar", 16,
      [] (sqlite3_stmt* row) {
-       const auto* p =
-           sqlite3_column_text (row, schema::UserReadViewSelect::cigar);
-       const auto len =
-           sqlite3_column_bytes (row, schema::UserReadViewSelect::cigar);
-       return std::string (
-           reinterpret_cast<const char*> (p), static_cast<size_t> (len)
-       );
+       return col_text (row, schema::UserReadViewSelect::cigar)
+           .value_or ("*");
      }},
     {false, "qname", 21,
      [] (sqlite3_stmt* row) {
@@ -460,26 +453,27 @@ ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
           return std::nullopt;
         }
         // else
-        const auto* br_rawQualBlob =
-            static_cast<const uint8_t*> (sqlite3_column_blob (
-                br_stmtRow, schema::UserReadViewSelect::qual
-            ));
-        const auto len = static_cast<size_t> (sqlite3_column_bytes (
+        const auto* p = sqlite3_column_text (
             br_stmtRow, schema::UserReadViewSelect::qual
-        ));
-        std::string asciiQual (len, ' ');
-        for (size_t i = 0; i < len; i++) {
-          // +33 phred offset
-          asciiQual[i] = static_cast<char> (br_rawQualBlob[i] + 33);
-        }
-        return asciiQual;
+        );
+        const auto len = sqlite3_column_bytes (
+            br_stmtRow, schema::UserReadViewSelect::qual
+        );
+        return std::make_optional (
+            std::string (
+                reinterpret_cast<const char*> (p),
+                static_cast<size_t> (len)
+            )
+        );
       }(),
       .cig_br = static_cast<const uint32_t*> (sqlite3_column_blob (
-          br_stmtRow, schema::UserReadViewSelect::cig_uint32
+          br_stmtRow, schema::UserReadViewSelect::cig32
       )),
-      .nCig = static_cast<uint64_t> (
-          sqlite3_column_int (br_stmtRow, schema::UserReadViewSelect::ncig)
-      )
+      // after column_blob, per sqlite3 docs
+      .nCig = static_cast<uint64_t> (sqlite3_column_bytes (
+                  br_stmtRow, schema::UserReadViewSelect::cig32
+              )) /
+              sizeof (uint32_t)
   };
 };
 
@@ -978,16 +972,13 @@ void draw_main_to_buffer()
       int stepRc = SQLITE_DONE;
       while ((seqWriteHead.y < seqWriteLim.y) &&
              (stepRc = sqlite3_step (g_db::displayStmt)) == SQLITE_ROW) {
-        std::string_view rowFile;
+        std::string rowFile;
         if (multiAln) {
-          rowFile = std::string_view{
-              reinterpret_cast<const char*> (sqlite3_column_text (
-                  g_db::displayStmt, schema::UserReadViewSelect::path
-              )),
-              static_cast<size_t> (sqlite3_column_bytes (
-                  g_db::displayStmt, schema::UserReadViewSelect::path
-              ))
-          };
+          rowFile =
+              col_text (
+                  g_db::displayStmt, schema::UserReadViewSelect::source
+              )
+                  .value_or ("*");
         }
         if (rowFile != headerFile) {
           headerFile = rowFile;

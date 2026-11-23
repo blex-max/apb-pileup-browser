@@ -226,6 +226,37 @@ static conn_or_failmsg_t open_new_db (
   );
 }
 
+// 0-based half-open span of inserted records, for fetching the
+// reference slice. Converts from 1-based closed db coordinates.
+// Callers must have inserted records, all with an end.
+// FIXME: add tests
+static std::expected<std::pair<int64_t, int64_t>, int> records_span_0ho (
+    sqlite3* conn
+)
+{
+  sqlite3_stmt* o_stmt = nullptr;
+  if (const auto rc = sqlite3_prepare_v2 (
+          conn, "SELECT MIN(start), MAX(end) FROM sam_records;", -1,
+          &o_stmt, NULL
+      );
+      rc != SQLITE_OK) {
+    return std::unexpected (rc);
+  }
+  Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+  if (const auto rc = sqlite3_step (o_stmt); rc != SQLITE_ROW) {
+    return std::unexpected (rc);
+  }
+  APB_ASSERT (
+      sqlite3_column_type (o_stmt, 0) != SQLITE_NULL &&
+      sqlite3_column_type (o_stmt, 1) != SQLITE_NULL
+  );
+  // 1-based closed end == 0-based half-open end
+  return std::pair{
+      sqlite3_column_int64 (o_stmt, 0) - 1,
+      sqlite3_column_int64 (o_stmt, 1)
+  };
+}
+
 conn_or_failmsg_t ingest_sam (
     const std::optional<std::filesystem::path>& dbOutPath,
     const std::string& locus, bool zeroBasedLocus,
@@ -279,9 +310,7 @@ conn_or_failmsg_t ingest_sam (
   bool contigFound = false;
   bool readsFoundAtLocus = false;
   uint64_t estLocusBytes = 0;
-  int64_t spanStart_0ho = INT64_MAX;
-  int64_t spanEnd_0ho = 0;
-  std::array<apb_input_record1_t, 5000> inputRecBuf;
+  std::array<apb_row1_t, 5000> inputRecBuf;
   for (const auto& fp : alnPaths) {
     aln_file_t aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
@@ -420,14 +449,6 @@ conn_or_failmsg_t ingest_sam (
               );
             }
           }
-          const auto rStart = b1->core.pos;
-          const auto rEnd =
-              rStart +
-              bam_cigar2rlen (
-                  static_cast<int> (b1->core.n_cigar), bam_get_cigar (b1)
-              );
-          spanStart_0ho = std::min (spanStart_0ho, rStart);
-          spanEnd_0ho = std::max (spanEnd_0ho, rEnd);
         }
         break;
       }
@@ -476,7 +497,7 @@ conn_or_failmsg_t ingest_sam (
           !ret) {
         const auto& err = ret.error();
         switch (err.code) {
-        case transform_p1_err_t::aux_parse_fail:
+        case transform_err_t::aux_parse_fail:
           return std::unexpected (
               fmt::format (
                   "Unspecified failure in htslib when attempting to parse "
@@ -509,9 +530,18 @@ conn_or_failmsg_t ingest_sam (
   }
 
   if (readsFoundAtLocus) {
-    // Fetch reference and insert metadata
+    // Fetch reference for the records span and insert metadata
     std::optional<std::string> refSlice;
     if (ff) {
+      // reads were found, and transformed reads always have an end
+      const auto span = records_span_0ho (conn);
+      if (!span) {
+        return std::unexpected (apb_describe_sqlite_failure (
+            "Failed to read records span", span.error(),
+            sqlite3_errmsg (conn)
+        ));
+      }
+      const auto [spanStart_0ho, spanEnd_0ho] = *span;
       hts_pos_t regLen;
       // uses closed coordinates, hence -1
       auto* o_fetch = faidx_fetch_seq64 (
@@ -538,8 +568,7 @@ conn_or_failmsg_t ingest_sam (
     }
 
     if (const auto rc = apb_insert_locus (
-            conn, parsedLocus.contig, parsedLocus.pos_0ho, spanStart_0ho,
-            spanEnd_0ho, refSlice
+            conn, parsedLocus.contig, parsedLocus.pos_0ho, refSlice
         );
         rc != SQLITE_OK) {
       return std::unexpected (apb_describe_sqlite_failure (
@@ -702,6 +731,15 @@ conn_or_failmsg_t ingest_db (const std::filesystem::path& dbInputPath)
               dbInputPath
           )
       );
+    case apb_validate_result_t::metadataMismatch:
+      return std::unexpected (
+          fmt::format (
+              "db at {} has metadata inconsistent with its records and "
+              "is therefore not an operable apb database. The problems "
+              "were:\n{}",
+              dbInputPath, status.problems.value()
+          )
+      );
     }
   }
 
@@ -814,14 +852,13 @@ conn_or_failmsg_t ingest_demo (
 
   // read/ref coordinates are absolute (0-based); index refSeq via winStart.
   // every read covers pos.
-  int64_t spanStart_0ho = pos;
-  int64_t spanEnd_0ho = pos + 1;
   std::mt19937 rng;
   // one record set per alignment file
-  std::array<std::vector<apb_input_record1_t>, nAln> alns;
+  std::array<std::vector<apb_row1_t>, nAln> alns;
   for (size_t i = 0; i < nAln * nQueryPerAln; ++i) {
     const size_t alnIdx = i / nQueryPerAln;
     auto& rec = alns[alnIdx].emplace_back();
+    auto& plp = rec.plp.emplace();
 
     rec.start_0ho = winStart + static_cast<int64_t> (gstartGen (rng));
     // offset of the pileup column within the core aligned run
@@ -829,9 +866,7 @@ conn_or_failmsg_t ingest_demo (
 
     const auto pushOp = [&rec] (size_t len, int op) {
       const auto cigel = static_cast<uint32_t> (bam_cigar_gen (len, op));
-      rec.cigOps.push_back (cigel);
-      rec.cigStr += std::to_string (len);
-      rec.cigStr += bam_cigar_opchr (cigel);
+      rec.cigBlob.push_back (cigel);
     };
     const auto allele = static_cast<Allele> (allelePicker (rng));
     const auto feature =
@@ -840,7 +875,7 @@ conn_or_failmsg_t ingest_demo (
     if (feature == AlignmentFeature::LeadClip) {
       pushOp (clipLenGen (rng), BAM_CSOFT_CLIP);
     }
-    rec.indel = 0;  // meaning per htslib p1.indel
+    plp.indel = 0;  // meaning per htslib p1.indel
     if (allele == Allele::Del) {
       // column falls inside the deletion; >= 1 base precedes it
       const size_t n = delLenGen (rng);
@@ -857,7 +892,7 @@ conn_or_failmsg_t ingest_demo (
       pushOp (colOff + 1, BAM_CMATCH);
       pushOp (n, isDel ? BAM_CDEL : BAM_CINS);
       pushOp (readLen - colOff - 1, BAM_CMATCH);
-      rec.indel = isDel ? -static_cast<int> (n) : static_cast<int> (n);
+      plp.indel = isDel ? -static_cast<int> (n) : static_cast<int> (n);
     }
     else {
       pushOp (readLen, BAM_CMATCH);
@@ -871,7 +906,7 @@ conn_or_failmsg_t ingest_demo (
     std::string seq;
     int64_t nm = 0;  // edit distance, for the NM tag
     auto refPos = rec.start_0ho;
-    for (const auto cig : rec.cigOps) {
+    for (const auto cig : rec.cigBlob) {
       const size_t len = bam_cigar_oplen (cig);
       switch (bam_cigar_op (cig)) {
       case BAM_CMATCH:
@@ -880,7 +915,7 @@ conn_or_failmsg_t ingest_demo (
               refSeq[static_cast<size_t> (refPos - winStart)];
           char b;
           if (refPos == pos) {
-            rec.qPos_0ho = static_cast<int32_t> (seq.size());
+            plp.qPos_0ho = static_cast<int32_t> (seq.size());
             b = allele == Allele::Alt ? pileupAlt : refBase;
           }
           else {
@@ -895,8 +930,8 @@ conn_or_failmsg_t ingest_demo (
       case BAM_CDEL:
         if (pos >= refPos && pos < refPos + static_cast<int64_t> (len)) {
           // htslib: qpos of a deleted column is the next query base
-          rec.qPos_0ho = static_cast<int32_t> (seq.size());
-          rec.isDel = true;
+          plp.qPos_0ho = static_cast<int32_t> (seq.size());
+          plp.is_del = true;
         }
         refPos += static_cast<int64_t> (len);
         nm += static_cast<int64_t> (len);
@@ -911,24 +946,19 @@ conn_or_failmsg_t ingest_demo (
         break;
       }
     }
-    APB_ASSERT (rec.qPos_0ho >= 0);
+    APB_ASSERT (plp.qPos_0ho >= 0);
     rec.end_0ho = refPos;
 
-    std::vector<uint8_t> qual (seq.size());
+    std::string qual (seq.size(), ' ');
     for (auto& q : qual) {
-      q = qualVals[static_cast<size_t> (qualValPicker (rng))];
+      q = static_cast<char> (
+          qualVals[static_cast<size_t> (qualValPicker (rng))] + 33
+      );
     }
 
-    const auto qPos = static_cast<size_t> (rec.qPos_0ho);
-    rec.isHead = qPos == 0;
-    rec.isTail = qPos == seq.size() - 1;
-    rec.isRefSkip = false;  // not in demo
-    if (!rec.isDel) {
-      rec.base = seq[qPos];
-      rec.baseQual = qual[qPos];
-    }
+    plp.is_refskip = false;  // not in demo
     rec.seq = std::move (seq);
-    rec.rawQual = std::move (qual);
+    rec.qual = std::move (qual);
 
     uint16_t flag = BAM_FPAIRED;
     flag |= coinFlip (rng) ? BAM_FREAD1 : BAM_FREAD2;
@@ -953,7 +983,7 @@ conn_or_failmsg_t ingest_demo (
       }
     }
     rec.flag = flag;
-    rec.mtidName = "=";  // single demo contig
+    rec.mtidName = demoContig;  // single demo contig
 
     rec.mapQ = 60;
     switch (mapQBand (rng)) {
@@ -971,9 +1001,6 @@ conn_or_failmsg_t ingest_demo (
     // one read group per alignment file
     rec.auxJson =
         fmt::format (R"({{"NM":{},"RG":"sample{}"}})", nm, alnIdx + 1);
-
-    spanStart_0ho = std::min (rec.start_0ho, spanStart_0ho);
-    spanEnd_0ho = std::max (rec.end_0ho, spanEnd_0ho);
   }
 
   for (size_t i = 0; i < alns.size(); ++i) {
@@ -1005,14 +1032,20 @@ conn_or_failmsg_t ingest_demo (
     }
   }
 
+  const auto span = records_span_0ho (conn);
+  if (!span) {
+    return std::unexpected (apb_describe_sqlite_failure (
+        "Failed to read demo records span", span.error(),
+        sqlite3_errmsg (conn)
+    ));
+  }
+  const auto [spanStart_0ho, spanEnd_0ho] = *span;
   const auto ref = refSeq.substr (
       static_cast<size_t> (spanStart_0ho - winStart),
       static_cast<size_t> (spanEnd_0ho - spanStart_0ho)
   );
-  if (const auto rc = apb_insert_locus (
-          conn, std::string{demoContig}, pos, spanStart_0ho, spanEnd_0ho,
-          ref
-      );
+  if (const auto rc =
+          apb_insert_locus (conn, std::string{demoContig}, pos, ref);
       rc != SQLITE_OK) {
     return std::unexpected (apb_describe_sqlite_failure (
         "Failed to insert demo locus metadata", rc, sqlite3_errmsg (conn)

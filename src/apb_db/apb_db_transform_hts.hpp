@@ -14,7 +14,7 @@
 #include "apb_db/apb_db_core.hpp"
 
 
-struct transform_p1_err_t {
+struct transform_err_t {
   enum code_t : uint8_t { aux_parse_fail };
   code_t code;
   bam1_t* b;  // pointer to offending record
@@ -31,19 +31,18 @@ struct transform_p1_err_t {
 // aux parsing).
 // NOTE: each written output element is reset to
 // default before being filled.
-[[nodiscard]] std::expected<size_t, transform_p1_err_t>
+[[nodiscard]] std::expected<size_t, transform_err_t>
 apb_transform_pileup1 (
-    std::span<const bam_pileup1_t> plpIn,
-    std::span<apb_input_record1_t> recordsOut,
+    std::span<const bam_pileup1_t> plpIn, std::span<apb_row1_t> recordsOut,
     const std::function<const char*(int)>& mtid2name
 );
 
 
 // TODO:
-// [[nodiscard]] std::expected<size_t, transform_b1_err_t>
+// [[nodiscard]] std::expected<size_t, transform_err_t>
 // apb_transform_bam1 (
-//     std::span<const bam1_t*> bam1In,
+//     std::span<const bam1_t*> samIn,
 //     std::span<apb_input_record1_t> recordsOut,
-//     int64_t locusPos_0ho,
-//     const std::function<const char*(int)>& mtid2name
+//     const std::function<const char*(int)>& mtid2name,
+//     int64_t locusPos_0ho
 // );

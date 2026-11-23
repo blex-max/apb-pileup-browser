@@ -137,36 +137,25 @@
   return aux.subspan (tagLen);
 }
 
-/*  apb_input_record1_t transform helpers */
-static bool valid (const apb_input_record1_t& rec) noexcept
-{
-  return rec.start_0ho >= 0 && rec.end_0ho > rec.start_0ho &&
-         rec.qPos_0ho >= 0 &&
-         (!rec.seq || !rec.rawQual ||
-          rec.seq->size() == rec.rawQual->size()) &&
-         !rec.cigOps.empty();
-}
 
-static std::string to_string (const apb_input_record1_t& rec)
+static bool valid (const apb_pileup1_t rec) { return rec.qPos_0ho >= 0; }
+static bool valid (const apb_row1_t& rec)
 {
-  std::string s = "apb_input_record1_t{start: ";
-  s += std::to_string (rec.start_0ho);
-  s += ", end: ";
-  s += std::to_string (rec.end_0ho);
-  s += ", qPos: ";
-  s += std::to_string (rec.qPos_0ho);
-  s += ", cigOps.size: ";
-  s += std::to_string (rec.cigOps.size());
-  s += '}';
-  return s;
+  // NOTE: there's a lot more we could check...
+  const bool startOk = rec.start_0ho >= 0;
+  const bool endOk = !rec.end_0ho || *rec.end_0ho > rec.start_0ho;
+  const bool seqQualOk =
+      !rec.seq || !rec.qual || rec.seq->size() == rec.qual->size();
+  const bool cigOk = !rec.cigBlob.empty();
+  const bool plpOk = !rec.plp || valid (*rec.plp);
+  return startOk && endOk && seqQualOk && cigOk && plpOk;
 }
 
 // Convert a bam_pileup1_t
 // into the pileup database
 // interface type.
-std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
-    std::span<const bam_pileup1_t> plpIn,
-    std::span<apb_input_record1_t> recordsOut,
+std::expected<size_t, transform_err_t> apb_transform_pileup1 (
+    std::span<const bam_pileup1_t> plpIn, std::span<apb_row1_t> recordsOut,
     const std::function<const char*(int)>& mtid2name
 )
 {
@@ -175,42 +164,38 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
     const auto& p1 = plpIn[i];
     auto& r1 = recordsOut[i];
     r1 = {};  // several fields below are set only conditionally
+    r1.plp.emplace();
 
     {
       const auto* br_b1 = p1.b;
       const auto nCig = br_b1->core.n_cigar;
       const auto* br_cig = bam_get_cigar (br_b1);
 
-      r1.qPos_0ho = p1.qpos;
+      r1.plp->qPos_0ho = p1.qpos;
       r1.start_0ho = br_b1->core.pos;
       if (br_b1->core.mpos >= 0) {  // <0 == unaligned (or no mate)
         r1.mStart_0ho = br_b1->core.mpos;
       }
 
-      r1.indel = p1.indel;
-      r1.isDel = p1.is_del;
-      r1.isHead = p1.is_head;
-      r1.isTail = p1.is_tail;
-      r1.isRefSkip = p1.is_refskip;
+      r1.plp->indel = p1.indel;
+      r1.plp->is_del = p1.is_del;
+      r1.plp->is_refskip = p1.is_refskip;
       // NOTE: qname null terminated,
       // so assignment safe.
       r1.qName = bam_get_qname (br_b1);
       r1.flag = br_b1->core.flag;
-      r1.mapQ = br_b1->core.qual;
-      r1.cigOps = {br_cig, br_cig + nCig};
+      if (br_b1->core.qual != 255) {  // 255 == unavailable, per SAM spec
+        r1.mapQ = br_b1->core.qual;
+      }
+      r1.cigBlob = {br_cig, br_cig + nCig};
 
       /* stringify mtid, if available */
-      // '=' if same contig as this read, per SAM RNEXT convention;
+      // real contig name; the reads view renders '='.
       // NULL if no mate reference (core.mtid < 0).
       if (mtid2name && p1.b->core.mtid >= 0) {
-        if (p1.b->core.mtid == p1.b->core.tid) {
-          r1.mtidName = "=";
-        }
-        else {
-          const auto* name = mtid2name (p1.b->core.mtid);
-          if (name != nullptr) {
-            r1.mtidName = name;
-          }
+        const auto* name = mtid2name (p1.b->core.mtid);
+        if (name != nullptr) {
+          r1.mtidName = name;
         }
       }
 
@@ -227,52 +212,40 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
           for (size_t j = 0; j < lq; ++j) {
             (*r1.seq)[j] = seq_nt16_str[bam_seqi (br_qs, j)];
           }
-          if (!p1.is_del) {
-            r1.base = (*r1.seq)[static_cast<size_t> (p1.qpos)];
-          }
         }
         if (hasQual) {
-          r1.rawQual.emplace (lq);
+          // clamp to SAM spec max, i.e. '~' as phred+33
+          constexpr uint8_t k_maxQual = 93;
+          r1.qual.emplace (lq, ' ');
           const uint8_t* br_qq = bam_get_qual (br_b1);
           for (size_t j = 0; j < lq; ++j) {
-            (*r1.rawQual)[j] = br_qq[j];
-          }
-          if (!p1.is_del) {
-            r1.baseQual = br_qq[p1.qpos];
+            (*r1.qual)[j] =
+                static_cast<char> (std::min (br_qq[j], k_maxQual) + 33);
           }
         }
         // else these fields are nullopt
       }
 
       {
-        /* stringify cigar */
-        for (size_t opi = 0; opi < nCig; opi++) {
-          const auto cigel = br_cig[opi];
-          r1.cigStr += std::to_string (bam_cigar_oplen (cigel));
-          r1.cigStr += bam_cigar_opchr (cigel);
-        }
-
+        /* end from cigar */
         r1.end_0ho = r1.start_0ho +
                      bam_cigar2rlen (static_cast<int> (nCig), br_cig);
       }
 
       {
-        /* aux to json; left empty if no aux tags present */
-        auto& auxJson = r1.auxJson;
+        /* aux to json; nullopt if no aux tags present */
         // aux tags run from bam_get_aux to the end of the record
         std::span<const uint8_t> auxRest{
             bam_get_aux (br_b1), br_b1->data + br_b1->l_data
         };
         if (!auxRest.empty()) {
-          auxJson += '{';
+          auto& auxJson = r1.auxJson.emplace ("{");
           static std::string tagEntryBuf;
           while (!auxRest.empty()) {
             const auto next = aux1_to_json (auxRest, &tagEntryBuf);
             if (!next) {
               return std::unexpected (
-                  transform_p1_err_t{
-                      transform_p1_err_t::aux_parse_fail, p1.b
-                  }
+                  transform_err_t{transform_err_t::aux_parse_fail, p1.b}
               );
             }
             auxJson += tagEntryBuf;
@@ -285,11 +258,140 @@ std::expected<size_t, transform_p1_err_t> apb_transform_pileup1 (
         }
       }
 
-      APB_ASSERT (valid (r1), to_string (r1));
+      APB_ASSERT (valid (r1));
     }
   }
   return i;
 }
+
+
+// std::expected<size_t, transform_err_t>
+// apb_transform_bam1 (
+//     std::span<const bam1_t*> samIn,
+//     std::span<apb_input_record1_t> recordsOut,
+//     const std::function<const char*(int)>& mtid2name,
+//     int64_t locusPos_0ho
+// )
+// {
+//   size_t i = 0;
+//   for (; i < samIn.size() && i < recordsOut.size(); i++) {
+//     const auto& br_b1 = samIn[i];
+//     auto& r1 = recordsOut[i];
+//     r1 = {};  // several fields below are set only conditionally, so clear
+
+//     {
+//       const auto nCig = br_b1->core.n_cigar;
+//       const auto* br_cig = bam_get_cigar (br_b1);
+
+//       r1.qPos_0ho = p1.qpos;
+//       r1.start_0ho = br_b1->core.pos;
+//       if (br_b1->core.mpos >= 0) {  // <0 == unaligned (or no mate)
+//         r1.mStart_0ho = br_b1->core.mpos;
+//       }
+
+//       r1.indel = p1.indel;
+//       r1.isDel = p1.is_del;
+//       r1.isHead = p1.is_head;
+//       r1.isTail = p1.is_tail;
+//       r1.isRefSkip = p1.is_refskip;
+//       // NOTE: qname null terminated,
+//       // so assignment safe.
+//       r1.qName = bam_get_qname (br_b1);
+//       r1.flag = br_b1->core.flag;
+//       r1.mapQ = br_b1->core.qual;
+//       r1.cigBlob = {br_cig, br_cig + nCig};
+
+//       /* stringify mtid, if available */
+//       // '=' if same contig as this read, per SAM RNEXT convention;
+//       // NULL if no mate reference (core.mtid < 0).
+//       if (mtid2name && p1.b->core.mtid >= 0) {
+//         if (p1.b->core.mtid == p1.b->core.tid) {
+//           r1.mtidName = "=";
+//         }
+//         else {
+//           const auto* name = mtid2name (p1.b->core.mtid);
+//           if (name != nullptr) {
+//             r1.mtidName = name;
+//           }
+//         }
+//       }
+
+//       {
+//         /* stringify seq, qual */
+//         const auto lq = static_cast<size_t> (br_b1->core.l_qseq);
+//         // Tests per sam format spec
+//         const bool hasSeq = lq > 0;
+//         const bool hasQual = hasSeq && bam_get_qual (br_b1)[0] != 0xFF;
+//         if (hasSeq) {
+//           r1.seq.emplace (lq, ' ');
+
+//           const uint8_t* br_qs = bam_get_seq (br_b1);
+//           for (size_t j = 0; j < lq; ++j) {
+//             (*r1.seq)[j] = seq_nt16_str[bam_seqi (br_qs, j)];
+//           }
+//           if (!p1.is_del) {
+//             r1.base = (*r1.seq)[static_cast<size_t> (p1.qpos)];
+//           }
+//         }
+//         if (hasQual) {
+//           r1.rawQual.emplace (lq);
+//           const uint8_t* br_qq = bam_get_qual (br_b1);
+//           for (size_t j = 0; j < lq; ++j) {
+//             (*r1.rawQual)[j] = br_qq[j];
+//           }
+//           if (!p1.is_del) {
+//             r1.baseQual = br_qq[p1.qpos];
+//           }
+//         }
+//         // else these fields are nullopt
+//       }
+
+//       {
+//         /* stringify cigar */
+//         for (size_t opi = 0; opi < nCig; opi++) {
+//           const auto cigel = br_cig[opi];
+//           r1.cigStr += std::to_string (bam_cigar_oplen (cigel));
+//           r1.cigStr += bam_cigar_opchr (cigel);
+//         }
+
+//         r1.end_0ho = r1.start_0ho +
+//                      bam_cigar2rlen (static_cast<int> (nCig), br_cig);
+//       }
+
+//       {
+//         /* aux to json; left empty if no aux tags present */
+//         auto& auxJson = r1.auxJson;
+//         // aux tags run from bam_get_aux to the end of the record
+//         std::span<const uint8_t> auxRest{
+//             bam_get_aux (br_b1), br_b1->data + br_b1->l_data
+//         };
+//         if (!auxRest.empty()) {
+//           auxJson += '{';
+//           static std::string tagEntryBuf;
+//           while (!auxRest.empty()) {
+//             const auto next = aux1_to_json (auxRest, &tagEntryBuf);
+//             if (!next) {
+//               return std::unexpected (
+//                   transform_err_t{
+//                       transform_err_t::aux_parse_fail, p1.b
+//                   }
+//               );
+//             }
+//             auxJson += tagEntryBuf;
+//             auxRest = *next;
+//             if (!auxRest.empty()) {
+//               auxJson += ',';
+//             }
+//           }
+//           auxJson += '}';
+//         }
+//       }
+
+//       APB_ASSERT (valid (r1), to_string (r1));
+//     }
+//   }
+//   return i;
+// }
 
 
 /* --- TESTS --- */
@@ -461,9 +563,13 @@ TEST_CASE ("aux1_to_json")
 // - eqx (3=1X6=), hardclip (2H8M3H), softclip (3S5M2S): qpos/base
 // - qualstar (QUAL '*'): qual NULL, seq set
 // - seqstar (SEQ '*'): seq and qual NULL
-// - head / tail / onebase (1M): is_head, is_tail
+// - head / tail / onebase (1M): is_head, is_tail (columns since removed)
 // - no aux tags: tags NULL
 // Seq/qual were distinct per index, so base/basequal checked qpos.
+// New since schema v3, also untested:
+// - mapq 255 -> mapQ unset
+// - mate on same contig -> real contig name, not '='
+// - valid() rejections
 // FIXME: but you know what do bam1_t ingest pathway first and
 // collecting reads around locus as it may change this pathway anyway
 

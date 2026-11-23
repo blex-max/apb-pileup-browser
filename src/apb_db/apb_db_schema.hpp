@@ -6,7 +6,7 @@
 
 #include "utility/stringify.hpp"
 
-#define APB_SCHEMA_VER 2
+#define APB_SCHEMA_VER 3
 
 
 // NOTE: sqlite3 bind indexing is 1-based, select indexing
@@ -18,11 +18,10 @@ namespace schema {
 // but this is actually used internally, so we
 // use user_version, which is always safe.
 inline constexpr std::string_view sqlSetVersion =
-  "PRAGMA user_version = " STR(APB_SCHEMA_VER) ";";
+"PRAGMA user_version = " STR(APB_SCHEMA_VER) ";";
 
-inline constexpr std::string_view sqlSetFK =
-    R"sql(
-    PRAGMA foreign_keys = ON;
+inline constexpr std::string_view sqlSetFK = R"sql(
+PRAGMA foreign_keys = ON;
 )sql";
 
 inline constexpr std::string_view sqlCreateLocusTable =
@@ -34,25 +33,27 @@ CREATE TABLE locus_metadata (
     -- locus
     -- string name of contig
     contig TEXT NOT NULL CHECK (contig <> ''),
+
     -- 1-based pileup position
-    pos    INTEGER NOT NULL CHECK (pos > 0),
+    pileup_position    INTEGER NOT NULL CHECK (pileup_position > 0),
+
     -- 1-based leftmost and rightmost coordinate
-    -- from reads spanning the pileup.
-    start  INTEGER NOT NULL CHECK (start > 0),
-    end    INTEGER NOT NULL CHECK (start <= end),
+    -- from stored records.
+    records_start  INTEGER NOT NULL CHECK (records_start > 0),
+    records_end    INTEGER NOT NULL CHECK (records_end >= records_start),
 
     -- reference slice spanned by pileup
     ref    TEXT,
 
     -- number of alignment files represented in db
-    n_aln INTEGER NOT NULL CHECK (n_aln > 0),
-    
-    CHECK (pos >= start AND pos <= end)
+    n_sources INTEGER NOT NULL CHECK (n_sources > 0),
+
+    CHECK (pileup_position >= records_start AND pileup_position <= records_end)
 ) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertMetadata = R"sql(
-INSERT INTO locus_metadata (contig, pos, start, end, ref, n_aln) VALUES (?,?,?,?,?,?);
+INSERT INTO locus_metadata (contig, pileup_position, records_start, records_end, ref, n_sources) VALUES (?,?,?,?,?,?);
 )sql";
 
 struct MetaTableSelect {
@@ -60,11 +61,11 @@ struct MetaTableSelect {
   enum Idx : uint8_t {
     id,
     contig,
-    pos,
-    start,
-    end,
+    pileup_position,
+    records_start,
+    records_end,
     ref,
-    n_aln,
+    n_sources,
   };
 
   // not a prefix, only one row, complete retrieval
@@ -74,111 +75,174 @@ struct MetaTableSelect {
 };
 
 inline constexpr std::string_view sqlCreateFileTable = R"sql(
-  CREATE TABLE alignment_files (
+  CREATE TABLE record_sources (
     id  INTEGER PRIMARY KEY,
-    path TEXT NOT NULL UNIQUE,
-    has_contig INTEGER NOT NULL CHECK (has_contig IN (0, 1))
+    source TEXT NOT NULL UNIQUE,         -- source identifier, e.g. alignment file path or patient ID
+    has_contig INTEGER NOT NULL CHECK (  -- whether source has contig, to disambiguate contig presence with no records from contig absence
+      has_contig IN (0, 1)
+    )
   ) STRICT;
 )sql";
 
 inline constexpr std::string_view sqlInsertFile = R"sql(
-  INSERT INTO alignment_files (path, has_contig) VALUES (?, ?);
+INSERT INTO record_sources (source, has_contig) VALUES (?, ?);
 )sql";
 
-// One row per read overlapping pileup reference position.
-inline constexpr std::string_view sqlCreatePerRecordTable =
-    R"sql(
-CREATE TABLE per_record_data (
-    id          INTEGER PRIMARY KEY,
-
-    -- pileup position fields
-    qname       TEXT,  -- Query template NAME
-    flag        INTEGER NOT NULL,  -- bitwise FLAG
-    start       INTEGER NOT NULL CHECK (start > 0),        -- 1-based leftmost mapping pos
-    end         INTEGER NOT NULL CHECK (end >= start),     -- 1-based righmost mapping pos
-    mapq        INTEGER NOT NULL CHECK (mapq >= 0 AND mapq <= 255),  -- MAPping Quality
-
-    base        TEXT CHECK (base IS NULL OR length (base) = 1),  -- query base at pileup position (denormalised from seq for easy access)
-    -- query base quality. SAM format spec specifies [0, 93], but see base-quality-ranges.txt in repo...
-    basequal    INTEGER CHECK (basequal IS NULL OR (basequal >= 0 AND basequal <= 93)),  
-    qpos        INTEGER NOT NULL CHECK (qpos > 0),  -- 1-based offset into seq/qual at this position
-    indel       INTEGER NOT NULL,  -- indel length to the next position (0 none, >0 ins, <0 del)
-    is_del      INTEGER NOT NULL CHECK (is_del IN (0, 1)),
-    is_head     INTEGER NOT NULL CHECK (is_head IN (0, 1)),
-    is_tail     INTEGER NOT NULL CHECK (is_tail IN (0, 1)),
-    is_refskip  INTEGER NOT NULL CHECK (is_refskip IN (0, 1)),
-
-    -- bam1_t/alignment fields
-    cigar       TEXT NOT NULL CHECK (cigar <> ''),  -- CIGAR string, stored as text for querying purposes. Cannot be null/empty for a mapped read.
-    -- these can legitamtely be empty for e.g. an entirely hard clipped read
-    seq         TEXT,  -- segment SEQuence
-    qual        BLOB,  -- array of base qualities [0, 93] as uint8_t
-
-    mtid        TEXT CHECK (mtid IS NULL OR mtid <> ''),  -- Ref name of the mate/next read ('=' if same as tid per spec)
-    mstart      INTEGER CHECK (mstart IS NULL OR mstart > 0),  -- 1-based leftmost mapping position of the mate/next read, can be null
-
-    -- Aux tags serialized as a JSON
-    -- e.g. {"NM":2,"MD":"76","RG":"sample1"}. Query individual tags with
-    -- json_extract(tags, '$.NM'). NULL if the read has no aux tags.
-    tags        TEXT CHECK (json_valid (tags)),
-
-    -- for frontend alignment purposes
-    cig_uint32  BLOB NOT NULL,  -- cannot be null for a mapped read
-    ncig        INTEGER NOT NULL,
-
-    path_id INTEGER NOT NULL REFERENCES alignment_files(id),
-
-    CHECK (length (seq) = length (qual)),
-    CHECK (base IS NULL OR seq IS NULL OR base = substr (seq, qpos, 1)),
-    CHECK (basequal IS NULL OR qual IS NULL OR hex (substr (qual, qpos, 1)) = printf ('%02X', basequal)),
-    CHECK (length (cig_uint32) = ncig * 4)
+inline constexpr std::string_view sqlCreateContigTable = R"sql(
+CREATE TABLE contigs (
+  id      INTEGER PRIMARY KEY,
+  contig  TEXT NOT NULL UNIQUE
 ) STRICT;
 )sql";
 
-inline constexpr std::string_view sqlInsertReads = R"sql(
-INSERT INTO per_record_data (
-  qname, flag, start, end, mapq,
-  base, basequal, qpos, indel, is_del, is_head, is_tail, is_refskip,
-  cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig, path_id
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+inline constexpr std::string_view sqlInsertContig = R"sql(
+INSERT INTO contigs (contig) VALUES (:contig);
 )sql";
 
-// FIXME: rename "reads" to "pileup"
+// NOTE: some of these fields may become deprecated
+// as apb sqlite3 extensions are developed
+inline constexpr std::string_view sqlCreatePileupTable = R"sql(
+CREATE TABLE pileup_records (
+    id          INTEGER PRIMARY KEY,
+    -- optional pileup fields --
+    -- base/basequal are derived on the reads view.
+    qpos        INTEGER NOT NULL,          -- 1-based offset into seq/qual at this position, or next
+                                           -- operation start postion iff base is deleted/refskip.
+                                           -- NOT NULL even for del/refskip since examining read position
+                                           -- bias may still be useful in these cases
+    indel       INTEGER NOT NULL,          -- indel length to the next position (0 none, >0 ins, <0 del)
+    -- booleans
+    is_del      INTEGER NOT NULL CHECK (
+      is_del IN (0, 1)
+    ),
+    is_refskip  INTEGER NOT NULL CHECK (
+      is_refskip IN (0, 1)
+    )
+) STRICT;
+)sql";
+
+// One row per read overlapping pileup reference position.
+inline constexpr std::string_view sqlCreateSAMTable =
+    R"sql(
+CREATE TABLE sam_records (
+    id        INTEGER PRIMARY KEY,
+
+    -- key SAM fields for apb --
+    start     INTEGER NOT NULL CHECK (  -- 1-based leftmost mapping pos
+      start > 0
+    ),
+    cig32     BLOB NOT NULL CHECK (     -- 32-bit CIGAR operation array, as defined in htslib::sam.h
+      length (cig32) > 0
+    ),
+    -- SAM fields --
+    -- seq/qual can be legitimately absent for
+    -- e.g. an entirely hard clipped read
+    seq       TEXT,                     -- base sequence
+    qual      TEXT CHECK (              -- base qualities as phred+33 ASCII, i.e. [0, 93] -> ['!', '~']
+      qual IS NULL OR (qual <> '' AND qual NOT GLOB '*[^!-~]*')
+    ),
+    cigar     TEXT CHECK (     -- CIGAR string, denormalised as text for textual querying.
+      cigar <> ''
+    ),
+
+    end       INTEGER CHECK (           -- 1-based righmost mapping pos
+      end IS NULL OR end >= start
+    ),
+    qname     TEXT,                     -- Query template NAME
+    flag      INTEGER CHECK (           -- 12-bit bitwise FLAG
+      flag IS NULL OR flag <= 4095
+    ),
+    mapq      INTEGER CHECK (           -- mapping quality; NULL if unavailable (255 in SAM)
+      mapq IS NULL OR mapq >= 0 AND mapq <= 254
+    ),
+    mtid_id   INTEGER REFERENCES contigs(id),
+    mstart    INTEGER CHECK (           -- 1-based leftmost mapping position of the mate/next read
+      mstart IS NULL OR mstart > 0
+    ),
+    -- SAM Aux tags serialized as a JSON
+    -- e.g. {"NM":2,"MD":"76","RG":"sample1"}. Query individual tags with
+    -- json_extract(tags, '$.NM'). NULL if the read has no aux tags.
+    tags      TEXT CHECK (
+      json_valid (tags)
+    ),
+
+    pileup_id INTEGER UNIQUE REFERENCES pileup_records(id),
+    source_id INTEGER NOT NULL REFERENCES record_sources(id),
+
+    CHECK (seq IS NULL OR qual IS NULL OR length (seq) = length (qual))
+) STRICT;
+)sql";
+
+// NOTE: when the viewer shows nearby reads, add
+// `pileup_id IS NOT NULL AS aligned_to_locus` (shifts UserReadViewSelect)
 inline constexpr std::string_view sqlCreateUserView = R"sql(
   CREATE VIEW reads AS
-    SELECT r.*, f.path
-    FROM per_record_data r JOIN alignment_files f ON f.id = r.path_id;
+    SELECT
+      r.*,
+      -- '=' if mate on the db contig, per SAM RNEXT;
+      -- all records share that contig
+      CASE WHEN c.contig = (SELECT contig FROM locus_metadata)
+        THEN '='
+        ELSE c.contig
+      END AS mtid,
+      p.qpos, p.indel, p.is_del, p.is_refskip,
+      -- base/basequal at pileup position; NULL if deleted/refskip or no pileup row
+      CASE WHEN p.is_del = 0 AND p.is_refskip = 0
+        THEN substr (r.seq, p.qpos, 1)
+      END AS base,
+      CASE WHEN p.is_del = 0 AND p.is_refskip = 0
+        THEN unicode (substr (r.qual, p.qpos, 1)) - 33
+      END AS basequal,
+      f.source
+    FROM sam_records r
+    LEFT JOIN pileup_records p ON p.id = r.pileup_id
+    LEFT JOIN record_sources f ON f.id = r.source_id
+    LEFT JOIN contigs c ON c.id = r.mtid_id;
 )sql";
 
+// std::unordered_map<std::string, int> col_index (sqlite3_stmt* stmt)
+// {
+//   std::unordered_map<std::string, int> m;
+//   const int n = sqlite3_column_count (stmt);
+//   for (int i = 0; i < n; ++i) {
+//     m.emplace (sqlite3_column_name (stmt, i), i);
+//   }
+//   return m;
+// }
+
+// Things to be aware of:
+
+// - Name all expression columns with AS. SQLite only guarantees the result column name when there's an AS alias. For a bare column (SELECT start FROM ...) or SELECT * it uses the column name in practice. For an expression without an alias, the name is officially unspecified. The view already aliases base and basequal, so that's fine.
+// - Duplicate names can clash. A join can produce two columns called id, and emplace keeps only the first. This is another reason the view leaves out p.id.
+
 struct UserReadViewSelect {
-  // TIED TO SCHEMA ORDER
-  // query callers all use
-  // SELECT * FROM reads - returns in schema order.
+  // TIED TO VIEW COLUMN ORDER
+  // (sam_records columns, then joined columns).
+  // query callers all use SELECT * FROM reads.
   enum Idx : uint8_t {
     id,  // 0
+    start,
+    cig32,
+    seq,
+    qual,
+    cigar,
+    end,
     qname,
     flag,
-    start,
-    end,
     mapq,
-    base,
-    basequal,
+    mtid_id,
+    mstart,
+    tags,
+    pileup_id,
+    source_id,
+    mtid,
     qpos,
     indel,
     is_del,
-    is_head,
-    is_tail,
     is_refskip,
-    cigar,
-    seq,
-    qual,
-    mtid,
-    mstart,
-    tags,
-    cig_uint32,
-    ncig,
-    path_id,
-    path,
+    base,
+    basequal,
+    source,
   };
 
   // FIXME: it's beefier,

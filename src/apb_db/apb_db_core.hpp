@@ -35,13 +35,16 @@ struct apb_verify_result_t {
     sqlite3* conn
 );
 
-// verify that the content of an apb db is well formed
+// verify that the content of an apb db is well formed:
+// schema constraints, foreign keys, and metadata present
+// and consistent with records.
 struct apb_validate_result_t {
   enum codes_t : uint8_t {
     success,
     failedIntegrityCheck,
     failedForeignKeyCheck,
-    missingLocus
+    missingLocus,
+    metadataMismatch  // metadata contradicts records; see problems
   };
   codes_t code;
   std::optional<std::string> problems = std::nullopt;
@@ -57,54 +60,48 @@ struct apb_validate_result_t {
     sqlite3* conn, std::string_view alnPath, bool hasContig
 );
 
-// flat layout of htslib data to be entered
-// into the database for a single read.
-struct apb_input_record1_t {
-  // 0-INDEXED - MATCHES RAW HTSLIB REPRESENTATION.
-  // FIXME: for loading reads from nearby locus,
-  // more fields will need to be optional, and
-  // there should be an e.g. aligned_to_locus boolean.
-
-  // NOTE: layout as table schema
-  std::string qName = "?";
-  uint16_t flag = UINT16_MAX;
-  int64_t start_0ho = -1;
-  int64_t end_0ho = -1;
-  uint8_t mapQ = UINT8_MAX;
-
-  std::optional<char> base = std::nullopt;
-  std::optional<uint8_t> baseQual = std::nullopt;
+struct apb_pileup1_t {
   int32_t qPos_0ho = -1;
   int indel = INT_MAX;
-  bool isDel = false, isHead = false, isTail = false, isRefSkip = false;
+  // bitfield
+  uint8_t is_del : 1 = 0, is_refskip : 1 = 0;
+};
+// htslib data to be entered
+// into the database for a single read.
+struct apb_row1_t {
+  // 0-INDEXED - MATCHES RAW HTSLIB REPRESENTATION.
+  // For loading of surrounding reads not aligned
+  // to a specific locus, plp is nullopt.
 
-  std::string cigStr;
+  int64_t start_0ho = -1;
+  std::vector<uint32_t> cigBlob;
+
+  std::optional<int64_t> end_0ho = std::nullopt;
   std::optional<std::string> seq = std::nullopt;
-  std::optional<std::vector<uint8_t>> rawQual = std::nullopt;
-
+  std::optional<std::string> qual = std::nullopt;  // phred+33
+  std::optional<uint16_t> flag = std::nullopt;
+  std::optional<uint8_t> mapQ = std::nullopt;
   std::optional<std::string> mtidName = std::nullopt;
   std::optional<int64_t> mStart_0ho = std::nullopt;
-
-  std::string auxJson;
-
-  std::vector<uint32_t> cigOps;
+  std::optional<std::string> qName = std::nullopt;
+  std::optional<std::string> auxJson = std::nullopt;
+  std::optional<apb_pileup1_t> plp = std::nullopt;
 };
 
-// insert pileup into db for a single alignment file.
+// insert records, with or without pileup, for a single source.
 // Returns SQLITE_OK on success, sqlite err code on failure.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] int apb_insert_records (
-    sqlite3* conn, std::span<const apb_input_record1_t> recs,
-    sqlite3_int64 alnId
+    sqlite3* conn, std::span<const apb_row1_t> recs, sqlite3_int64 alnId
 );
 
 // Insert pileup locus info into single-row metadata table.
-// This should be called last, when all alignment files and pilupes
-// have been inserted, as it retrieves data from those tables
+// Call last, once all sources and records are inserted:
+// the records span and n_sources are derived from those tables.
+// ref, if given, must cover exactly that span.
 // Returns SQLITE_OK on success, sqlite err code on failure.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] int apb_insert_locus (
     sqlite3* conn, const std::string& contigName, int64_t pos_0ho,
-    int64_t spanStart_0ho, int64_t spanEnd_0ho,
     std::optional<std::string_view> ref
 );
