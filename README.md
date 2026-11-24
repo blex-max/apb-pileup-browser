@@ -20,13 +20,13 @@ The TUI is tailored to exploratory viewing and pattern hunting at loci; the sear
 
 The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the prompt (`WHERE`), including the count of reads matching the query.  
 
-In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
+In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`. Soft clips are shown in brackets like `(ACTG)`, and hard clips as `h(length)`.
 
 The display is configurable: many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, masking with `=` can be turned on and off, etc. The browser is navigated by simple keybindings, and there is extensive and clear documentation available in the manual.  
 
 apb was initially designed for viewing and querying the pileup at candidate variant loci, but has since proved useful in multiple contexts.
 
-**`apb` is pre-1.0!**
+**`apb` is pre-1.0!**  
 All features are subject to change. Feedback, bug reports, and feature requests are very much appreciated.
 
 ## Install
