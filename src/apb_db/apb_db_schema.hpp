@@ -42,10 +42,10 @@ CREATE TABLE locus_metadata (
     records_start  INTEGER NOT NULL CHECK (records_start > 0),
     records_end    INTEGER NOT NULL CHECK (records_end >= records_start),
 
-    -- reference slice spanned by pileup
+    -- reference slice over records_start..records_end
     ref    TEXT,
 
-    -- number of alignment files represented in db
+    -- number of record sources in db
     n_sources INTEGER NOT NULL CHECK (n_sources > 0),
 
     CHECK (pileup_position >= records_start AND pileup_position <= records_end)
@@ -74,7 +74,7 @@ struct MetaTableSelect {
       R"sql(SELECT * FROM locus_metadata;)sql";
 };
 
-inline constexpr std::string_view sqlCreateFileTable = R"sql(
+inline constexpr std::string_view sqlCreateSourceTable = R"sql(
   CREATE TABLE record_sources (
     id  INTEGER PRIMARY KEY,
     source TEXT NOT NULL UNIQUE,         -- source identifier, e.g. alignment file path or patient ID
@@ -84,7 +84,7 @@ inline constexpr std::string_view sqlCreateFileTable = R"sql(
   ) STRICT;
 )sql";
 
-inline constexpr std::string_view sqlInsertFile = R"sql(
+inline constexpr std::string_view sqlInsertSource = R"sql(
 INSERT INTO record_sources (source, has_contig) VALUES (?, ?);
 )sql";
 
@@ -104,7 +104,6 @@ INSERT INTO contigs (contig) VALUES (:contig);
 inline constexpr std::string_view sqlCreatePileupTable = R"sql(
 CREATE TABLE pileup_records (
     id          INTEGER PRIMARY KEY,
-    -- optional pileup fields --
     -- base/basequal are derived on the reads view.
     qpos        INTEGER NOT NULL,          -- 1-based offset into seq/qual at this position, or next
                                            -- operation start postion iff base is deleted/refskip.
@@ -121,7 +120,7 @@ CREATE TABLE pileup_records (
 ) STRICT;
 )sql";
 
-// One row per read overlapping pileup reference position.
+// One row per SAM record, with or without pileup.
 inline constexpr std::string_view sqlCreateSAMTable =
     R"sql(
 CREATE TABLE sam_records (
@@ -193,10 +192,10 @@ inline constexpr std::string_view sqlCreateUserView = R"sql(
       CASE WHEN p.is_del = 0 AND p.is_refskip = 0
         THEN unicode (substr (r.qual, p.qpos, 1)) - 33
       END AS basequal,
-      f.source
+      s.source
     FROM sam_records r
     LEFT JOIN pileup_records p ON p.id = r.pileup_id
-    LEFT JOIN record_sources f ON f.id = r.source_id
+    LEFT JOIN record_sources s ON s.id = r.source_id
     LEFT JOIN contigs c ON c.id = r.mtid_id;
 )sql";
 

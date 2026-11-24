@@ -440,7 +440,7 @@ std::expected<bool*, std::string> find_toggle (std::string_view name)
           {"table", &g_ui::drawTable},
           {"sparkline", &g_ui::drawSparkline},
           {"clips", &g_ui::drawClips},
-          {"bases", &g_ui::drawBases},
+          {"mask", &g_ui::drawMask},
           {"colour", &g_ui::drawColour},
       }};
   // reject ambiguous prefixes, e.g. `c`
@@ -481,9 +481,9 @@ static constexpr auto toggleDesc = std::to_array<std::string_view> ({
     "             quick-look sparkline graph.",
     "- clips:     soft clips as bases, e.g.",
     "             (ACGT), or as lengths, s(4).",
-    "- bases:     bases matching the reference",
-    "             in place of `=`, with",
-    "             mismatches highlighted.",
+    "- mask:      `=` for bases matching the",
+    "             reference. Off shows the",
+    "             bases, mismatches highlighted.",
     "- colour:    colour the reference and read",
     "             bases not matching it. Also",
     "             `color`.",
@@ -502,7 +502,7 @@ static constexpr Cmd toggleCmd{
         return {false, CMD_FMT_MISUSE (found.error(), toggleCmd)};
       }
       bool& toggle = **found;
-      if (&toggle == &g_ui::drawBases && !g_db::locusInfo.refSlice) {
+      if (&toggle == &g_ui::drawMask && !g_db::locusInfo.refSlice) {
         // true to clear input; nothing to retry
         return {true, "No reference loaded, no effect"};
       }

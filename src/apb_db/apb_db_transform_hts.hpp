@@ -14,7 +14,13 @@
 #include "apb_db/apb_db_core.hpp"
 
 
-// transform htslib pileup records into apb input type
+struct transform_err_t {
+  enum code_t : uint8_t { aux_parse_fail };
+  code_t code;
+  const bam1_t* b;  // pointer to offending record
+};
+
+// transform htslib pileup records into apb_row1_t
 // for insertion into apb database.
 // Returns a count of records transformed, indicating
 // the number of records transformed from the input span
@@ -26,19 +32,15 @@
 // aux parsing).
 // each output element is reset to
 // defaults before being filled.
-
-struct transform_err_t {
-  enum code_t : uint8_t { aux_parse_fail };
-  code_t code;
-  const bam1_t* b;  // pointer to offending record
-};
-
 [[nodiscard]] std::expected<size_t, transform_err_t>
 apb_transform_pileup1 (
     std::span<const bam_pileup1_t> plpIn, std::span<apb_row1_t> recordsOut,
     const std::function<const char*(int)>& mtid2name
 );
 
+// as apb_transform_pileup1, for bam records, e.g. reads
+// around a locus. Pileup fields are derived for reads
+// aligned to locusPos_0ho; plp is nullopt for the rest.
 [[nodiscard]] std::expected<size_t, transform_err_t> apb_transform_bam1 (
     std::span<const bam1_t* const> samIn, std::span<apb_row1_t> recordsOut,
     const std::function<const char*(int)>& mtid2name, int64_t locusPos_0ho

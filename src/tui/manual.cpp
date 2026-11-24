@@ -42,7 +42,7 @@ See the helptext from `apb --help` for the canonical guide to the CLI. Some addi
 
 `apb DB` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command), and does not take any other file input.
 
-`--settings` sets display options on opening the TUI, using the option names of the in-TUI `toggle` command, e.g. `apb --settings colour=on,bases=on --demo`.
+`-s/--settings` sets display options on opening the TUI, using the same option names as the in-TUI `toggle` command. For example `apb -s colour=on,mask=off` would tell apb to colour the reference display and sequence bases not matching reference (`colour=on`); and not to mask bases matching reference with `=` (`mask=off`). See the `toggle` command in Section 3.2 for the full list of options.
 
 ## 3) TUI Usage
 

@@ -53,11 +53,11 @@ struct apb_validate_result_t {
     sqlite3* conn
 );
 
-// insert metadata for a single alignment file into db
-// returns id for that alignment file for use when subsequently inserting pileup.
+// insert a record source, e.g. an alignment file, into db.
+// Returns its id, for apb_insert_records.
 // On failure returns sqlite3 integer status code
-[[nodiscard]] std::expected<int, int> apb_insert_aln (
-    sqlite3* conn, std::string_view alnPath, bool hasContig
+[[nodiscard]] std::expected<int, int> apb_insert_source (
+    sqlite3* conn, std::string_view source, bool hasContig
 );
 
 struct apb_pileup1_t {
@@ -92,7 +92,7 @@ struct apb_row1_t {
 // Returns SQLITE_OK on success, sqlite err code on failure.
 // CONVERTS FROM 0-INDEXED HTSLIB DATA TO 1-INDEXED INTERNAL REPRESENTATION
 [[nodiscard]] int apb_insert_records (
-    sqlite3* conn, std::span<const apb_row1_t> recs, sqlite3_int64 alnId
+    sqlite3* conn, std::span<const apb_row1_t> recs, sqlite3_int64 sourceId
 );
 
 // Insert pileup locus info into single-row metadata table.

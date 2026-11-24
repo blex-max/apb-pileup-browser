@@ -38,7 +38,7 @@ int apb_create_schema (sqlite3* conn)
   TRY_OK_INT (exec_sql (conn, schema::sqlSetVersion));
   TRY_OK_INT (exec_sql (conn, schema::sqlSetFK));
   TRY_OK_INT (exec_sql (conn, schema::sqlCreateLocusTable));
-  TRY_OK_INT (exec_sql (conn, schema::sqlCreateFileTable));
+  TRY_OK_INT (exec_sql (conn, schema::sqlCreateSourceTable));
   TRY_OK_INT (exec_sql (conn, schema::sqlCreateContigTable));
   TRY_OK_INT (exec_sql (conn, schema::sqlCreatePileupTable));
   TRY_OK_INT (exec_sql (conn, schema::sqlCreateSAMTable));
@@ -323,7 +323,7 @@ static std::string cig32_to_string (std::span<const uint32_t> cig32)
 // insert records, with or without pileup, for a single source.
 // CONVERTS FROM 0-INDEXED HALF OPEN COORDINATES TO 1-INDEXED CLOSED COORDINATES
 [[nodiscard]] int apb_insert_records (
-    sqlite3* conn, std::span<const apb_row1_t> recs, sqlite3_int64 alnId
+    sqlite3* conn, std::span<const apb_row1_t> recs, sqlite3_int64 sourceId
 )
 {
   std::unordered_map<std::string, int64_t> contigIdsByName;
@@ -437,18 +437,10 @@ static std::string cig32_to_string (std::span<const uint32_t> cig32)
         o_stmtInsertSam, samIdx.start, rec1.start_0ho + 1
     ));
 
-    // empty vector data() may be null, which would bind NULL
-    if (rec1.cigBlob.empty()) {
-      TRY_OK_INT (
-          sqlite3_bind_zeroblob (o_stmtInsertSam, samIdx.cig32, 0)
-      );
-    }
-    else {
-      TRY_OK_INT (sqlite3_bind_blob (
-          o_stmtInsertSam, samIdx.cig32, rec1.cigBlob.data(),
-          static_cast<int> (rec1.cigBlob.size() << 2), SQLITE_TRANSIENT
-      ));
-    }
+    TRY_OK_INT (sqlite3_bind_blob (
+        o_stmtInsertSam, samIdx.cig32, rec1.cigBlob.data(),
+        static_cast<int> (rec1.cigBlob.size() << 2), SQLITE_TRANSIENT
+    ));
 
     if (rec1.seq) {
       TRY_OK_INT (sqlite3_bind_text (
@@ -592,7 +584,7 @@ static std::string cig32_to_string (std::span<const uint32_t> cig32)
     // else :pileup_id NULL via clear_bindings
 
     TRY_OK_INT (
-        sqlite3_bind_int64 (o_stmtInsertSam, samIdx.source_id, alnId)
+        sqlite3_bind_int64 (o_stmtInsertSam, samIdx.source_id, sourceId)
     );
 
     if (const auto rc = sqlite3_step (o_stmtInsertSam);
@@ -708,33 +700,34 @@ static std::string cig32_to_string (std::span<const uint32_t> cig32)
   return {};
 }
 
-std::expected<int, int> apb_insert_aln (
-    sqlite3* conn, std::string_view alnPath, bool hasContig
+std::expected<int, int> apb_insert_source (
+    sqlite3* conn, std::string_view source, bool hasContig
 )
 {
   APB_ASSERT (conn != nullptr);
-  APB_ASSERT (!alnPath.empty());
+  APB_ASSERT (!source.empty());
 
-  sqlite3_stmt* o_fileInsertStmt;
-  Defer file_stmt_cleanup ([&o_fileInsertStmt]() {
-    sqlite3_finalize (o_fileInsertStmt);
+  sqlite3_stmt* o_sourceInsertStmt;
+  Defer source_stmt_cleanup ([&o_sourceInsertStmt]() {
+    sqlite3_finalize (o_sourceInsertStmt);
   });
   TRY_OK_EXP (sqlite3_prepare_v2 (
-      conn, schema::sqlInsertFile.data(),
-      static_cast<int> (schema::sqlInsertFile.size()), &o_fileInsertStmt,
-      NULL
+      conn, schema::sqlInsertSource.data(),
+      static_cast<int> (schema::sqlInsertSource.size()),
+      &o_sourceInsertStmt, NULL
   ));
   TRY_OK_EXP (sqlite3_bind_text (
-      o_fileInsertStmt, 1, alnPath.data(),
-      static_cast<int> (alnPath.size()), SQLITE_TRANSIENT
+      o_sourceInsertStmt, 1, source.data(),
+      static_cast<int> (source.size()), SQLITE_TRANSIENT
   ));
-  TRY_OK_EXP (
-      sqlite3_bind_int (o_fileInsertStmt, 2, static_cast<bool> (hasContig))
-  );
-  if (const auto rc = sqlite3_step (o_fileInsertStmt); rc != SQLITE_DONE) {
+  TRY_OK_EXP (sqlite3_bind_int (
+      o_sourceInsertStmt, 2, static_cast<bool> (hasContig)
+  ));
+  if (const auto rc = sqlite3_step (o_sourceInsertStmt);
+      rc != SQLITE_DONE) {
     return std::unexpected (rc);
   }
-  file_stmt_cleanup.invoke();
+  source_stmt_cleanup.invoke();
   return sqlite3_last_insert_rowid (conn);
 }
 
@@ -742,7 +735,6 @@ std::expected<int, int> apb_insert_aln (
 /* --- TESTS --- */
 #ifndef DOCTEST_CONFIG_DISABLE
 
-#include <cstring>
 #include <vector>
 
 #include "doctest.h"
@@ -755,8 +747,8 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
 {
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
-  const auto alnId = apb_insert_aln (conn, "test.bam", true);
-  REQUIRE (alnId);
+  const auto sourceId = apb_insert_source (conn, "test.bam", true);
+  REQUIRE (sourceId);
 
   // packed as htslib: len << 4 | op (BAM_CMATCH = 0)
   constexpr uint32_t k_cig10M = 10U << 4;
@@ -798,7 +790,7 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   empty.cigBlob = {k_cig6M};
 
   const std::vector<apb_row1_t> recs{full, empty};
-  REQUIRE (apb_insert_records (conn, recs, *alnId) == SQLITE_OK);
+  REQUIRE (apb_insert_records (conn, recs, *sourceId) == SQLITE_OK);
 
   sqlite3_stmt* o_stmt = nullptr;
   REQUIRE (
@@ -850,7 +842,7 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
     CHECK (asInt (Col::mstart) == 500);
     CHECK (asText (Col::tags) == R"({"NM":1})");
     CHECK (sqlite3_column_bytes (o_stmt, Col::cig32) == 4);
-    CHECK (asInt (Col::source_id) == *alnId);
+    CHECK (asInt (Col::source_id) == *sourceId);
   }
 
   SUBCASE ("empty")
@@ -870,26 +862,28 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
     CHECK (isNull (Col::tags));
   }
 
-  SUBCASE ("unknown alignment file fails on foreign key")
+  SUBCASE ("unknown source fails on foreign key")
   {
-    const auto rc = apb_insert_records (conn, recs, *alnId + 1000);
+    const auto rc = apb_insert_records (conn, recs, *sourceId + 1000);
     CHECK ((rc & 0xFF) == SQLITE_CONSTRAINT);
   }
 }
 
-TEST_CASE ("apb_insert_aln returns ids, and an error for a duplicate path")
+TEST_CASE (
+    "apb_insert_source returns ids, and an error for a duplicate source"
+)
 {
   sqlite3* conn = test::new_db();
   Defer closeConn ([&]() { sqlite3_close_v2 (conn); });
 
-  const auto first = apb_insert_aln (conn, "a.bam", true);
+  const auto first = apb_insert_source (conn, "a.bam", true);
   REQUIRE (first);
-  const auto second = apb_insert_aln (conn, "b.bam", false);
+  const auto second = apb_insert_source (conn, "b.bam", false);
   REQUIRE (second);
   CHECK (*second != *first);
 
   // UNIQUE (source) violation must surface as an error, not an id
-  const auto dup = apb_insert_aln (conn, "a.bam", true);
+  const auto dup = apb_insert_source (conn, "a.bam", true);
   REQUIRE_FALSE (dup);
   CHECK ((dup.error() & 0xFF) == SQLITE_CONSTRAINT);
 }

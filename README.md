@@ -2,30 +2,28 @@
 
 APB ONLINE MANUAL: https://blex-max.github.io/apb-pileup-browser/
 
-`apb` is a terminal genome browser tailored to exploratory viewing of specifc loci, and flexible querying of aligned reads.
-It is chiefly designed for verification and investigation of variant calls, but can be used to inspect the reads at any locus.
-The in-app command prompt is capable of highly complex queries, but is tuned to make exploratory pattern hunting quick and seamless.
+`apb` is a terminal genome browser and read-searcher.
+The TUI is tailored to exploratory viewing and pattern hunting at specific loci. The search syntax enables querying the locus to answer questions from the very simple to the highly complex.
 
 **Advantages:**
+- Complete display of alignment features, including insertions, deletions and soft clips
 - Powerful SQL-based query syntax for intuitive exploration.
-- Highly performant and responsive
-  - On a 100k read pileup:
+- Highly performant and responsive. On a 2 million read pileup:
     - Keypress response: ~0.1ms.
-    - Query submission: ~60ms.
-  - On a 2 million read pileup:
-    - Keypress response: ~0.1ms.
-    - Query submission: 0.86s.
+    - Query submission: <0.9s.
 - Easily installed, including on compute cluster nodes.
 - UI optimised specifically for inspecting pileup loci over general-purpose genome browsing.
 - Immediately available in the terminal; no spinning up a web instance or navigating a web UI.
 
-![apb screencap](apb-screencap-0.4.0.png)
+![apb screencap](apb-screencap-0.6.0.png)
 
 The TUI is split into 2 major regions. Focus can be switched between each reagion with `Esc`. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron `»`. Queries are displayed at the top right of the prompt (`WHERE`), including the count of reads matching the query.  
 
 In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
 
-The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, etc. The browser is navigated by simple keybindings, and there is extensive and clear documentation available in the manual.  
+The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, masking with `=` can be turned on and off, etc. The browser is navigated by simple keybindings, and there is extensive and clear documentation available in the manual.  
+
+apb was initially designed for viewing and querying the pileup at candidate variant loci, but has since proved useful in multiple contexts.
 
 **`apb` is pre-1.0!**
 All features are subject to change. You may experience crashes or bugs - if so, please report them!
@@ -79,20 +77,11 @@ General suggestions regarding improvements to commands and navigation are also a
 
 ### Planned Features
 
-- ~Multiple alignment pileups.~ Added in `v0.2.0`.
-- ~Performance improvements at ultra-high depth.~ Added in `v0.3.0`
-- ~Allow saving queries and returning to them within the same session, without having to type them out again.~ Query recall added in `v0.4.0`.
-- ~Optionally draw quality string as a sparkline graph (using unicode block characters) for reading at a glance,
-  like so: `▁▂▃▄▅▆▇█▇▆▅▄▃▂▁`.~ Added in `v0.4.0` via `toggle sparkline` command.
-- Allow display of individual SAM aux tags as columns in the table pane. Tags are currently fully queryable, but they cannot be displayed.
-- Query syntax shorthand for referencing bases, qualities or CIGAR operations at loci in the pileup span other than the pileup locus itself,
-  e.g. `where read_contains(+3, 5D)` would retrieve all reads with a 5-base deletion located 3 bases to the right of the pileup locus.
-  This is not plausible in direct SQL. Exact syntax TBD!
-- Various convenience features when writing queries at the command prompt, e.g. for doing `flag` comparisons without having to use bitwise operators.
-- Headless querying, to get results for a query known ahead of time without dropping into the TUI.
-  - Output format requires consideration.
-  - This would allow use of apb programatically.
-  - It may also be possible to expose apb as a library to scripting languages.
+- Allow display of arbitrary user columns in the table pane, including display of SAM tags.
+- Advanced motif searching syntax extenstions to the query parser.
+- Useful shorthands for common query operations, like subsetting the view to only reads which are in proper pairs.
+- Headless querying at the CLI, returning CSV results. This would allow use of apb programatically.
+- Bindings to scripting languages such as `Python` and `R` to enable querying via scripts.
 - Display of reads aligned to adjacent bases at the specified locus.
 
 ### Speculative Features

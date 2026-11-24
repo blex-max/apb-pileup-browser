@@ -433,11 +433,11 @@ conn_or_failmsg_t ingest_sam (
               )
           );
         }
-        for (int j = 0; j < nPlp; j++) {
-          const auto* b1 = br_plpArr[j].b;
-          if (loadLimitBytes) {
-            estLocusBytes += sizeof (bam_pileup1_t) + sizeof (bam1_t) +
-                             static_cast<unsigned long> (b1->l_data);
+        if (loadLimitBytes) {
+          for (int j = 0; j < nPlp; j++) {
+            estLocusBytes +=
+                sizeof (bam_pileup1_t) + sizeof (bam1_t) +
+                static_cast<unsigned long> (br_plpArr[j].b->l_data);
             if (estLocusBytes > *loadLimitBytes) {
               return std::unexpected (
                   fmt::format (
@@ -467,7 +467,7 @@ conn_or_failmsg_t ingest_sam (
 
     int alnID;
     if (const auto ret =
-            apb_insert_aln (conn, aln.path.string(), alnHasContig);
+            apb_insert_source (conn, aln.path.string(), alnHasContig);
         !ret) {
       return std::unexpected (apb_describe_sqlite_failure (
           "Failed to insert alignment file", ret.error(),
@@ -823,9 +823,7 @@ conn_or_failmsg_t ingest_demo (
   // mostly 60, some 0, a spread between
   std::discrete_distribution<int> mapQBand ({5, 15, 80});
   std::uniform_int_distribution<int> mapQMid (1, 59);
-  const std::array<uint8_t, 5> qualVals{
-      'F' - 33, 'E' - 33, 'D' - 33, ':' - 33, ';' - 33
-  };
+  const std::array<char, 5> qualChars{'F', 'E', 'D', ':', ';'};
   std::discrete_distribution<int> qualValPicker ({80, 30, 20, 15, 15});
 
   // Each read carries one allele at the pileup column...
@@ -865,8 +863,9 @@ conn_or_failmsg_t ingest_demo (
     const auto colOff = static_cast<size_t> (pos - rec.start_0ho);
 
     const auto pushOp = [&rec] (size_t len, int op) {
-      const auto cigel = static_cast<uint32_t> (bam_cigar_gen (len, op));
-      rec.cigBlob.push_back (cigel);
+      rec.cigBlob.push_back (
+          static_cast<uint32_t> (bam_cigar_gen (len, op))
+      );
     };
     const auto allele = static_cast<Allele> (allelePicker (rng));
     const auto feature =
@@ -951,9 +950,7 @@ conn_or_failmsg_t ingest_demo (
 
     std::string qual (seq.size(), ' ');
     for (auto& q : qual) {
-      q = static_cast<char> (
-          qualVals[static_cast<size_t> (qualValPicker (rng))] + 33
-      );
+      q = qualChars[static_cast<size_t> (qualValPicker (rng))];
     }
 
     plp.is_refskip = false;  // not in demo
@@ -1014,7 +1011,7 @@ conn_or_failmsg_t ingest_demo (
 
     int alnId;
     // sqlite failures are reachable with a disk target (e.g. disk full)
-    if (const auto ret = apb_insert_aln (conn, alnPath, true); !ret) {
+    if (const auto ret = apb_insert_source (conn, alnPath, true); !ret) {
       return std::unexpected (apb_describe_sqlite_failure (
           "Failed to insert demo alignment file", ret.error(),
           sqlite3_errmsg (conn)

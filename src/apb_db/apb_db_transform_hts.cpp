@@ -213,11 +213,9 @@ static bool valid (const apb_row1_t& rec)
     // else these fields are nullopt
   }
 
-  {
-    /* end from cigar */
-    r1.end_0ho =
-        r1.start_0ho + bam_cigar2rlen (static_cast<int> (nCig), br_cig);
-  }
+  /* end from cigar */
+  r1.end_0ho =
+      r1.start_0ho + bam_cigar2rlen (static_cast<int> (nCig), br_cig);
 
   {
     /* aux to json; nullopt if no aux tags present */
@@ -553,15 +551,14 @@ TEST_CASE ("aux1_to_json")
 // - eqx (3=1X6=), hardclip (2H8M3H), softclip (3S5M2S): qpos/base
 // - qualstar (QUAL '*'): qual NULL, seq set
 // - seqstar (SEQ '*'): seq and qual NULL
-// - head / tail / onebase (1M): is_head, is_tail (columns since removed)
 // - no aux tags: tags NULL
 // Seq/qual were distinct per index, so base/basequal checked qpos.
 // New since schema v3, also untested:
 // - mapq 255 -> mapQ unset
 // - mate on same contig -> real contig name, not '='
 // - valid() rejections
-// FIXME: but you know what do bam1_t ingest pathway first and
-// collecting reads around locus as it may change this pathway anyway
+// FIXME: collect nearby reads in ingest (apb_transform_bam1)
+// first, as it may change this pathway
 
 TEST_CASE ("apb_transform_pileup1")
 {

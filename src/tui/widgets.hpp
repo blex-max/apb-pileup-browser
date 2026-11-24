@@ -33,7 +33,7 @@ inline constinit bool drawAnchor = true;
 inline constinit bool drawTable = true;
 inline constinit bool drawSparkline = false;
 inline constinit bool drawClips = true;
-inline constinit bool drawBases = false;
+inline constinit bool drawMask = true;
 inline constinit bool drawColour = false;
 
 inline constexpr auto kMinWidth = 20;

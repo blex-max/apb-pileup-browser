@@ -86,7 +86,7 @@ options:
                           Invalid with DB and --demo.
   -s, --settings LIST     set display options on opening the
                           TUI, as OPTION=on|off,..., e.g.
-                          bases=on,colour=on.
+                          mask=off,colour=on.
                           See `apb --manual` for a full list
                           of toggle options.
   --manual                Print the apb manual to stdout and exit.
@@ -131,6 +131,7 @@ struct cli_args_t {
   // locus, demo
   std::optional<std::filesystem::path> dumpPath = std::nullopt;
 
+  // all modes
   // toggle, value; applied in order on opening the TUI
   std::vector<std::pair<bool*, bool>> settings;
   std::optional<std::filesystem::path> logPath = std::nullopt;

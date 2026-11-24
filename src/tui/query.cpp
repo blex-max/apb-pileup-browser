@@ -315,12 +315,6 @@ std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
   return out;
 }
 
-std::string row_path (sqlite3_stmt* stmt)
-{
-  return col_text (stmt, schema::UserReadViewSelect::source)
-      .value_or ("*");
-}
-
 }  // namespace
 
 // FIXME: complete implemententation here!

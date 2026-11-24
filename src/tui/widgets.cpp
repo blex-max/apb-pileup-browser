@@ -41,35 +41,32 @@ constexpr e2::Style none{};
 constexpr e2::Style dim{.fg = TB_DIM};
 constexpr e2::Style bold{.fg = TB_BOLD};
 
+// integer column as text, NULL as *
+static std::string int_or_star (sqlite3_stmt* row, int idx)
+{
+  const auto v = col_int64 (row, idx);
+  return v ? std::to_string (*v) : std::string{"*"};
+}
+
 namespace tui_state::ui {
 
 // FIXME: add tests for NULL -> "*"
 constinit std::array<ColMetadata, 10> tableCols{{
     {false, "qpos", 6,
      [] (sqlite3_stmt* row) {
-       const auto v = col_int64 (row, schema::UserReadViewSelect::qpos);
-       return v ? std::to_string (*v) : std::string{"*"};
+       return int_or_star (row, schema::UserReadViewSelect::qpos);
      }},
     {true, "basequal", 12,
      [] (sqlite3_stmt* row) {
-       if (sqlite3_column_type (
-               row, schema::UserReadViewSelect::basequal
-           ) == SQLITE_NULL) {
-         return std::string{"*"};
-       }
-       return std::to_string (
-           sqlite3_column_int (row, schema::UserReadViewSelect::basequal)
-       );
+       return int_or_star (row, schema::UserReadViewSelect::basequal);
      }},
     {true, "flag", 6,
      [] (sqlite3_stmt* row) {
-       const auto v = col_int64 (row, schema::UserReadViewSelect::flag);
-       return v ? std::to_string (*v) : std::string{"*"};
+       return int_or_star (row, schema::UserReadViewSelect::flag);
      }},
     {true, "mapq", 6,
      [] (sqlite3_stmt* row) {
-       const auto v = col_int64 (row, schema::UserReadViewSelect::mapq);
-       return v ? std::to_string (*v) : std::string{"*"};
+       return int_or_star (row, schema::UserReadViewSelect::mapq);
      }},
     {false, "start", 14,
      [] (sqlite3_stmt* row) {
@@ -79,8 +76,7 @@ constinit std::array<ColMetadata, 10> tableCols{{
      }},
     {false, "end", 14,
      [] (sqlite3_stmt* row) {
-       const auto v = col_int64 (row, schema::UserReadViewSelect::end);
-       return v ? std::to_string (*v) : std::string{"*"};
+       return int_or_star (row, schema::UserReadViewSelect::end);
      }},
     {true, "cigar", 16,
      [] (sqlite3_stmt* row) {
@@ -89,40 +85,16 @@ constinit std::array<ColMetadata, 10> tableCols{{
      }},
     {false, "qname", 21,
      [] (sqlite3_stmt* row) {
-       if (sqlite3_column_type (row, schema::UserReadViewSelect::qname) ==
-           SQLITE_NULL) {
-         return std::string{"*"};
-       }
-       const auto* p =
-           sqlite3_column_text (row, schema::UserReadViewSelect::qname);
-       const auto len =
-           sqlite3_column_bytes (row, schema::UserReadViewSelect::qname);
-       return std::string (
-           reinterpret_cast<const char*> (p), static_cast<size_t> (len)
-       );
+       return col_text (row, schema::UserReadViewSelect::qname)
+           .value_or ("*");
      }},
     {false, "mtid", 10,
      [] (sqlite3_stmt* row) {
-       if (sqlite3_column_type (row, schema::UserReadViewSelect::mtid) ==
-           SQLITE_NULL) {
-         return std::string{"*"};
-       }
-       const auto* p =
-           sqlite3_column_text (row, schema::UserReadViewSelect::mtid);
-       const auto len =
-           sqlite3_column_bytes (row, schema::UserReadViewSelect::mtid);
-       return std::string (
-           reinterpret_cast<const char*> (p), static_cast<size_t> (len)
-       );
+       return col_text (row, schema::UserReadViewSelect::mtid)
+           .value_or ("*");
      }},
     {false, "mstart", 14, [] (sqlite3_stmt* row) {
-       if (sqlite3_column_type (row, schema::UserReadViewSelect::mstart) ==
-           SQLITE_NULL) {
-         return std::string ("*");
-       }
-       return std::to_string (
-           sqlite3_column_int64 (row, schema::UserReadViewSelect::mstart)
-       );
+       return int_or_star (row, schema::UserReadViewSelect::mstart);
      }},
 }};
 
@@ -173,57 +145,47 @@ bool cmd_widget_is_valid()
     );                                                                \
   } while (false)
 
-// write path to xlim, hiding leading elements to fit, e.g.
-// …/samples/a.bam; if the name alone is too long, truncate
-// it, e.g. …/a.b…. Returns cells written.
-int write_path (
-    e2::GlobalCell start, int xlim, std::string_view path,
-    const e2::Style& style
-)
-{
-  if (xlim <= start.x) {
-    return 0;
-  }
-  const int xStart = start.x;
-  if (path.size() > static_cast<size_t> (xlim - start.x)) {
-    // first separator leaving room for the ellipsis
-    auto iSep = path.find (
-        '/', path.size() + 1 - static_cast<size_t> (xlim - start.x)
-    );
-    if (iSep == std::string_view::npos) {
-      iSep = path.rfind ('/');  // name only
-    }
-    if (iSep != std::string_view::npos && iSep > 0) {
-      e2::set (start, ellipsis, style);
-      ++start.x;
-      path.remove_prefix (iSep);
-    }
-  }
-  if (path.size() > static_cast<size_t> (xlim - start.x)) {
-    // name alone too long: ellipsis in last cell
-    e2::set (
-        e2::GlobalCell{{.x = xlim - 1, .y = start.y}}, ellipsis, style
-    );
-    e2::write_string (start, xlim - 1, path, style);
-    return xlim - xStart;
-  }
-  return start.x - xStart + e2::write_string (start, xlim, path, style);
-}
-
-// file heading: path, shortened to fit, then read counts if
-// the file has reads at the locus, e.g. a.bam: 12/300 reads
-static void file_heading (
-    e2::GlobalCell start, int xlim, const AlnFile& file
-)
+// file heading: path, then read counts if the file has reads
+// at the locus, e.g. a.bam: 12/300 reads. The path hides
+// leading elements to fit, e.g. …/samples/a.bam; if the name
+// alone is too long, it is truncated, e.g. …/a.b…
+void draw_source_name (e2::GlobalCell start, int xlim, const AlnFile& file)
 {
   constexpr e2::Style style{.fg = TB_REVERSE};
   const auto counts =
       file.nTotal > 0
           ? fmt::format (": {}/{} reads", file.nQuery, file.nTotal)
           : std::string{};
-  start.x += write_path (
-      start, xlim - static_cast<int> (counts.size()), file.path, style
-  );
+  // path up to the counts
+  const int pathLim = xlim - static_cast<int> (counts.size());
+  if (pathLim > start.x) {
+    std::string_view path = file.path;
+    if (path.size() > static_cast<size_t> (pathLim - start.x)) {
+      // first separator leaving room for the ellipsis
+      auto iSep = path.find (
+          '/', path.size() + 1 - static_cast<size_t> (pathLim - start.x)
+      );
+      if (iSep == std::string_view::npos) {
+        iSep = path.rfind ('/');  // name only
+      }
+      if (iSep != std::string_view::npos && iSep > 0) {
+        e2::set (start, ellipsis, style);
+        ++start.x;
+        path.remove_prefix (iSep);
+      }
+    }
+    if (path.size() > static_cast<size_t> (pathLim - start.x)) {
+      // name alone too long: ellipsis in last cell
+      e2::set (
+          e2::GlobalCell{{.x = pathLim - 1, .y = start.y}}, ellipsis, style
+      );
+      e2::write_string (start, pathLim - 1, path, style);
+      start.x = pathLim;
+    }
+    else {
+      start.x += e2::write_string (start, pathLim, path, style);
+    }
+  }
   e2::write_string (start, xlim, counts, style);
 }
 
@@ -521,46 +483,8 @@ ReadAlnFields get_seq1_read_fields (sqlite3_stmt* br_stmtRow)
       .rStart = sqlite3_column_int64 (
           br_stmtRow, schema::UserReadViewSelect::start
       ),
-      .seq = [&br_stmtRow]() -> decltype (ReadAlnFields::seq) {
-        if (sqlite3_column_type (
-                br_stmtRow, schema::UserReadViewSelect::seq
-            ) == SQLITE_NULL) {
-          return std::nullopt;
-        }
-        // else
-        const auto* p = sqlite3_column_text (
-            br_stmtRow, schema::UserReadViewSelect::seq
-        );
-        const auto len = sqlite3_column_bytes (
-            br_stmtRow, schema::UserReadViewSelect::seq
-        );
-        return std::make_optional (
-            std::string (
-                reinterpret_cast<const char*> (p),
-                static_cast<size_t> (len)
-            )
-        );
-      }(),
-      .qual = [&br_stmtRow]() -> decltype (ReadAlnFields::qual) {
-        if (sqlite3_column_type (
-                br_stmtRow, schema::UserReadViewSelect::qual
-            ) == SQLITE_NULL) {
-          return std::nullopt;
-        }
-        // else
-        const auto* p = sqlite3_column_text (
-            br_stmtRow, schema::UserReadViewSelect::qual
-        );
-        const auto len = sqlite3_column_bytes (
-            br_stmtRow, schema::UserReadViewSelect::qual
-        );
-        return std::make_optional (
-            std::string (
-                reinterpret_cast<const char*> (p),
-                static_cast<size_t> (len)
-            )
-        );
-      }(),
+      .seq = col_text (br_stmtRow, schema::UserReadViewSelect::seq),
+      .qual = col_text (br_stmtRow, schema::UserReadViewSelect::qual),
       .cig_br = static_cast<const uint32_t*> (sqlite3_column_blob (
           br_stmtRow, schema::UserReadViewSelect::cig32
       )),
@@ -598,8 +522,8 @@ struct Seq1FrameArgs {
 // Draw clips outward from the read's aligned span: soft
 // clips as bracketed bases, e.g. (ACGT), if drawClips and
 // seq present, else as labels, e.g. s(4); hard clips as
-// labels, e.g. h(4).
-// Truncated at pan bounds, see draw_main_to_buffer.
+// labels, e.g. h(4). Truncated at pan bounds (see
+// draw_main_to_buffer).
 static void clips1 (
     const int16_t yStart, const ReadAlnFields& readFields,
     const Seq1FrameArgs& fa, const std::optional<int> qualYOffset,
@@ -840,8 +764,9 @@ static e2::Delta seq1 (
   const int trackYOffsetQual = nSeqRows;
   const e2::Style qualStyle =
       !readFields.qual || g_ui::drawSparkline ? dim : e2::Style{};
-  bool drawQualTrack = g_ui::drawQualTrack &&
-                       (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
+  const bool drawQualTrack =
+      g_ui::drawQualTrack &&
+      (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
   const int trackYOffsetInsQual = trackYOffsetQual + 1;
   /* --- end enable optional tracks --- */
 
@@ -857,8 +782,7 @@ static e2::Delta seq1 (
   // FOR EACH OP
   for (size_t iOp = 0; iOp < readFields.nCig; iOp++) {
     const auto op = readFields.cig_br[iOp];
-    const auto opType = bam_cigar_op (op);
-    const auto opConsumeType = bam_cigar_type (opType);
+    const auto opConsumeType = bam_cigar_type (bam_cigar_op (op));
     const auto opSz = bam_cigar_oplen (op);
     const auto opOnScreen = (iGc + opSz) >= fa.writeStartXGPos;
 
@@ -913,21 +837,21 @@ static e2::Delta seq1 (
         if (!readFields.seq) {
           dispStyle = dim;
         }
-        // matches: dim, masked with '=' unless bases on
+        // matches: dim, masked with '=' when mask on
         else if (ref &&
                  (std::toupper (static_cast<unsigned char> (dispChar)) ==
                   std::toupper (
                       static_cast<unsigned char> ((*ref)[iRefOp + i])
                   ))) {
-          if (!g_ui::drawBases) {
+          if (g_ui::drawMask) {
             dispChar = '=';
           }
           dispStyle = dim;
         }
-        // mismatches, or no ref: colour; highlight when bases on
+        // mismatches, or no ref: colour; highlight when mask off
         else {
           dispStyle.fg = base_colour (dispChar);
-          if (ref && g_ui::drawBases) {
+          if (ref && !g_ui::drawMask) {
             dispStyle.fg |= TB_BOLD | TB_UNDERLINE;
           }
         }
@@ -1106,8 +1030,7 @@ void draw_main_to_buffer()
     // to center on pos, e.g. a locus near the start of its contig, or reads
     // that don't extend a full half-pane-width left of pos.
     // FIXME: bounds exclude clips (see draw_aln::clips1), so
-    // clips at the span edges can't be panned to. Acceptable
-    // for a first pass only.
+    // clips at the span edges can't be panned to.
     const auto marginToPileupStart =
         g_db::locusInfo.start - g_db::locusInfo.pos + alnPaneHalfWidth;
     const auto marginToPileupEnd = std::max (
@@ -1203,7 +1126,7 @@ void draw_main_to_buffer()
               std::ranges::find (g_db::alnFiles, id, &AlnFile::id);
           TUI_ASSERT (file != g_db::alnFiles.end(), id);
           headingFile = &*file;
-          file_heading (seqWriteHead, seqWriteLim.x, *headingFile);
+          draw_source_name (seqWriteHead, seqWriteLim.x, *headingFile);
           seqWriteHead.y++;
           if (seqWriteHead.y >= seqWriteLim.y) {
             // heading drawn, no room for read
@@ -1239,7 +1162,7 @@ void draw_main_to_buffer()
         if (seqWriteHead.y >= seqWriteLim.y) {
           break;
         }
-        file_heading (seqWriteHead, seqWriteLim.x, file);
+        draw_source_name (seqWriteHead, seqWriteLim.x, file);
         seqWriteHead.y++;
         if (seqWriteHead.y >= seqWriteLim.y) {
           break;
