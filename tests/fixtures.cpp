@@ -41,11 +41,11 @@ apb_row1_t make_record (const TestRecord& tr, int64_t pos_0ho)
   constexpr char k_base = 'A';
   constexpr uint8_t k_qual = 30;
   const auto readLen = static_cast<size_t> (tr.end_0ho - tr.start_0ho);
-  const auto cigel =
-      static_cast<uint32_t> (bam_cigar_gen (readLen, BAM_CMATCH));
   rec.seq = std::string (readLen, k_base);
   rec.qual = std::string (readLen, static_cast<char> (k_qual + 33));
-  rec.cigBlob = {cigel};
+  rec.cigBlob = {
+      static_cast<uint32_t> (bam_cigar_gen (readLen, BAM_CMATCH))
+  };
   return rec;
 }
 
@@ -61,7 +61,7 @@ void seed_conn_with_reads (
   std::vector<apb_row1_t> fReads;
   for (size_t i = 0; i < alns.size(); i++) {
     const auto& f = alns[i];
-    const auto alnId = apb_insert_aln (conn, f.path, f.hasContig);
+    const auto alnId = apb_insert_source (conn, f.path, f.hasContig);
     REQUIRE (alnId == i + 1);
     if (f.reads) {
       fReads.clear();
