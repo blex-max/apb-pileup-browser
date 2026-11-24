@@ -16,8 +16,7 @@
 #include "utility/cleanup.hpp"
 
 namespace {
-// htslib sam.h bam_cigar definitions, restated so
-// apb_db doesn't depend on htslib
+// definitions lifted from htslib 1.22 to avoid dependency in apb_db/
 namespace hts {
 constexpr std::string_view bam_cigar_chars = "MIDNSHP=XB??????";
 constexpr uint8_t bam_cigar_shift = 4;
