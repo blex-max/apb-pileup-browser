@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>apb v0.5.1 manual</title>
+  <title>apb v0.6.0 manual</title>
   <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -196,7 +196,7 @@ ul.versions a:hover { background: var(--accent-soft); }
 <body>
 <header id="title-block-header">
 <h1 class="title">apb Manual - A Pileup Browser</h1>
-<p class="subtitle">v0.5.1</p>
+<p class="subtitle">v0.6.0</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -217,6 +217,7 @@ Examples</a></li>
 </ul></li>
 <li><a href="#addenda-troubleshooting" id="toc-addenda-troubleshooting">Addenda &amp; Troubleshooting</a>
 <ul>
+<li><a href="#colour" id="toc-colour">Colour</a></li>
 <li><a href="#the-dump-functionality" id="toc-the-dump-functionality">The <code>dump</code>
 Functionality</a></li>
 <li><a href="#a-word-on-indexing-systems" id="toc-a-word-on-indexing-systems">A Word on Indexing Systems</a></li>
@@ -228,10 +229,12 @@ Differences</a></li>
 </ul></li>
 </ul>
 </nav>
-<p>This is the manual for apb version 0.5.1. This manual is generated
+<p>This is the manual for apb version 0.6.0. This manual is generated
 directly from the apb binary. If you need a different version of the
 manual, please check the helptext for instructions as to how to generate
-the manual for your version of the tool.</p>
+the manual for your version of the tool. An HTML copy of the manual may
+also be hosted at <a href="https://blex-max.github.io/apb-pileup-browser/" class="uri">https://blex-max.github.io/apb-pileup-browser/</a>, if you
+prefer reading in the browser.</p>
 <p>If you are reading this manual from a file on disk (rather than the
 webpage hosted with the apb GitHub repo), it is recommended to read this
 manual using a markdown viewer. If you are reading on a cluster and do
@@ -274,9 +277,16 @@ indicate divergence from reference in the displayed reads.</p>
 and does not require any file input. It is useful for learning apb, but
 note that since the data is artifically generated it is somewhat
 unrealistic.</p>
-<p><code>apb --db DB</code> reopens a database file previously produced
-by <code>--dump</code> (or the in-TUI <code>dump</code> command), and
-does not take any other file input.</p>
+<p><code>apb DB</code> reopens a database file previously produced by
+<code>--dump</code> (or the in-TUI <code>dump</code> command), and does
+not take any other file input.</p>
+<p><code>-s/--settings</code> sets display options on opening the TUI,
+using the same option names as the in-TUI <code>toggle</code> command.
+For example <code>apb -s colour=on,mask=off</code> would tell apb to
+colour the reference display and sequence bases not matching reference
+(<code>colour=on</code>); and not to mask bases matching reference with
+<code>=</code> (<code>mask=off</code>). See the <code>toggle</code>
+command in Section 3.2 for the full list of options.</p>
 <h2 id="tui-usage">3) TUI Usage</h2>
 <p>On starting apb you will enter the TUI. The TUI is split into 2 major
 regions. At the top you have the read viewer, made up of an alignment
@@ -288,8 +298,12 @@ typed at the command prompt <code>&gt;</code>, and return messages are
 displayed below at the double chevron. Queries will be displayed at the
 top right of the prompt, including the count of reads matching the
 query. In the alignment pane, <code>=</code> matches the reference,
-<code>x</code> is a deletion, and a ring over a base marks an insertion,
-displayed beneath at <code>^</code>.</p>
+<code>x</code> is a deletion, a ring over a base marks an insertion,
+displayed beneath at <code>^</code>, and soft-clipped bases are shown in
+brackets. The appearance of the alignment pane can be configured with
+the <code>toggle</code> command, for example to display
+<code>ACTG...</code> for bases matching reference, instead of masking
+with <code>=</code>.</p>
 <h3 id="basic-navigation">3.1) Basic Navigation</h3>
 <p>apb has a modal interface, which means that the way the program
 responds to your input depends on which mode you are in. There are only
@@ -390,23 +404,32 @@ many commands for quick use.</p>
     columns, check the manual or run `? col`.
      aliases: c
 
-  `toggle (quality|insertion|table|sparkline)`:
+  `toggle &lt;option&gt;`:
     Toggle various aspects of the display.
     - quality:   read quality track in
                  alignment pane.
     - insertion: read insertion track in
                  alignment pane.
+    - anchor:    ring over the base before
+                 each insertion.
     - table:     table pane.
     - sparkline: switch quality track
                  between Phred ASCII and a
                  quick-look sparkline graph.
-    `toggle` accepts any unambiguous substring
+    - clips:     soft clips as bases, e.g.
+                 (ACGT), or as lengths, s(4).
+    - mask:      `=` for bases matching the
+                 reference. Off shows the
+                 bases, mismatches highlighted.
+    - colour:    colour the reference and read
+                 bases not matching it. Also
+                 `color`.
+    `toggle` accepts any unambiguous prefix
     of the argument, e.g. `tg qual`.
      aliases: tg
 
   `dump &lt;path&gt;`:
-    Write the pileup database to an sqlite3 dump file.
-</code></pre>
+    Write the pileup database to an sqlite3 dump file.</code></pre>
 <h3 id="column-reference">3.3) Column Reference</h3>
 <p>For each read, the database stores the columns detailed below. All
 columns are queryable in
@@ -415,64 +438,68 @@ the content of a column is not clearly displayed by the alignment pane,
 the column can be displayed in the table pane.</p>
 <p>The following reference table is also available via
 <code>help col</code> at the prompt.</p>
-<pre><code>
- TABLE REFERENCE                                
+<pre><code> TABLE REFERENCE                                
                                                 
  The following columns are available for        
  querying. `qname` through `mstart` may be      
  displayed in the table pane with the `col`     
  command.                                       
                                                 
-  `path`:                                       
+  `source`:                                     
       text                                      
-      Path to alignment file.                   
+      Record source, e.g. alignment file path.  
   `seq`:                                        
       text / NULL                               
       the read sequence. NULL if missing.       
   `qual`:                                       
       text / NULL                               
-      the read Phred base qualities. NULL if    
-      missing.                                  
+      the read base qualities as Phred+33       
+      ASCII. NULL if missing.                   
   `base`:                                       
       character / NULL                          
       Nucleotide at the pileup position. NULL   
-      if base is deleted, or `seq` is missing.  
+      if base is deleted or a reference skip,   
+      `seq` is missing, or no pileup.           
   `indel`:                                      
-      integer                                   
+      integer / NULL                            
       indel length to the next mapped           
-      nucleotide in the read.                   
+      nucleotide in the read. NULL if no pileup.
       (0 = no indel, &gt;0 insertion, &lt;0 deletion) 
   `qname`:                                      
       text / NULL                               
       the read/template name.                   
       NULL if missing.                          
   `flag`:                                       
-      integer (bitfield)                        
-      SAM bitwise FLAG.                         
+      integer (bitfield) / NULL                 
+      SAM bitwise FLAG. NULL if missing.        
   `start`:                                      
       integer &gt; 0                               
       1-based leftmost mapping position of      
       read.                                     
   `end`:                                        
-      integer &gt;= start                          
+      integer &gt;= start / NULL                   
       1-based rightmost mapping position of     
-      read.                                     
+      read. NULL if missing.                    
   `mapq`:                                       
-      integer 0-255                             
-      read mapping quality.                     
+      integer 0-254 / NULL                      
+      read mapping quality. NULL if             
+      unavailable (255 in SAM).                 
   `basequal`:                                   
       integer / NULL                            
       Phred base quality at the pileup          
-      position. NULL if base is deleted, or     
-      `qual` is missing.                        
+      position. NULL if base is deleted or a    
+      reference skip, `qual` is missing, or no  
+      pileup.                                   
   `qpos`:                                       
-      integer &gt; 0                               
+      integer &gt; 0 / NULL                        
       1-based offset into `seq`/`qual` to       
       pileup locus position. In deletions, this 
       is the first base after the deletion.     
+      NULL if no pileup.                        
   `cigar`:                                      
-      text                                      
+      text / NULL                               
       CIGAR string of alignment operations.     
+      NULL if missing.                          
   `mtid`:                                       
       text / NULL                               
       reference name of the mate/next read.     
@@ -493,19 +520,13 @@ the column can be displayed in the table pane.</p>
       queried using -&gt;&gt; operator. NULL if tags  
       are missing.                              
   `is_del`:                                     
-      integer 1-0 (true/false)                  
-      1 if `base` is a deletion.                
-  `is_head`:                                    
-      integer 1-0 (true/false)                  
-      1 if `qpos` is the read&#39;s first aligned   
-      base.                                     
-  `is_tail`:                                    
-      integer 1-0 (true/false)                  
-      1 if `qpos` is the read&#39;s last aligned    
-      base.                                     
+      integer 1-0 (true/false) / NULL           
+      1 if `base` is a deletion. NULL if no     
+      pileup.                                   
   `is_refskip`:                                 
-      integer 1-0 (true/false)                  
-      1 if `qpos` is a reference skip.          </code></pre>
+      integer 1-0 (true/false) / NULL           
+      1 if `qpos` is a reference skip. NULL if  
+      no pileup.                                </code></pre>
 <p>For a guide to the symbols used in the quality string, see <a href="https://en.wikipedia.org/wiki/Phred_quality_score#Symbols" class="uri">https://en.wikipedia.org/wiki/Phred_quality_score#Symbols</a>.
 Note that <code>toggle sparkline</code> switches the quality track in
 the alignment pane between ASCII display of quality scores, and a
@@ -531,7 +552,8 @@ explained by example:</p>
 <p>If this is your first time using apb, you may find it useful to walk
 through the following example in the demo mode, which can be accessed at
 the CLI by <code>apb --demo</code>. The numbers will not exactly match
-the examples as the examples are only illustrative.</p>
+the examples as the examples are only illustrative. For a full list of
+queryable columns, see Section 3.3 above.</p>
 <p>Imagine we are inspecting a candidate SNV variant locus. We may start
 by filtering the pileup to only reads which the caller should consider.
 Specifics will vary by caller, but a common starting point is “reads
@@ -639,7 +661,7 @@ that:</p>
 <h4 id="querying-by-path">Querying by Path</h4>
 <p>When viewing multiple alignment pileups, use <code>instr()</code> to
 subset your query to a specific file, e.g.:</p>
-<pre><code>where instr(path, &#39;PD12345a&#39;) and base != &#39;A&#39;</code></pre>
+<pre><code>where instr(source, &#39;PD12345a&#39;) and base != &#39;A&#39;</code></pre>
 <h4 id="indels-at-the-pileup-locus">Indels at the Pileup Locus</h4>
 <p>This is made quite simple by the <code>indel</code> column. For
 example, to search for a 3-base insertion anchored at the pileup:</p>
@@ -693,9 +715,18 @@ within the first 10 bases of the read:</p>
 possible. See SQLite’s expression/function reference - <a href="https://sqlite.org/lang_expr.html" class="uri">https://sqlite.org/lang_expr.html</a>.</p>
 <hr />
 <h2 id="addenda-troubleshooting">Addenda &amp; Troubleshooting</h2>
+<h3 id="colour">Colour</h3>
+<p>apb can optionally colour bases displayed in the TUI according as is
+generally accepted; A=Green, C=Blue, G=Orange, T=Red. However, apb reads
+these colours from your terminal palette and uses the 8 basic colours to
+maximise compatibility. This means that a) G is actually yellow, since
+orange is not amongst the basic 8 terminal colours, and b) the
+readibility of the colour scheme depends on your terminal configuration
+and is not a property of apb. Supplying a colour palette directly to apb
+may be a supported feature in the future.</p>
 <h3 id="the-dump-functionality">The <code>dump</code> Functionality</h3>
-<p>A dump is a small, self-contained sqlite3 file with just the reads at
-the specified locus. A few use cases:</p>
+<p>A dump is a small, self-contained sqlite3 file containing the reads
+at the specified locus. A few use cases:</p>
 <ul>
 <li>Application of complex SQL and downstream use -
 <code>sqlite3 my.db</code> allows for complex querying
@@ -707,12 +738,12 @@ allows the reciever to view the pileup you’re looking at without needing
 the original alignment files or reference genome (or even
 <code>apb</code> if they’re happy just to use
 <code>sqlite3</code>).</li>
-<li>Debugging (for developers) - a dump is a snapshot of data loaded.
-Mostly relevant if you’re developing apb itself rather than just using
-it.</li>
 </ul>
 <p>Note that all coordinate data within the dump is 1-based, matching
 the display.</p>
+<p>Neither <code>--dump</code> nor the in-TUI <code>dump</code> command
+will overwrite an existing file - choose a new path, or remove the old
+file first.</p>
 <h3 id="a-word-on-indexing-systems">A Word on Indexing Systems</h3>
 <p>htslib/samtools/bcftools, and by extension all alignment and VCF
 data, mix 0-based half-open and 1-based closed coordinate systems. This
