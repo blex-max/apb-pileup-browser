@@ -25,9 +25,11 @@ See the helptext from `apb --help` for the canonical guide to the CLI. Some addi
 
 `apb DB` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command), and does not take any other file input.
 
+`-s/--settings` sets display options on opening the TUI, using the same option names as the in-TUI `toggle` command. For example `apb -s colour=on,mask=off` would tell apb to colour the reference display and sequence bases not matching reference (`colour=on`); and not to mask bases matching reference with `=` (`mask=off`). See the `toggle` command in Section 3.2 for the full list of options.
+
 ## 3) TUI Usage
 
-On starting apb you will enter the TUI. The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.
+On starting apb you will enter the TUI. The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, a ring over a base marks an insertion, displayed beneath at `^`, and soft-clipped bases are shown in brackets. The appearance of the alignment pane can be configured with the `toggle` command, for example to display `ACTG...` for bases matching reference, instead of masking with `=`.
 
 ### 3.1) Basic Navigation
 
@@ -123,17 +125,27 @@ The following reference table is also available via `help cmd` at the prompt.
     columns, check the manual or run `? col`.
      aliases: c
 
-  `toggle (quality|insertion|table|sparkline)`:
+  `toggle <option>`:
     Toggle various aspects of the display.
     - quality:   read quality track in
                  alignment pane.
     - insertion: read insertion track in
                  alignment pane.
+    - anchor:    ring over the base before
+                 each insertion.
     - table:     table pane.
     - sparkline: switch quality track
                  between Phred ASCII and a
                  quick-look sparkline graph.
-    `toggle` accepts any unambiguous substring
+    - clips:     soft clips as bases, e.g.
+                 (ACGT), or as lengths, s(4).
+    - mask:      `=` for bases matching the
+                 reference. Off shows the
+                 bases, mismatches highlighted.
+    - colour:    colour the reference and read
+                 bases not matching it. Also
+                 `color`.
+    `toggle` accepts any unambiguous prefix
     of the argument, e.g. `tg qual`.
      aliases: tg
 
@@ -156,56 +168,61 @@ The following reference table is also available via `help col` at the prompt.
  displayed in the table pane with the `col`     
  command.                                       
                                                 
-  `path`:                                       
+  `source`:                                     
       text                                      
-      Path to alignment file.                   
+      Record source, e.g. alignment file path.  
   `seq`:                                        
       text / NULL                               
       the read sequence. NULL if missing.       
   `qual`:                                       
       text / NULL                               
-      the read Phred base qualities. NULL if    
-      missing.                                  
+      the read base qualities as Phred+33       
+      ASCII. NULL if missing.                   
   `base`:                                       
       character / NULL                          
       Nucleotide at the pileup position. NULL   
-      if base is deleted, or `seq` is missing.  
+      if base is deleted or a reference skip,   
+      `seq` is missing, or no pileup.           
   `indel`:                                      
-      integer                                   
+      integer / NULL                            
       indel length to the next mapped           
-      nucleotide in the read.                   
+      nucleotide in the read. NULL if no pileup.
       (0 = no indel, >0 insertion, <0 deletion) 
   `qname`:                                      
       text / NULL                               
       the read/template name.                   
       NULL if missing.                          
   `flag`:                                       
-      integer (bitfield)                        
-      SAM bitwise FLAG.                         
+      integer (bitfield) / NULL                 
+      SAM bitwise FLAG. NULL if missing.        
   `start`:                                      
       integer > 0                               
       1-based leftmost mapping position of      
       read.                                     
   `end`:                                        
-      integer >= start                          
+      integer >= start / NULL                   
       1-based rightmost mapping position of     
-      read.                                     
+      read. NULL if missing.                    
   `mapq`:                                       
-      integer 0-255                             
-      read mapping quality.                     
+      integer 0-254 / NULL                      
+      read mapping quality. NULL if             
+      unavailable (255 in SAM).                 
   `basequal`:                                   
       integer / NULL                            
       Phred base quality at the pileup          
-      position. NULL if base is deleted, or     
-      `qual` is missing.                        
+      position. NULL if base is deleted or a    
+      reference skip, `qual` is missing, or no  
+      pileup.                                   
   `qpos`:                                       
-      integer > 0                               
+      integer > 0 / NULL                        
       1-based offset into `seq`/`qual` to       
       pileup locus position. In deletions, this 
       is the first base after the deletion.     
+      NULL if no pileup.                        
   `cigar`:                                      
-      text                                      
+      text / NULL                               
       CIGAR string of alignment operations.     
+      NULL if missing.                          
   `mtid`:                                       
       text / NULL                               
       reference name of the mate/next read.     
@@ -226,19 +243,13 @@ The following reference table is also available via `help col` at the prompt.
       queried using ->> operator. NULL if tags  
       are missing.                              
   `is_del`:                                     
-      integer 1-0 (true/false)                  
-      1 if `base` is a deletion.                
-  `is_head`:                                    
-      integer 1-0 (true/false)                  
-      1 if `qpos` is the read's first aligned   
-      base.                                     
-  `is_tail`:                                    
-      integer 1-0 (true/false)                  
-      1 if `qpos` is the read's last aligned    
-      base.                                     
+      integer 1-0 (true/false) / NULL           
+      1 if `base` is a deletion. NULL if no     
+      pileup.                                   
   `is_refskip`:                                 
-      integer 1-0 (true/false)                  
-      1 if `qpos` is a reference skip.          
+      integer 1-0 (true/false) / NULL           
+      1 if `qpos` is a reference skip. NULL if  
+      no pileup.                                
 ```
 
 For a guide to the symbols used in the quality string, see https://en.wikipedia.org/wiki/Phred_quality_score#Symbols.
@@ -325,7 +336,7 @@ Querying is flexible and powerful. Some useful examples:
 
 When viewing multiple alignment pileups, use `instr()` to subset your query to a specific file, e.g.:
 ```
-where instr(path, 'PD12345a') and base != 'A'
+where instr(source, 'PD12345a') and base != 'A'
 ```
 
 #### Indels at the Pileup Locus
@@ -401,9 +412,13 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 
 ## Addenda & Troubleshooting
 
+### Colour
+
+apb can optionally colour bases displayed in the TUI according as is generally accepted; A=Green, C=Blue, G=Orange, T=Red. However, apb reads these colours from your terminal palette and uses the 8 basic colours to maximise compatibility. This means that a) G is actually yellow, since orange is not amongst the basic 8 terminal colours, and b) the readibility of the colour scheme depends on your terminal configuration and is not a property of apb. Supplying a colour palette directly to apb may be a supported feature in the future.
+
 ### The `dump` Functionality
 
-A dump is a small, self-contained sqlite3 file with just the reads at the specified locus. A few use cases:
+A dump is a small, self-contained sqlite3 file containing the reads at the specified locus. A few use cases:
 
 - Application of complex SQL and downstream use - `sqlite3 my.db` allows for complex querying (`GROUP BY`, aggregates, summaries, etc.) and programmatic use of apb (`apb --dump my.db --ref my.ref chr1:12345 my.bam && sqlite3 -header -csv my.db < query.sql > results.csv`).
 - Sharing - Dumps tend to be quite small files. Sending the dump allows the reciever to view the pileup you're looking at without needing the original alignment files or reference genome (or even `apb` if they're happy just to use `sqlite3`).
