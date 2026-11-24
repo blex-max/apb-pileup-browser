@@ -9,26 +9,29 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "generic/db_io.hpp"
-#include "generic/describe.hpp"
+#include "apb_db/apb_db_helpers.hpp"
+#include "describe.hpp"
 #include "helpblocks.hpp"
+#include "log.hpp"
 #include "query.hpp"
-#include "shared/cleanup.hpp"
 #include "state.hpp"
 #include "tui_assert.hpp"
+#include "utility/cleanup.hpp"
+#include "version.hpp"
 #include "widgets.hpp"
 
 namespace g_db = tui_state::db;
 namespace g_ui = tui_state::ui;
 
-// view type into the command registry
 using CmdResult = std::pair<bool, std::string>;
 struct Cmd {
   std::span<const std::string_view> names;
@@ -117,7 +120,8 @@ std::vector<std::string> build_cmd_ref_table()
   constexpr std::string_view bodyIndent = "    ";
 
   std::vector<std::string> lines{" COMMAND REFERENCE"};
-  for (const auto* cmd : get_cmd_registry()) {
+  const auto reg = get_cmd_registry();
+  for (const auto* cmd : reg) {
     lines.emplace_back (
         fmt::format (
             "{}`{} {}`:", headerIndent, cmd->names[0], cmd->usageArgs
@@ -134,7 +138,9 @@ std::vector<std::string> build_cmd_ref_table()
           )
       );
     }
-    lines.push_back ("");
+    if (cmd != reg.back()) {
+      lines.push_back ("");
+    }
   }
   return lines;
 }
@@ -352,7 +358,7 @@ static constexpr Cmd countCmd{
       else {
         msg.append (fmt::format (" / {}: ", curWhere));
       }
-      msg.append (fmt::format ("{}/{} reads", sqlite3_column_int64 (o_stmt, 0), g_db::nStmtRows));
+      msg.append (fmt::format ("{}/{} reads", sqlite3_column_int64 (o_stmt, 0), g_db::nQueryRows));
       return {true, msg};
     }
 };
@@ -395,7 +401,7 @@ static constexpr Cmd countAllCmd{
         return {false, fail_with_args()};
       }
 
-      return {true, fmt::format ("{}: {}/{} reads", args, sqlite3_column_int64 (o_stmt, 0), g_db::totalRows)};
+      return {true, fmt::format ("{}: {}/{} reads", args, sqlite3_column_int64 (o_stmt, 0), g_db::dbTotalRows)};
     }
 };
 
@@ -420,6 +426,45 @@ static constexpr Cmd clearCmd{
     }
 };
 
+std::expected<bool*, std::string> find_toggle (std::string_view name)
+{
+  // US spelling
+  if (name == "color") {
+    name = "colour";
+  }
+  static constexpr std::array<std::pair<std::string_view, bool*>, 8>
+      toggles{{
+          {"quality", &g_ui::drawQualTrack},
+          {"insertion", &g_ui::drawInsTrack},
+          {"anchor", &g_ui::drawAnchor},
+          {"table", &g_ui::drawTable},
+          {"sparkline", &g_ui::drawSparkline},
+          {"clips", &g_ui::drawClips},
+          {"mask", &g_ui::drawMask},
+          {"colour", &g_ui::drawColour},
+      }};
+  // reject ambiguous prefixes, e.g. `c`
+  std::vector<std::string_view> matches;
+  bool* toggle = nullptr;
+  for (const auto& [option, flag] : toggles) {
+    if (option.starts_with (name)) {
+      matches.push_back (option);
+      toggle = flag;
+    }
+  }
+  if (matches.empty()) {
+    return std::unexpected (fmt::format ("Unknown option: \"{}\"", name));
+  }
+  if (matches.size() > 1) {
+    return std::unexpected (
+        fmt::format (
+            "Ambiguous option: \"{}\" ({})", name, fmt::join (matches, ", ")
+        )
+    );
+  }
+  return toggle;
+}
+
 static constexpr auto toggleNames =
     std::to_array<std::string_view> ({"toggle", "tg"});
 static constexpr auto toggleDesc = std::to_array<std::string_view> ({
@@ -428,50 +473,41 @@ static constexpr auto toggleDesc = std::to_array<std::string_view> ({
     "             alignment pane.",
     "- insertion: read insertion track in",
     "             alignment pane.",
+    "- anchor:    ring over the base before",
+    "             each insertion.",
     "- table:     table pane.",
     "- sparkline: switch quality track",
     "             between Phred ASCII and a",
     "             quick-look sparkline graph.",
-    "`toggle` accepts any unambiguous substring",
+    "- clips:     soft clips as bases, e.g.",
+    "             (ACGT), or as lengths, s(4).",
+    "- mask:      `=` for bases matching the",
+    "             reference. Off shows the",
+    "             bases, mismatches highlighted.",
+    "- colour:    colour the reference and read",
+    "             bases not matching it. Also",
+    "             `color`.",
+    "`toggle` accepts any unambiguous prefix",
     "of the argument, e.g. `tg qual`.",
 });
 static constexpr Cmd toggleCmd{
-    toggleNames, "(quality|insertion|table|sparkline)", toggleDesc,
+    toggleNames, "<option>", toggleDesc,
     [] (std::string_view args) -> CmdResult {
       const auto tokens = cmd_split_whitespace (args);
       if (tokens.size() != 1) {
         return {false, CMD_FMT_MISUSE("takes a single argument", toggleCmd)};
       }
-      // get single arg
-      const auto& tok = tokens.back();
-
-      // NOTE: all unambiguous from the first char (so far)
-      static constexpr std::array<std::string_view, 4> opts{
-          "quality", "insertion", "table", "sparkline"
-      };
-      for (const auto& opt : opts) {
-        if (tok == opt.substr (0, tok.length())) {
-          if (opt == "quality") {
-            g_ui::drawQualTrack = !g_ui::drawQualTrack;
-          }
-          else if (opt == "insertion") {
-            g_ui::drawInsTrack = !g_ui::drawInsTrack;
-          }
-          else if (opt == "table") {
-            g_ui::drawTable = !g_ui::drawTable;
-          }
-          else if (opt == "sparkline") {
-            g_ui::drawSparkline = !g_ui::drawSparkline;
-          }
-          else {
-            TUI_UNREACHABLE ("toggle command malformed, unknown opt", opt);
-          }
-          return {true, CMD_GENERIC_SUCCESS};
-        }
+      const auto found = find_toggle (tokens.back());
+      if (!found) {
+        return {false, CMD_FMT_MISUSE (found.error(), toggleCmd)};
       }
-      return {false, CMD_FMT_MISUSE (
-          fmt::format ("Unknown option: \"{}\"", tok), toggleCmd
-      )};
+      bool& toggle = **found;
+      if (&toggle == &g_ui::drawMask && !g_db::locusInfo.refSlice) {
+        // true to clear input; nothing to retry
+        return {true, "No reference loaded, no effect"};
+      }
+      toggle = !toggle;
+      return {true, CMD_GENERIC_SUCCESS};
     }
 };
 
@@ -488,14 +524,39 @@ static constexpr Cmd dumpCmd{
         return {false, CMD_FMT_MISUSE("takes a single argument", dumpCmd)};
       }
 
-      const std::string path{tokens[0]};
-      if (const auto ret = dump_to_disk (g_db::conn, path); !ret) {
-        return {false, apb_describe_sqlite_failure (
-            "Failed to dump database to disk", ret.error().rc,
-            ret.error().msg
+      const std::filesystem::path path{tokens[0]};
+      if (std::error_code ec; std::filesystem::exists (
+              std::filesystem::symlink_status (path, ec)
+          )) {
+        return {false, fmt::format (
+            "{} already exists; refusing to overwrite", path.string()
         )};
       }
-      return {true, fmt::format ("Dumped database to {}", path)};
+
+      sqlite3* o_dest = nullptr;
+      bool success = false;
+      Defer dest_cleanup ([&]() {
+        sqlite3_close_v2 (o_dest);
+        if (!success) {
+          std::error_code ec;  // best effort
+          std::filesystem::remove (path, ec);
+        }
+      });
+      if (const auto rc = sqlite3_open (path.c_str(), &o_dest);
+          rc != SQLITE_OK) {
+        return {false, apb_describe_sqlite_failure (
+            "Failed to dump database to disk", rc, sqlite3_errmsg (o_dest)
+        )};
+      }
+      // dest errmsg is unreliable once the copy has finished
+      if (const auto rc = apb_copy_db (g_db::conn, o_dest);
+          rc != SQLITE_OK) {
+        return {false, apb_describe_sqlite_failure (
+            "Failed to dump database to disk", rc, std::nullopt
+        )};
+      }
+      success = true;
+      return {true, fmt::format ("Dumped database to {}", path.string())};
     }
 };
 
@@ -652,6 +713,16 @@ TEST_CASE ("command registry has no overlapping names")
   if (dup != names.end()) {
     FAIL ("duplicate command name: ", *dup);
   }
+}
+
+TEST_CASE ("find_toggle matches option prefixes, as the toggle command")
+{
+  CHECK (find_toggle ("colour") == &g_ui::drawColour);
+  CHECK (find_toggle ("color") == &g_ui::drawColour);
+  CHECK (find_toggle ("qual") == &g_ui::drawQualTrack);
+  CHECK_FALSE (find_toggle ("c"));  // clips, colour
+  CHECK_FALSE (find_toggle ("Colour"));
+  CHECK_FALSE (find_toggle ("bogus"));
 }
 
 TEST_CASE ("command descriptions are <= 50 characters in width")

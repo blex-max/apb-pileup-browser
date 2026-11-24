@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## 0.6.0
+
+- DB is now positional: `apb my.db` replaces `apb --db my.db`.
+- Soft-clipped bases may now be shown in brackets beside the alignment, e.g. `(ACGT)====`, in place of the `s(N)` label. `toggle clips` restores the label.
+- New `toggle mask`: with mask off, bases matching the reference are shown in full (dimmed) rather than as `=`, with mismatches in bold underline.
+- New `toggle anchor` shows or hides the ring over the base before an insertion.
+- New `toggle colour` (or `color`) colours the reference and read bases not matching it: A green, C blue, G yellow, T red.
+- New `-s`, `--settings` sets display options on startup, e.g. `--settings mask=off,colour=on`, using the option names of `toggle`.
+- In multi-file view, each file heading shows how many of its reads match the query, e.g. `a.bam: 12/300 reads`.
+- Runtime memory usage is now minimal for most use cases and bounded to approximately the usage of the htslib pileup engine for large pileups
+  - apb streams transformed records to the database without holding them in memory.
+  - apb now loads pileups into a temporary database file (under SQLITE_TMPDIR or TMPDIR, deleted on exit) rather than holding them in memory, and opens DB directly (read-only) rather than copying it into memory.
+- Reads that fail apb's data checks while loading (e.g. a non-standard FLAG bit) now report which check failed.
+
+- Fixed a bug where reads terminated with both a hard and soft clip operation would show only the outer hard clip label.
+- Fixed a bug where overlapping insertions would overwrite eachother in the TUI. Overlapping insertions are now shown in separate rows. 
+- Fixed a crash when opening a DB whose reads' sequence or qualities don't match their CIGAR, or which extend beyond the locus span; such DBs are now rejected with an error naming the read.
+- Fixed `mtid` showing the contig name instead of `=` for mates on the locus contig when the locus is given by a header alias (`@SQ ... AN:`).
+
+- Changes to underlying schema; schema version now v3.
+
 ## v0.5.1
 
 Patch to make modal interface clearer in helptext

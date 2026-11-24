@@ -1,7 +1,5 @@
 #pragma once
 
-#include <fmt/format.h>
-
 #include <ranges>
 #include <string>
 
@@ -136,20 +134,12 @@ inline std::pair<const Span&, const Span&> spans (const Box& b)
   return {b.xspan, b.yspan};
 }
 
+inline std::string to_string (const Box& b)
+{
+  return "Box{xspan: " + to_string (b.xspan) +
+         ", yspan: " + to_string (b.yspan) + "}";
+}
+
 // --- END IMPLEMENTATION --- //
 
 }  // end namespace extb
-
-// --- FMT FORMATTERS --- //
-
-template <>
-struct fmt::formatter<extb::Box> : fmt::formatter<std::string> {
-  auto format (const extb::Box& b, format_context& ctx) const
-  {
-    return fmt::formatter<std::string>::format (
-        fmt::format ("Box{{xspan: {}, yspan: {}}}", b.xspan, b.yspan), ctx
-    );
-  }
-};
-
-// --- END FMT FORMATTERS --- //

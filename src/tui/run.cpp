@@ -1,13 +1,16 @@
 #include "run.hpp"
 
+#include <fmt/format.h>
+
 #include <cstdlib>
+#include <iostream>
 
 #include "event.hpp"
+#include "log.hpp"
 #include "query.hpp"
-#include "shared/cleanup.hpp"
-#include "shared/log.hpp"
 #include "state.hpp"
 #include "tui_assert.hpp"
+#include "utility/cleanup.hpp"
 #include "widgets.hpp"
 
 namespace e2 = extb;
@@ -19,12 +22,15 @@ int run_tui (sqlite3* conn)
   g_db::conn = conn;
   g_db::locusInfo = get_locus_data (g_db::conn);
   TUI_ASSERT (g_db::locusInfo.valid(), g_db::locusInfo.to_string());
+  if (g_db::locusInfo.nAln > 1) {
+    g_db::alnFiles = get_aln_files (g_db::conn);
+  }
   if (g_db::set_query ({}) != SQLITE_OK) {
     TUI_UNREACHABLE (
         "Failed to set initial query", sqlite3_errmsg (g_db::conn)
     );
   }
-  g_db::totalRows = g_db::nStmtRows;
+  g_db::dbTotalRows = g_db::nQueryRows;
 
   g_ui::cmd::msgBuf =
       "Welcome to apb! All coordinate data is in 1-based closed "

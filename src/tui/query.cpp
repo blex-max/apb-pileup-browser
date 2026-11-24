@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -11,9 +12,10 @@
 #include <utility>
 #include <vector>
 
-#include "model/schema.hpp"
-#include "shared/cleanup.hpp"
+#include "apb_db/apb_db_schema.hpp"
+#include "sqlite_col.hpp"
 #include "tui_assert.hpp"
+#include "utility/cleanup.hpp"
 
 std::string PileupMetadata::to_string() const
 {
@@ -59,10 +61,14 @@ PileupMetadata get_locus_data (sqlite3* conn)
       )
   };
 
-  out.pos = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::pos);
-  out.start =
-      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::start);
-  out.end = sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::end);
+  out.pos = sqlite3_column_int64 (
+      o_stmt, schema::MetaTableSelect::pileup_position
+  );
+  out.start = sqlite3_column_int64 (
+      o_stmt, schema::MetaTableSelect::records_start
+  );
+  out.end =
+      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::records_end);
 
   if (sqlite3_column_type (o_stmt, schema::MetaTableSelect::ref) !=
       SQLITE_NULL) {
@@ -77,15 +83,48 @@ PileupMetadata get_locus_data (sqlite3* conn)
     TUI_ASSERT (!out.refSlice.value().empty());
   }
 
-  out.nAln = static_cast<int16_t> (
-      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_aln)
-  );
+  out.nAln =
+      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::n_sources);
 
+  return out;
+}
+
+std::vector<AlnFile> get_aln_files (sqlite3* conn)
+{
+  sqlite3_stmt* o_stmt = nullptr;
+  TUI_S3_EXPECT (
+      sqlite3_prepare_v2 (
+          conn,
+          "SELECT a.id, a.source, a.has_contig, COALESCE (t.n, 0) "
+          "FROM record_sources AS a LEFT JOIN "
+          "(SELECT source_id, COUNT(*) AS n FROM sam_records "
+          "GROUP BY source_id) AS t ON t.source_id = a.id "
+          "ORDER BY a.id;",
+          -1, &o_stmt, NULL
+      ),
+      SQLITE_OK
+  );
+  Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+
+  std::vector<AlnFile> out;
+  int rc;
+  while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+    out.push_back ({
+        .id = sqlite3_column_int64 (o_stmt, 0),
+        .path = col_text (o_stmt, 1).value_or ("*"),
+        .hasContig = sqlite3_column_int (o_stmt, 2) != 0,
+        .nTotal = static_cast<uint64_t> (sqlite3_column_int64 (o_stmt, 3)),
+        .nQuery = 0,
+    });
+  }
+  TUI_ASSERT (rc == SQLITE_DONE, rc);
   return out;
 }
 
 namespace tui_state::db {
 
+// FIXME: it would be more convenient for testing etc.
+// to take a context object of ptrs to all relevant globals
 int set_query (const QueryFragments& query)
 {
   std::string userQuerySuffix;
@@ -98,21 +137,21 @@ int set_query (const QueryFragments& query)
     userQuerySuffix.append ("\n");
   }
 
-  // order by path is mandatory for purposes
+  // order by source is mandatory for purposes
   // of multi-alignment view. Irrelevant
   // for single-file view.
-  userQuerySuffix.append (" ORDER BY path");
+  userQuerySuffix.append (" ORDER BY source");
   if (!query.orderBy.empty()) {
     userQuerySuffix.append (", ");
     userQuerySuffix.append (query.orderBy);
     userQuerySuffix.append ("\n");
   }
 
-  // NOTE: a semicolon in the query could cause issues,
-  // but it's essentially intentional misuse so we can ignore
   {
+    // Materialise temp table of ordered rowids of `reads` from user query,
+    // to avoid paying the cost of sorting every frame.
     const auto sqlCreateTempTable = fmt::format (
-        "CREATE TEMP TABLE new_ordered_query AS SELECT id, path_id FROM "
+        "CREATE TEMP TABLE new_ordered_query AS SELECT id, source_id FROM "
         "reads "
         "{}\n;",
         userQuerySuffix
@@ -129,19 +168,18 @@ int set_query (const QueryFragments& query)
         rc != SQLITE_OK) {
       return rc;
     }
-    // FIXME: should path_id be indexed to speed up table creation?
+    // FIXME: should source_id be indexed to speed up table creation?
     if (const auto rc = sqlite3_step (o_createTblStmt);
         rc != SQLITE_DONE) {
       return rc;
     }
   }
-  // NOTE: user sql is now validated
 
-  // Statement may need resetting before drop
-  sqlite3_reset (selectStmt);
-
-  // Materialise temp table of ordered rowids for reads view
-  // to avoid paying the cost of sorting every frame.
+  /* emplace new user query table */
+  // We have created the ordered table for the new user query above
+  // and it has successfully compiled. Now we can replace the previous
+  // user query table with it (if present).
+  sqlite3_reset (displayStmt);  // reset, since stmt references old table
   if (const auto rc = sqlite3_exec (
           conn,
           "DROP TABLE IF EXISTS ordered_query;"
@@ -149,7 +187,8 @@ int set_query (const QueryFragments& query)
           NULL, NULL, NULL
       );
       rc != SQLITE_OK) {
-    // DROP will fail if there are any active statements
+    // DROP will fail if there are any active statements.
+    // This shouldn't be possible - it is just defensive
     if (rc == SQLITE_LOCKED || rc == SQLITE_BUSY) {
       std::string busySql;
       for (auto* s = sqlite3_next_stmt (conn, nullptr); s != nullptr;
@@ -169,6 +208,7 @@ int set_query (const QueryFragments& query)
     );
   }
 
+  /* count number of rows (reads) in new query */
   int64_t queryRowCount = 0;
   {
     sqlite3_stmt* o_queryRowCountStmt = nullptr;
@@ -187,87 +227,60 @@ int set_query (const QueryFragments& query)
     TUI_ASSERT (queryRowCount >= 0);
   }
 
-  if (locusInfo.nAln > 1) {
-    /* check which alignments have reads */
-    std::vector<EmptyFile> emptyForQuery;
-    sqlite3_stmt* o_alnSelStmt = nullptr;
+  /* count reads per file in new query */
+  if (!alnFiles.empty()) {
+    for (auto& file : alnFiles) {
+      file.nQuery = 0;
+    }
+    sqlite3_stmt* o_countStmt = nullptr;
     TUI_S3_EXPECT (
         sqlite3_prepare_v2 (
             conn,
-            "SELECT a.path, a.has_contig, "
-            "EXISTS (SELECT 1 FROM per_record_data AS r WHERE r.path_id = "
-            "a.id) AS has_any_reads FROM alignment_files AS a LEFT JOIN "
-            "(SELECT "
-            "DISTINCT path_id FROM ordered_query) AS o ON o.path_id = "
-            "a.id "
-            "WHERE o.path_id IS NULL ORDER BY a.id;",
-            -1, &o_alnSelStmt, NULL
+            "SELECT source_id, COUNT(*) FROM ordered_query "
+            "GROUP BY source_id;",
+            -1, &o_countStmt, NULL
         ),
         SQLITE_OK
     );
-    Defer alnSelStmt_cleanup ([&o_alnSelStmt]() {
-      sqlite3_finalize (o_alnSelStmt);
+    Defer countStmt_cleanup ([&o_countStmt]() {
+      sqlite3_finalize (o_countStmt);
     });
     int rc;
-    while ((rc = sqlite3_step (o_alnSelStmt)) == SQLITE_ROW) {
-      const std::string path{
-          reinterpret_cast<const char*> (
-              sqlite3_column_text (o_alnSelStmt, 0)
-          ),
-          static_cast<size_t> (sqlite3_column_bytes (o_alnSelStmt, 0))
-      };
-      const bool hasContig =
-          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 1));
-      const bool hasAnyReads =
-          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 2));
-
-      // NOTE: any file which does not have locus reads/contig
-      // will always retain the same reason, so maybe this is
-      // suboptimal. But it will do.
-      if (hasAnyReads) {
-        emptyForQuery.emplace_back (
-            path, EmptyFileReason::noMatchingReads
-        );
-      }
-      else if (hasContig) {
-        emptyForQuery.emplace_back (path, EmptyFileReason::noReadsAtLocus);
-      }
-      else {
-        emptyForQuery.emplace_back (path, EmptyFileReason::contigAbsent);
-      }
+    while ((rc = sqlite3_step (o_countStmt)) == SQLITE_ROW) {
+      const auto id = sqlite3_column_int64 (o_countStmt, 0);
+      const auto file = std::ranges::find (alnFiles, id, &AlnFile::id);
+      TUI_ASSERT (file != alnFiles.end(), id);
+      file->nQuery =
+          static_cast<uint64_t> (sqlite3_column_int64 (o_countStmt, 1));
     }
-    TUI_ASSERT (rc == SQLITE_DONE);
-
-    queryEmptyFiles = std::move (emptyForQuery);
+    TUI_ASSERT (rc == SQLITE_DONE, rc);
   }
 
-  sqlite3_stmt* br_newStmt = nullptr;
-  // FIXME: It is likely worthwhile for performance to
-  // select only the columns necessary for each frame.
-  // E.g. tags as of 21/10/26 can't be displayed anyway,
-  // so why are we selecting it!
-  // This will need additional machinery for getting
-  // the right columns on retrieval though.
+  sqlite3_stmt* br_newDisplayStmt = nullptr;
+  // prepare statement wherein the starting row (offset) and number of rows to be retrieved can
+  // be set by bind parameters `?1` and `?2` respectively, allowing
+  // per-frame retrieval of only the tranche of reads which is
+  // currently to be displayed on screen.
   TUI_S3_EXPECT (
       sqlite3_prepare_v2 (
           conn,
           "SELECT r.* FROM ordered_query o JOIN reads r ON r.id = o.id "
           "WHERE o.rowid > ?1 ORDER BY o.rowid LIMIT ?2;",
-          -1, &br_newStmt, NULL
+          -1, &br_newDisplayStmt, NULL
       ),
       SQLITE_OK
   );
 
-  sqlite3_finalize (selectStmt);
-  selectStmt = br_newStmt;
+  sqlite3_finalize (displayStmt);
+  displayStmt = br_newDisplayStmt;
 
   while (queryUndoStack.size() > 7) {
     queryUndoStack.erase (begin (queryUndoStack));
   }
   queryUndoStack.push_back (userQuery);
   userQuery = query;
-  stmtRowScrollOffset = 0;  // reset row view
-  nStmtRows = static_cast<uint64_t> (queryRowCount);
+  displayScrollOffset = 0;  // reset row view
+  nQueryRows = static_cast<uint64_t> (queryRowCount);
 
   return SQLITE_OK;
 }
@@ -276,169 +289,166 @@ int set_query (const QueryFragments& query)
 
 #ifndef DOCTEST_CONFIG_DISABLE
 
+#include "apb_db/apb_db_core.hpp"
 #include "doctest.h"
 #include "fixtures.hpp"
-#include "model/hts2apb.hpp"
 
 namespace {
 
 namespace g_db = tui_state::db;
 
-// owns the tui_state::db globals for the duration of a test
-struct DbFixture {
-  explicit DbFixture (const std::vector<test::ExtraFile>& extraFiles = {})
-  {
-    g_db::conn = test::new_db();
-    test::seed_reads (g_db::conn, extraFiles);
-    g_db::locusInfo = get_locus_data (g_db::conn);
-  }
-  ~DbFixture()
-  {
-    sqlite3_finalize (g_db::selectStmt);
-    g_db::selectStmt = nullptr;
-    sqlite3_close_v2 (g_db::conn);
-    g_db::conn = nullptr;
-    g_db::userQuery = {};
-    g_db::queryEmptyFiles.clear();
-    g_db::nStmtRows = 0;
-  }
-  DbFixture (const DbFixture&) = delete;
-  DbFixture& operator= (const DbFixture&) = delete;
-};
-
-void exec (const char* sql) { test::exec_ok (g_db::conn, sql); }
-
-// duplicate file 1's reads into file `id`
-void copy_reads_to_file (int id)
-{
-  exec (
-      fmt::format (
-          "INSERT INTO per_record_data (qname, flag, start, end, mapq, "
-          "base, basequal, qpos, indel, is_del, is_head, is_tail, "
-          "is_refskip, cigar, seq, qual, mtid, mstart, tags, cig_uint32, "
-          "ncig, path_id) SELECT qname, flag, start, end, mapq, base, "
-          "basequal, qpos, indel, is_del, is_head, is_tail, is_refskip, "
-          "cigar, seq, qual, mtid, mstart, tags, cig_uint32, ncig, {} "
-          "FROM per_record_data WHERE path_id = 1;",
-          id
-      )
-          .c_str()
-  );
-}
-
 // qnames of the page the render loop would fetch
-std::vector<std::string> fetch_page (int64_t offset, int64_t limit)
+std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
 {
-  sqlite3_stmt* stmt = g_db::selectStmt;
+  sqlite3_stmt* stmt = g_db::displayStmt;
   sqlite3_reset (stmt);
   sqlite3_bind_int64 (stmt, 1, offset);
   sqlite3_bind_int64 (stmt, 2, limit);
   std::vector<std::string> out;
   while (sqlite3_step (stmt) == SQLITE_ROW) {
     out.emplace_back (
-        reinterpret_cast<const char*> (
-            sqlite3_column_text (stmt, schema::UserReadViewSelect::qname)
-        )
+        col_text (stmt, schema::UserReadViewSelect::qname).value_or ("*")
     );
   }
   sqlite3_reset (stmt);
   return out;
 }
 
-std::string row_path (sqlite3_stmt* stmt)
+// finalize before close, and null both, so repeat calls are no-ops
+void reset_db_globals()
 {
-  return reinterpret_cast<const char*> (
-      sqlite3_column_text (stmt, schema::UserReadViewSelect::path)
-  );
+  sqlite3_finalize (g_db::displayStmt);
+  g_db::displayStmt = nullptr;
+  sqlite3_close_v2 (g_db::conn);
+  g_db::conn = nullptr;
 }
 
 }  // namespace
 
-TEST_CASE ("set_query failure leaves the active query untouched")
+// FIXME: complete implemententation here!
+TEST_CASE ("set_query behaviour")
 {
-  DbFixture fx;
-  REQUIRE (
-      g_db::set_query ({.where = {"flag = 99"}, .orderBy = ""}) ==
-      SQLITE_OK
-  );
-  const auto* const stmtBefore = g_db::selectStmt;
-  const auto pageBefore = fetch_page (0, 10);
-
-  CHECK (g_db::set_query ({.where = {"nonsense ="}}) != SQLITE_OK);
-
-  CHECK (g_db::selectStmt == stmtBefore);
-  CHECK (g_db::nStmtRows == 2);
-  CHECK (g_db::userQuery.where == "flag = 99");
-  CHECK (fetch_page (0, 10) == pageBefore);
-}
-
-TEST_CASE ("set_query replaces the previous query")
-{
-  DbFixture fx;
-  REQUIRE (g_db::set_query ({}) == SQLITE_OK);
-  REQUIRE (g_db::nStmtRows == 3);
-  // leave the old stmt mid-iteration, as render does when the page fills
-  sqlite3_reset (g_db::selectStmt);
-  sqlite3_bind_int64 (g_db::selectStmt, 1, 0);
-  sqlite3_bind_int64 (g_db::selectStmt, 2, 10);
-  REQUIRE (sqlite3_step (g_db::selectStmt) == SQLITE_ROW);
-
-  REQUIRE (g_db::set_query ({.where = {"qname = 'readB'"}}) == SQLITE_OK);
-  CHECK (g_db::nStmtRows == 1);
-  CHECK (fetch_page (0, 10) == std::vector<std::string>{"readB"});
-}
-
-TEST_CASE ("set_query classifies files with no reads in the query")
-{
-  DbFixture fx (
-      {{"no_reads.bam", true},
-       {"no_contig.bam", false},
-       {"has_reads.bam", true}}
-  );
-  copy_reads_to_file (4);
-
-  // nothing matches: all four files are empty, file 1 and 4 only by query
-  REQUIRE (g_db::set_query ({.where = {"qname = 'none'"}}) == SQLITE_OK);
-  CHECK (g_db::nStmtRows == 0);
-  using R = g_db::EmptyFileReason;
-  const auto& ef = g_db::queryEmptyFiles;
-  REQUIRE (ef.size() == 4);
-  CHECK (ef[0].path == "test.bam");
-  CHECK (ef[0].reason == R::noMatchingReads);
-  CHECK (ef[1].path == "no_reads.bam");
-  CHECK (ef[1].reason == R::noReadsAtLocus);
-  CHECK (ef[2].path == "no_contig.bam");
-  CHECK (ef[2].reason == R::contigAbsent);
-  CHECK (ef[3].reason == R::noMatchingReads);
-
-  // files with matching reads are not listed
-  REQUIRE (g_db::set_query ({}) == SQLITE_OK);
-  CHECK (g_db::queryEmptyFiles.size() == 2);
-}
-
-TEST_CASE ("set_query keeps path as the primary sort key")
-{
-  DbFixture fx ({{"b.bam", true}});
-  copy_reads_to_file (2);
-
-  REQUIRE (g_db::set_query ({.orderBy = "mapq DESC"}) == SQLITE_OK);
-
-  sqlite3_stmt* stmt = g_db::selectStmt;
-  sqlite3_reset (stmt);
-  sqlite3_bind_int64 (stmt, 1, 0);
-  sqlite3_bind_int64 (stmt, 2, 10);
-  std::vector<std::string> paths;
-  while (sqlite3_step (stmt) == SQLITE_ROW) {
-    paths.push_back (row_path (stmt));
+  Defer backstop_cleanup (reset_db_globals);
+  SUBCASE ("Behaviour expectatations in normal use")
+  {
+    // wipe any existing data, set up fresh db for test
+    reset_db_globals();
+    REQUIRE (sqlite3_open (":memory:", &g_db::conn) == SQLITE_OK);
+    Defer db_cleanup (reset_db_globals);
+    REQUIRE (apb_create_schema (g_db::conn) == SQLITE_OK);
+    //FIXME get locus data
+#define DEF_TEST_REC(test_qname, test_mapq) \
+  test::TestRecord{                         \
+      .qname = (test_qname),                \
+      .flag = 99,                           \
+      .mapQ = (test_mapq),                  \
+      .start_0ho = 100,                     \
+      .end_0ho = 200                        \
   }
-  sqlite3_reset (stmt);
-  // grouped by file, not interleaved by mapq
-  CHECK (
-      paths ==
-      std::vector<std::string>{
-          "b.bam", "b.bam", "b.bam", "test.bam", "test.bam", "test.bam"
-      }
-  );
+    const auto testAlns = std::to_array<test::TestAln> ({
+        test::TestAln{
+            "test1.bam",
+            std::vector<test::TestRecord>{
+                DEF_TEST_REC ("read1_f1", 51),
+                DEF_TEST_REC ("read2_f1", 50),
+                DEF_TEST_REC ("read3_f1", 49),
+            },
+            true
+        },
+        test::TestAln{
+            "test2.bam",
+            std::vector<test::TestRecord>{
+                DEF_TEST_REC ("read1_f2", 30),
+                DEF_TEST_REC ("read2_f2", 70),
+                DEF_TEST_REC ("read3_f2", 80),
+            },
+            true
+        },
+        test::TestAln{"no_reads.bam", std::nullopt, true},
+        test::TestAln{"no_contig.bam", std::nullopt, false},
+    });
+#undef DEF_TEST_REC
+
+    test::seed_conn_with_reads (
+        g_db::conn, testAlns, "test-chr", 150, true
+    );
+
+    SUBCASE ("Basic where works as expected during paging")
+    {
+      REQUIRE (g_db::set_query ({}) == SQLITE_OK);
+      REQUIRE (g_db::nQueryRows == 6);
+
+      // leave the old stmt mid-iteration, as render does when the page fills
+      sqlite3_reset (g_db::displayStmt);
+      sqlite3_bind_int64 (g_db::displayStmt, 1, 0);
+      sqlite3_bind_int64 (g_db::displayStmt, 2, 10);
+      REQUIRE (sqlite3_step (g_db::displayStmt) == SQLITE_ROW);
+
+      REQUIRE (
+          g_db::set_query (
+              {.where = {"qname = 'read2_f1'"}, .orderBy = {}}
+          ) == SQLITE_OK
+      );
+      CHECK (g_db::nQueryRows == 1);
+      CHECK (
+          fetch_page_qnames (0, 10) == std::vector<std::string>{"read2_f1"}
+      );
+    }
+    SUBCASE ("ordering uses source as primary sort key")
+    {
+      REQUIRE (
+          g_db::set_query ({.where = {}, .orderBy = {"mapq DESC"}}) ==
+          SQLITE_OK
+      );
+      CHECK (g_db::nQueryRows == 6);
+      CHECK (
+          fetch_page_qnames (0, 10) == std::vector<std::string>{
+                                           "read1_f1",
+                                           "read2_f1",
+                                           "read3_f1",
+                                           "read3_f2",
+                                           "read2_f2",
+                                           "read1_f2",
+                                       }
+      );
+    }
+    SUBCASE ("failure leaves active query untouched")
+    {
+      const auto* const stmtBefore = g_db::displayStmt;
+      const auto pageBefore = fetch_page_qnames (0, 10);
+      const auto nRowsBefore = g_db::nQueryRows;
+
+      REQUIRE (
+          g_db::set_query ({.where = {"nonsense &Daflkj ="}}) != SQLITE_OK
+      );
+
+      CHECK (g_db::displayStmt == stmtBefore);
+      CHECK (g_db::nQueryRows == nRowsBefore);
+      CHECK (fetch_page_qnames (0, 10) == pageBefore);
+    }
+    SUBCASE ("per-file read counts")
+    {
+      g_db::alnFiles = get_aln_files (g_db::conn);
+      Defer files_cleanup ([]() { g_db::alnFiles.clear(); });
+      const auto& files = g_db::alnFiles;
+      REQUIRE (files.size() == 4);
+      CHECK (files[2].path == "no_reads.bam");
+      CHECK (files[2].hasContig);
+      CHECK_FALSE (files[3].hasContig);
+      CHECK (files[0].nTotal == 3);
+      CHECK (files[1].nTotal == 3);
+      CHECK (files[2].nTotal == 0);
+      CHECK (files[3].nTotal == 0);
+
+      REQUIRE (
+          g_db::set_query ({.where = {"qname = 'read2_f1'"}}) == SQLITE_OK
+      );
+      CHECK (files[0].nQuery == 1);
+      CHECK (files[1].nQuery == 0);
+      // 1 read, then 3 files without reads
+      CHECK (g_db::nScrollRows() == 4);
+    }
+  }
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

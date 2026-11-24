@@ -29,8 +29,12 @@ inline constinit bool tooSmall = false;
 // user toggles
 inline constinit bool drawQualTrack = false;
 inline constinit bool drawInsTrack = true;
+inline constinit bool drawAnchor = true;
 inline constinit bool drawTable = true;
 inline constinit bool drawSparkline = false;
+inline constinit bool drawClips = true;
+inline constinit bool drawMask = true;
+inline constinit bool drawColour = false;
 
 inline constexpr auto kMinWidth = 20;
 

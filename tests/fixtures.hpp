@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,33 +13,25 @@
 // Shared test fixtures, defined in tests/fixtures.cpp.
 namespace test {
 
-// alignment_files id of the file which seed_reads' reads belong to.
-constexpr sqlite3_int64 k_testFileId = 1;
-
 // A new empty in-memory apb db. Caller closes.
 sqlite3* new_db();
 
-// REQUIREs sql runs OK on conn
-void exec_ok (sqlite3* conn, const char* sql);
-
-// an alignment file to register alongside the seeded one
-struct ExtraFile {
+// A simplified custom input record definition for testing purposes
+struct TestRecord {
+  const char* qname;
+  uint16_t flag;
+  uint8_t mapQ;
+  int64_t start_0ho, end_0ho;  // 0-based half open
+};
+struct TestAln {
   std::string path;
+  std::optional<std::vector<TestRecord>> reads;
   bool hasContig;
 };
-
-// Fills an empty apb db as ingest does: file k_testFileId ("test.bam"),
-// then any extraFiles (ids 2, 3, ...), reads readA/readB/readC for the
-// first file, and locus metadata (chr1:150, span 100-200). With withRef
-// the locus carries a reference slice matching its span.
-void seed_reads (
-    sqlite3* conn, const std::vector<ExtraFile>& extraFiles = {},
-    bool withRef = false
+// Fills an empty apb db
+void seed_conn_with_reads (
+    sqlite3* conn, std::span<const TestAln> alns,
+    const std::string& contig, int64_t pos_0ho, bool withRef
 );
-
-std::filesystem::path temp_db_path (std::string_view name);
-
-// Every column of every row of `sql`'s result, as one string.
-std::string digest (sqlite3* conn, const char* sql);
 
 }  // namespace test

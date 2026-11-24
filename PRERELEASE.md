@@ -6,9 +6,10 @@ check the following:
 - The helptext (main.cpp) must be in sync with the CLI implementation;
   The helptext is not derived from the CLI implementation,
   it is manually maintained.
-- The fixed in-app help messages (helpblocks.cpp) must be in sync with
+- The fixed in-app help messages (helpblocks.hpp) must be in sync with
   the navigation (event.cpp), cli (main.cpp) and manual (manual.cpp).
 - README.md is updated, including the readme roadmap.
+- CHANGELOG.md is up to date.
 - The docker images build on amd64 and arm64.
 - The app builds and runs!
   - run every command at least once

@@ -10,11 +10,17 @@ See the roadmap in [README.md](README.md).
 
 ## Open Non-Feature Work
 
+<not fully up to date - more to be added>
+
 - Currently the demo mode database is fixed at compile time, meaning different builds will have different demo data.
   The demo data is generated in a parameterised manner so this isn't a big problem but it would be nice if a single
   demo database could be distributed within the src.
-- On a failure to parse an aux tag, the qname of the read with the corrupt data should be reported.
 - Not clear exactly what values of the TERM env variable apb supports - need to investigate and document.
+- introduce internal benchmarking via creation of hefty demo dbs and timing apb operations on them.
+- very long commands/statuses/messages will be clipped - prompt input should auto scroll with long typing, and messages should be truncated with an ellipis.
+- logs contains literal control characters, which should be escaped before entering into log.
+- Read a config toml/yaml at the CLI, indicating colour scheme, startup table columns and startup toggle/setting states.
+- tab-autocomplete for column names at command prompt
 
 ## Development Adages
 
@@ -22,16 +28,13 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
 
 - Good error handling is valuable.
   - Prefer Err/Status types and/or expected<T, E> over exceptions.
-    Exceptions have complex implications and are not really justified in a code base of this size.
-  - Prefer tightly-scoped error types over shared error types - the shared type
-    just leads to pushing the error back up the chain without ever properly handling it.
-    Scoped types can feel a bit clunky at boundaries but I think they're worthwhile.
+    I find exceptions harder to reason about.
   - Where a function returns no result but could error, return a Status type of appropriate richness.
   - where a function returns a result but may error, use expected<T, E> with an E type of appropriate richness.
   - When wrapping calls to a c library where the error space is scoped to the error space of that c library,
     return the c library error type (usually raw ints) directly for caller to handle.
-  - It is fine that the error handling is quite varied within the codebase. Different situations require
-    different approaches.
+  - If a function requires a clunky or complicated type to represent it's possible return status/errors,
+    then it's probably doing too much and should be split up and composed.
 
 - Things will go wrong when released to the public, make them go wrong well.
   - There are various apb macros for this purpose, which prevent
@@ -41,11 +44,12 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
 
 - Add assertions and precondition checks to all functions.
   - This is a very revealing as a practice!
-  - It's a lot easier to keep track of preconditions if you don't modularise/split large
-    functions unnecessarily.
   - Asserting what you believe to be true makes it much easier to implement your intention.
   - Regular use of assertions make debugging much easier.
   - Assertions are for checking that the code itself is well-formed, not verifying the data integrity
+
+- It's a lot easier to keep track of preconditions if you don't modularise/split
+  functions unnecessarily.
 
 - Braces avoid issues with variable initialisation when jumping via goto or switch case (I forget this sometimes).
   - default to using braces with case statements!
@@ -57,7 +61,8 @@ I am almost certainly not using these reliably, but I do find them helpful.
 **o_** - owned pointer, this scope must handle lifetime.  
 **br_** - borrowed pointer, this scope must not affect lifetime.  
 **g_** - global state.  
-**k** - file-level constant used across multiple scopes. I don't use an underscore with this one.
+**_0ho** - 0-based half-open coordinates  
+**_1c** - 1-based closed coordinates
 
 The pointer prefixes are mostly for use with C libraries.
 As above, I am almost certainly not using these reliably, but again I find them helpful.

@@ -1,12 +1,14 @@
 #include "event.hpp"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cstdint>
 
 #include "cmd.hpp"
 #include "input.hpp"
+#include "log.hpp"
 #include "query.hpp"
-#include "shared/log.hpp"
 #include "state.hpp"
 #include "tb2_impl.hpp"
 #include "tui_assert.hpp"
@@ -87,7 +89,7 @@ void handle_event (const tb_event* ev)
   switch (tui_state::focus) {
   case viewerMode: {
     constexpr auto sideScrollIncrement = 3;
-    auto& stmtRowScrollOffset = g_db::stmtRowScrollOffset;
+    auto& stmtRowScrollOffset = g_db::displayScrollOffset;
 
     switch (ev->key) {
     case TB_KEY_ARROW_LEFT:
@@ -294,14 +296,20 @@ void handle_event (const tb_event* ev)
       auto& lnOff = g_overlay::contentLnOffset;
       const auto contentLines =
           static_cast<int> (g_overlay::content.size());
-      auto maxScroll =
-          std::max (0, contentLines - height (g_overlay::contentBox));
+      const auto pageLines = height (g_overlay::contentBox);
+      auto maxScroll = std::max (0, contentLines - pageLines);
       switch (ev->key) {
       case TB_KEY_ARROW_DOWN:
         lnOff = std::min (maxScroll, lnOff + 1);
         return;
       case TB_KEY_ARROW_UP:
         lnOff = std::max (0, lnOff - 1);
+        return;
+      case TB_KEY_PGDN:
+        lnOff = std::min (maxScroll, lnOff + pageLines);
+        return;
+      case TB_KEY_PGUP:
+        lnOff = std::max (0, lnOff - pageLines);
         return;
       default:
         return;

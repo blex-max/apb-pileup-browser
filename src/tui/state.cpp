@@ -10,7 +10,7 @@ namespace tui_state {
 void tui_shutdown()
 {
   run = false;
-  sqlite3_finalize (db::selectStmt);
+  sqlite3_finalize (db::displayStmt);
   tb_shutdown();
 }
 
