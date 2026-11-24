@@ -2,12 +2,12 @@
 
 APB ONLINE MANUAL: https://blex-max.github.io/apb-pileup-browser/
 
-`apb` is a terminal genome browser and read-searcher.  
+`apb` is a terminal genome browser and read searcher.  
 
-The TUI is tailored to exploratory viewing and pattern hunting at loci; the search syntax enables querying the loci to answer questions from the very simple to the highly complex.
+The TUI is tailored to exploratory viewing and pattern hunting at loci; the search syntax enables querying the loci to answer questions from very simple to highly complex.
 
 **Advantages:**
-- Complete display of alignment features, including insertions, deletions and soft clips
+- Complete display of alignment features, including insertions, deletions and soft clips.
 - Powerful SQL-based query syntax for intuitive exploration.
 - Highly performant and responsive. On a 2 million read pileup:
     - Keypress response: ~0.1ms.
@@ -22,13 +22,12 @@ The TUI is split into 2 major regions. At the top you have the read viewer, made
 
 In the alignment pane, `=` matches the reference, `x` is a deletion, and a ring over a base marks an insertion, displayed beneath at `^`.  
 
-The display is configurable; many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, masking with `=` can be turned on and off, etc. The browser is navigated by simple keybindings, and there is extensive and clear documentation available in the manual.  
+The display is configurable: many additional columns may be viewed in the table, the alignment pane can display qualities in a number of ways, masking with `=` can be turned on and off, etc. The browser is navigated by simple keybindings, and there is extensive and clear documentation available in the manual.  
 
 apb was initially designed for viewing and querying the pileup at candidate variant loci, but has since proved useful in multiple contexts.
 
 **`apb` is pre-1.0!**
-All features are subject to change. You may experience crashes or bugs - if so, please report them!
-Feedback and feature requests are very much appreciated.
+All features are subject to change. Feedback, bug reports, and feature requests are very much appreciated.
 
 ## Install
 
