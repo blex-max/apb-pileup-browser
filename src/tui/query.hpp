@@ -19,18 +19,20 @@ struct QueryFragments {
 // 1-indexed!
 struct PileupMetadata {
   std::string contig;
-  int64_t pos = -1;  // 1-based pileup position, per loci.pos
+  int64_t pos =
+      -1;  // 1-based pileup position, per locus_metadata.pileup_position
   int64_t start = -1;
   int64_t end = -1;
   std::optional<std::string> refSlice;
-  int16_t nAln = -1;
+  int64_t nAln = -1;
 
   // Should be redundant with metadata's schema CHECK constraints
   // (apb_db_schema.hpp) - kept as a backstop.
   bool valid() const noexcept
   {
     return !contig.empty() && start > 0 && end >= start && pos >= start &&
-           pos <= end && nAln > 0;
+           pos <= end && nAln > 0 &&
+           (!refSlice || std::ssize (*refSlice) == end - start + 1);
   }
 
   std::string to_string() const;

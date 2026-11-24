@@ -2,6 +2,7 @@
 
 #include <htslib/sam.h>
 
+#include <cstring>
 #include <optional>
 #include <string>
 

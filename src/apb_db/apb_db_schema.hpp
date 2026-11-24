@@ -24,6 +24,9 @@ inline constexpr std::string_view sqlSetFK = R"sql(
 PRAGMA foreign_keys = ON;
 )sql";
 
+// CHECKs repeated in apb_validate_db, as a read-only
+// connection skips them, and in the TUI's
+// PileupMetadata::valid(); keep all in sync
 inline constexpr std::string_view sqlCreateLocusTable =
     R"sql(
 CREATE TABLE locus_metadata (
@@ -48,7 +51,9 @@ CREATE TABLE locus_metadata (
     -- number of record sources in db
     n_sources INTEGER NOT NULL CHECK (n_sources > 0),
 
-    CHECK (pileup_position >= records_start AND pileup_position <= records_end)
+    CHECK (pileup_position >= records_start AND pileup_position <= records_end),
+    -- ref length in bytes, as consumers index it
+    CHECK (ref IS NULL OR length (CAST (ref AS BLOB)) = records_end - records_start + 1)
 ) STRICT;
 )sql";
 
@@ -78,7 +83,8 @@ inline constexpr std::string_view sqlCreateSourceTable = R"sql(
   CREATE TABLE record_sources (
     id  INTEGER PRIMARY KEY,
     source TEXT NOT NULL UNIQUE,         -- source identifier, e.g. alignment file path or patient ID
-    has_contig INTEGER NOT NULL CHECK (  -- whether source has contig, to disambiguate contig presence with no records from contig absence
+    -- whether source has contig, to disambiguate contig presence with no records from contig absence
+    has_contig INTEGER NOT NULL CHECK (
       has_contig IN (0, 1)
     )
   ) STRICT;
@@ -120,42 +126,51 @@ CREATE TABLE pileup_records (
 ) STRICT;
 )sql";
 
-// One row per SAM record, with or without pileup.
+// One row per SAM record.
+// In the future, this schema may become more extensible
 inline constexpr std::string_view sqlCreateSAMTable =
     R"sql(
 CREATE TABLE sam_records (
     id        INTEGER PRIMARY KEY,
 
     -- key SAM fields for apb --
-    start     INTEGER NOT NULL CHECK (  -- 1-based leftmost mapping pos
+    -- 1-based leftmost mapping pos
+    start     INTEGER NOT NULL CHECK (
       start > 0
     ),
-    cig32     BLOB NOT NULL CHECK (     -- 32-bit CIGAR operation array, as defined in htslib::sam.h
+    -- 32-bit CIGAR operation array, as defined in htslib::sam.h
+    cig32     BLOB NOT NULL CHECK (
       length (cig32) > 0
     ),
     -- SAM fields --
     -- seq/qual can be legitimately absent for
     -- e.g. an entirely hard clipped read
     seq       TEXT,                     -- base sequence
-    qual      TEXT CHECK (              -- base qualities as phred+33 ASCII, i.e. [0, 93] -> ['!', '~']
+    -- base qualities as phred+33 ASCII, i.e. [0, 93] -> ['!', '~']
+    qual      TEXT CHECK (
       qual IS NULL OR (qual <> '' AND qual NOT GLOB '*[^!-~]*')
     ),
-    cigar     TEXT CHECK (     -- CIGAR string, denormalised as text for textual querying.
+    -- CIGAR string, denormalised as text for textual querying.
+    cigar     TEXT CHECK (
       cigar <> ''
     ),
 
-    end       INTEGER CHECK (           -- 1-based righmost mapping pos
+    -- 1-based righmost mapping pos
+    end       INTEGER CHECK (
       end IS NULL OR end >= start
     ),
     qname     TEXT,                     -- Query template NAME
-    flag      INTEGER CHECK (           -- 12-bit bitwise FLAG
+    -- 12-bit bitwise FLAG
+    flag      INTEGER CHECK (
       flag IS NULL OR flag <= 4095
     ),
-    mapq      INTEGER CHECK (           -- mapping quality; NULL if unavailable (255 in SAM)
+    -- mapping quality; NULL if unavailable (255 in SAM)
+    mapq      INTEGER CHECK (
       mapq IS NULL OR mapq >= 0 AND mapq <= 254
     ),
     mtid_id   INTEGER REFERENCES contigs(id),
-    mstart    INTEGER CHECK (           -- 1-based leftmost mapping position of the mate/next read
+    -- 1-based leftmost mapping position of the mate/next read
+    mstart    INTEGER CHECK (
       mstart IS NULL OR mstart > 0
     ),
     -- SAM Aux tags serialized as a JSON

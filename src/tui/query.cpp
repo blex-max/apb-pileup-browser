@@ -83,9 +83,8 @@ PileupMetadata get_locus_data (sqlite3* conn)
     TUI_ASSERT (!out.refSlice.value().empty());
   }
 
-  out.nAln = static_cast<int16_t> (
-      sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_sources)
-  );
+  out.nAln =
+      sqlite3_column_int64 (o_stmt, schema::MetaTableSelect::n_sources);
 
   return out;
 }
@@ -315,22 +314,27 @@ std::vector<std::string> fetch_page_qnames (int64_t offset, int64_t limit)
   return out;
 }
 
+// finalize before close, and null both, so repeat calls are no-ops
+void reset_db_globals()
+{
+  sqlite3_finalize (g_db::displayStmt);
+  g_db::displayStmt = nullptr;
+  sqlite3_close_v2 (g_db::conn);
+  g_db::conn = nullptr;
+}
+
 }  // namespace
 
 // FIXME: complete implemententation here!
 TEST_CASE ("set_query behaviour")
 {
-  Defer backstop_cleanup ([]() { sqlite3_close_v2 (g_db::conn); });
+  Defer backstop_cleanup (reset_db_globals);
   SUBCASE ("Behaviour expectatations in normal use")
   {
     // wipe any existing data, set up fresh db for test
-    // TODO: macro
-    sqlite3_finalize (g_db::displayStmt);
-    g_db::displayStmt = nullptr;
-    sqlite3_close_v2 (g_db::conn);
-    g_db::conn = nullptr;
+    reset_db_globals();
     REQUIRE (sqlite3_open (":memory:", &g_db::conn) == SQLITE_OK);
-    Defer db_cleanup ([]() { sqlite3_close_v2 (g_db::conn); });
+    Defer db_cleanup (reset_db_globals);
     REQUIRE (apb_create_schema (g_db::conn) == SQLITE_OK);
     //FIXME get locus data
 #define DEF_TEST_REC(test_qname, test_mapq) \

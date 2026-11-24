@@ -3,6 +3,7 @@
 #include <sqlite3.h>
 
 #include <cstdint>
+#include <cstring>
 #include <expected>
 #include <optional>
 #include <span>
@@ -13,6 +14,18 @@
 #include "apb_db_schema.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
+
+namespace {
+// htslib sam.h bam_cigar definitions, restated so
+// apb_db doesn't depend on htslib
+namespace hts {
+constexpr std::string_view bam_cigar_chars = "MIDNSHP=XB??????";
+constexpr uint8_t bam_cigar_shift = 4;
+constexpr uint32_t bam_cigar_mask = 0xf;
+// 2 bits per op: 1 consumes query, 2 consumes ref
+constexpr uint32_t bam_cigar_type = 0x3C1A7;
+}  // namespace hts
+}  // namespace
 
 #define TRY_OK_INT(expr)                         \
   do {                                           \
@@ -163,8 +176,8 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
 )
 {
   {
-    // Integrity check tests schema constraints
-    // e.g. CHECK and STRICT
+    // NOTE: skips CHECK constraints on a read-only
+    // connection. Runs other constraints, like NOT NULL, STRICT, etc.
     sqlite3_stmt* o_stmt = nullptr;
     if (const auto rc = sqlite3_prepare_v2 (
             br_conn, "PRAGMA integrity_check;", -1, &o_stmt, NULL
@@ -251,9 +264,14 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
       };
     }
   }
+  int64_t recordsStart = 0;
+  int64_t recordsEnd = 0;
   {
-    // metadata must agree with records; cross-table, so not
-    // expressible as schema constraints
+    // Metadata must agree with records; cross-table, so not
+    // expressible as schema constraints.
+    // Also REPEATS the locus_metadata CHECKs of apb_db_schema.hpp;
+    // keep in sync with the schema. integrity_check skips CHECKs
+    // on a read-only connection.
     // FIXME: add tests, each problem alone and combined
     // clang-format off
     constexpr std::string_view sql = R"sql(
@@ -261,7 +279,12 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
       (SELECT COUNT(*) FROM sam_records r
         WHERE r.start < m.records_start OR r.end > m.records_end),
       m.n_sources,
-      (SELECT COUNT(*) FROM record_sources)
+      (SELECT COUNT(*) FROM record_sources),
+      m.contig,
+      m.pileup_position,
+      m.records_start,
+      m.records_end,
+      m.ref
     FROM locus_metadata m;
     )sql";
     // clang-format on
@@ -280,6 +303,13 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
     const auto nOutsideSpan = sqlite3_column_int64 (o_stmt, 0);
     const auto nSourcesMeta = sqlite3_column_int64 (o_stmt, 1);
     const auto nSourcesActual = sqlite3_column_int64 (o_stmt, 2);
+    // text lengths in bytes, as consumers index them
+    const auto contigBytes = sqlite3_column_bytes (o_stmt, 3);
+    const auto pos = sqlite3_column_int64 (o_stmt, 4);
+    recordsStart = sqlite3_column_int64 (o_stmt, 5);
+    recordsEnd = sqlite3_column_int64 (o_stmt, 6);
+    const bool hasRef = sqlite3_column_type (o_stmt, 7) != SQLITE_NULL;
+    const auto refBytes = sqlite3_column_bytes (o_stmt, 7);
 
     std::string problems;
     if (nOutsideSpan > 0) {
@@ -293,11 +323,134 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
       problems += std::to_string (nSourcesActual);
       problems += " rows\n";
     }
+    if (nSourcesMeta <= 0) {
+      problems += "n_sources ";
+      problems += std::to_string (nSourcesMeta);
+      problems += " is not positive\n";
+    }
+    if (contigBytes == 0) {
+      problems += "contig is empty\n";
+    }
+    if (recordsStart <= 0 || recordsEnd < recordsStart) {
+      problems += "records span ";
+      problems += std::to_string (recordsStart);
+      problems += "-";
+      problems += std::to_string (recordsEnd);
+      problems += " is invalid\n";
+    }
+    else {
+      if (pos < recordsStart || pos > recordsEnd) {
+        problems += "pileup_position ";
+        problems += std::to_string (pos);
+        problems += " is outside the records span\n";
+      }
+      // ref is indexed by position over the records span
+      const auto spanLen = recordsEnd - recordsStart + 1;
+      if (hasRef && refBytes != spanLen) {
+        problems += "ref is ";
+        problems += std::to_string (refBytes);
+        problems += " bytes but the records span is ";
+        problems += std::to_string (spanLen);
+        problems += " bases\n";
+      }
+    }
     if (!problems.empty()) {
       return apb_validate_result_t{
           .code = apb_validate_result_t::metadataMismatch,
           .problems = problems
       };
+    }
+  }
+  {
+    // Per record, the CIGAR must agree with seq/qual and lie in
+    // the records span. Not expressible as schema
+    // constraints. Without this, consumers walking the CIGAR
+    // could read out of bounds.
+    constexpr std::string_view sql =
+        "SELECT id, qname, start, cig32, seq, qual FROM sam_records;";
+    sqlite3_stmt* o_stmt = nullptr;
+    if (const auto rc = sqlite3_prepare_v2 (
+            br_conn, sql.data(), std::ssize (sql), &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      return std::unexpected (rc);
+    }
+    Defer stmt_cleanup ([&]() { sqlite3_finalize (o_stmt); });
+
+    int rc;
+    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+      const auto start = sqlite3_column_int64 (o_stmt, 2);
+      // blob before bytes, per sqlite3 docs
+      const auto* cig = static_cast<const unsigned char*> (
+          sqlite3_column_blob (o_stmt, 3)
+      );
+      const auto nCig =
+          static_cast<size_t> (sqlite3_column_bytes (o_stmt, 3)) /
+          sizeof (uint32_t);
+      int64_t qLen = 0;
+      int64_t rLen = 0;
+      for (size_t i = 0; i < nCig; ++i) {
+        uint32_t op;
+        // blob need not be aligned
+        std::memcpy (&op, cig + (i * sizeof (uint32_t)), sizeof (op));
+        const auto type =
+            (hts::bam_cigar_type >> ((op & hts::bam_cigar_mask) << 1)) &
+            3U;
+        if ((type & 1U) != 0) {
+          qLen += op >> hts::bam_cigar_shift;
+        }
+        if ((type & 2U) != 0) {
+          rLen += op >> hts::bam_cigar_shift;
+        }
+      }
+
+      // NULL seq/qual aren't indexed
+      std::string problem;
+      if (sqlite3_column_type (o_stmt, 4) != SQLITE_NULL &&
+          sqlite3_column_bytes (o_stmt, 4) != qLen) {
+        problem = "seq is ";
+        problem += std::to_string (sqlite3_column_bytes (o_stmt, 4));
+        problem += " bytes but CIGAR query length is ";
+        problem += std::to_string (qLen);
+      }
+      else if (
+          sqlite3_column_type (o_stmt, 5) != SQLITE_NULL &&
+          sqlite3_column_bytes (o_stmt, 5) != qLen
+      ) {
+        problem = "qual is ";
+        problem += std::to_string (sqlite3_column_bytes (o_stmt, 5));
+        problem += " bytes but CIGAR query length is ";
+        problem += std::to_string (qLen);
+      }
+      // overflow-safe form of start + rLen - 1 > recordsEnd
+      else if (
+          start < recordsStart || start > recordsEnd ||
+          rLen - 1 > recordsEnd - start
+      ) {
+        problem = "aligned span of ";
+        problem += std::to_string (rLen);
+        problem += " bases from ";
+        problem += std::to_string (start);
+        problem += " is outside the records span";
+      }
+      if (!problem.empty()) {
+        const auto* qname = sqlite3_column_text (o_stmt, 1);
+        std::string record =
+            qname != nullptr
+                ? reinterpret_cast<const char*> (qname)
+                : "id " +
+                      std::to_string (sqlite3_column_int64 (o_stmt, 0));
+        record += ": ";
+        record += problem;
+        record += '\n';
+        return apb_validate_result_t{
+            .code = apb_validate_result_t::recordMismatch,
+            .problems = record
+        };
+      }
+    }
+    if (rc != SQLITE_DONE) {
+      return std::unexpected (rc);
     }
   }
 
@@ -306,16 +459,11 @@ std::expected<apb_validate_result_t, int> apb_validate_db (
 
 static std::string cig32_to_string (std::span<const uint32_t> cig32)
 {
-  /* per htslib bam_cigar macros */
   // FIXME: add tests!
-  constexpr std::string_view bam_cigar_chars = "MIDNSHP=XB??????";
-  constexpr uint8_t bam_cigar_shift = 4;
-  constexpr uint32_t bam_cigar_mask = 0xf;
-
   std::string out;
   for (const auto& op : cig32) {
-    out.append (std::to_string (op >> bam_cigar_shift));
-    out += bam_cigar_chars[op & bam_cigar_mask];
+    out.append (std::to_string (op >> hts::bam_cigar_shift));
+    out += hts::bam_cigar_chars[op & hts::bam_cigar_mask];
   }
   return out;
 }
@@ -750,9 +898,9 @@ TEST_CASE ("apb_insert_records stores records as 1-based rows")
   const auto sourceId = apb_insert_source (conn, "test.bam", true);
   REQUIRE (sourceId);
 
-  // packed as htslib: len << 4 | op (BAM_CMATCH = 0)
-  constexpr uint32_t k_cig10M = 10U << 4;
-  constexpr uint32_t k_cig6M = 6U << 4;
+  // packed as htslib: len << shift | op (BAM_CMATCH = 0)
+  constexpr uint32_t k_cig10M = 10U << hts::bam_cigar_shift;
+  constexpr uint32_t k_cig6M = 6U << hts::bam_cigar_shift;
 
   // every optional set
   apb_row1_t full;

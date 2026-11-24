@@ -1,8 +1,8 @@
 
 # apb Manual - A Pileup Browser
 
-This is the manual for apb version 0.5.1. This manual is generated directly from the apb binary.
-If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool.
+This is the manual for apb version 0.6.0. This manual is generated directly from the apb binary.
+If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool. An HTML copy of the manual may also be hosted at https://blex-max.github.io/apb-pileup-browser/, if you prefer reading in the browser.
 
 If you are reading this manual from a file on disk (rather than the webpage hosted with the apb GitHub repo), it is recommended to read this manual using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
@@ -263,7 +263,7 @@ For advanced users, note that most of these map directly onto fields in htslib's
 
 The apb query commands provide a simple wrapper around (sqlite3-based) SQL. This means you can directly query the pileup to view and count reads by their properties, such as the base, flag, and cigar string. apb provides three major commands for querying - `where`, for filtering the pileup to reads matching a condition; `order by`, for sorting or grouping reads in the view; and `count`, for quantifying reads. This is best explained by example:
 
-If this is your first time using apb, you may find it useful to walk through the following example in the demo mode, which can be accessed at the CLI by `apb --demo`. The numbers will not exactly match the examples as the examples are only illustrative.
+If this is your first time using apb, you may find it useful to walk through the following example in the demo mode, which can be accessed at the CLI by `apb --demo`. The numbers will not exactly match the examples as the examples are only illustrative. For a full list of queryable columns, see Section 3.3 above.
 
 Imagine we are inspecting a candidate SNV variant locus. We may start by filtering the pileup to only reads which the caller should consider. Specifics will vary by caller, but a common starting point is "reads which map well, have mapped mates, and aren't duplicates, qc fails, or secondary/supplementary alignments". At the command prompt we enter:
 ```

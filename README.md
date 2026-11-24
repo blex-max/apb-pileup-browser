@@ -78,11 +78,12 @@ General suggestions regarding improvements to commands and navigation are also a
 ### Planned Features
 
 - Allow display of arbitrary user columns in the table pane, including display of SAM tags.
-- Advanced motif searching syntax extenstions to the query parser.
+- Advanced motif and cigar searching extensions to the query parser.
 - Useful shorthands for common query operations, like subsetting the view to only reads which are in proper pairs.
 - Headless querying at the CLI, returning CSV results. This would allow use of apb programatically.
 - Bindings to scripting languages such as `Python` and `R` to enable querying via scripts.
 - Display of reads aligned to adjacent bases at the specified locus.
+- Accept arbitrary sqlite databases at the command line as long as they minimally conform to `apb`'s expectations.
 
 ### Speculative Features
 

@@ -219,7 +219,7 @@ static conn_or_failmsg_t open_new_db (
   }
   return std::unexpected (
       fmt::format (
-          "Failed to create temporary database file (is temp area"
+          "Failed to create temporary database file (is temp area "
           "writable?), reporting: {} - {}",
           sqlite3_errstr (rc), sqlite3_errmsg (conn)
       )
@@ -310,7 +310,7 @@ conn_or_failmsg_t ingest_sam (
   bool contigFound = false;
   bool readsFoundAtLocus = false;
   uint64_t estLocusBytes = 0;
-  std::array<apb_row1_t, 5000> inputRecBuf;
+  std::vector<apb_row1_t> inputRecBuf (5000);
   for (const auto& fp : alnPaths) {
     aln_file_t aln;
     Defer aln_cleanup ([&aln]() { aln.destroy(); });
@@ -490,8 +490,12 @@ conn_or_failmsg_t ingest_sam (
     while (p1Consumed < pileup.nPlp) {
       if (const auto ret = apb_transform_pileup1 (
               {pileup.br_plpArr + p1Consumed, pEnd}, inputRecBuf,
-              [&aln] (int mtid) {
-                return sam_hdr_tid2name (aln.o_hdr, mtid);
+              [&aln, &parsedLocus] (int mtid) {
+                // locus name as typed, so the reads view's '=' holds
+                // when typed via a header alias (AN:)
+                return std::cmp_equal (mtid, aln.locusTid)
+                           ? parsedLocus.contig.c_str()
+                           : sam_hdr_tid2name (aln.o_hdr, mtid);
               }
           );
           !ret) {
@@ -512,8 +516,7 @@ conn_or_failmsg_t ingest_sam (
         nBufValid = *ret;
       }
       if (const auto rc = apb_insert_records (
-              conn, {begin (inputRecBuf), begin (inputRecBuf) + nBufValid},
-              alnID
+              conn, {inputRecBuf.data(), nBufValid}, alnID
           );
           rc != SQLITE_OK) {
         return std::unexpected (apb_describe_sqlite_failure (
@@ -734,8 +737,17 @@ conn_or_failmsg_t ingest_db (const std::filesystem::path& dbInputPath)
     case apb_validate_result_t::metadataMismatch:
       return std::unexpected (
           fmt::format (
-              "db at {} has metadata inconsistent with its records and "
-              "is therefore not an operable apb database. The problems "
+              "db at {} has metadata which is invalid or inconsistent "
+              "with its records, and is therefore not an operable apb "
+              "database. The problems were:\n{}",
+              dbInputPath, status.problems.value()
+          )
+      );
+    case apb_validate_result_t::recordMismatch:
+      return std::unexpected (
+          fmt::format (
+              "db at {} has records which cannot be displayed, and is "
+              "therefore not an operable apb database. The problems "
               "were:\n{}",
               dbInputPath, status.problems.value()
           )

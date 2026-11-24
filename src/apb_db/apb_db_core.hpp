@@ -7,6 +7,7 @@
 
 #include <sqlite3.h>
 
+#include <climits>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -44,7 +45,8 @@ struct apb_validate_result_t {
     failedIntegrityCheck,
     failedForeignKeyCheck,
     missingLocus,
-    metadataMismatch  // metadata contradicts records; see problems
+    metadataMismatch,  // metadata invalid or contradicts records; see problems
+    recordMismatch  // records contradict their CIGAR or the span; see problems
   };
   codes_t code;
   std::optional<std::string> problems = std::nullopt;

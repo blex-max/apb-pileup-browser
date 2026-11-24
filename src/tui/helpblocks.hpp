@@ -22,7 +22,7 @@ inline constexpr auto app = std::to_array<std::string_view> ({
     "  modes, `viewer` and `prompt`. When the read       ",
     "  viewer is focused, the reads can be browsed with  ",
     "  the arrow keys. When the prompt is focused,       ",
-    "  commands are typed and edited at the prompt and   ",
+    "  commands are typed and edited at the prompt       ",
     "  and submitted with Enter. Switch mode with `Esc`. ",
     "                                                    ",
     "  The reads may be queried via the prompt. Queries  ",

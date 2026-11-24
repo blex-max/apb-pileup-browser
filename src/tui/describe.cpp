@@ -34,6 +34,13 @@ std::string apb_describe_sqlite_failure (
   case SQLITE_NOMEM:
     out += ": out of memory. Were you trying to load a very large pileup?";
     return out;
+  case SQLITE_CONSTRAINT:
+    out += ": a record failed apb's data checks (";
+    out += conn_msg.value_or (sqlite3_errstr (rc));
+    out +=
+        "). The input may be malformed or corrupt; if you believe it is "
+        "valid, please report this failure to the maintainer.";
+    return out;
   default:
     out += ", reporting code ";
     out += std::to_string (rc);
