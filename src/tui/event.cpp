@@ -296,14 +296,20 @@ void handle_event (const tb_event* ev)
       auto& lnOff = g_overlay::contentLnOffset;
       const auto contentLines =
           static_cast<int> (g_overlay::content.size());
-      auto maxScroll =
-          std::max (0, contentLines - height (g_overlay::contentBox));
+      const auto pageLines = height (g_overlay::contentBox);
+      auto maxScroll = std::max (0, contentLines - pageLines);
       switch (ev->key) {
       case TB_KEY_ARROW_DOWN:
         lnOff = std::min (maxScroll, lnOff + 1);
         return;
       case TB_KEY_ARROW_UP:
         lnOff = std::max (0, lnOff - 1);
+        return;
+      case TB_KEY_PGDN:
+        lnOff = std::min (maxScroll, lnOff + pageLines);
+        return;
+      case TB_KEY_PGUP:
+        lnOff = std::max (0, lnOff - pageLines);
         return;
       default:
         return;

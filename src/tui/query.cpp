@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -86,6 +87,38 @@ PileupMetadata get_locus_data (sqlite3* conn)
       sqlite3_column_int (o_stmt, schema::MetaTableSelect::n_sources)
   );
 
+  return out;
+}
+
+std::vector<AlnFile> get_aln_files (sqlite3* conn)
+{
+  sqlite3_stmt* o_stmt = nullptr;
+  TUI_S3_EXPECT (
+      sqlite3_prepare_v2 (
+          conn,
+          "SELECT a.id, a.source, a.has_contig, COALESCE (t.n, 0) "
+          "FROM record_sources AS a LEFT JOIN "
+          "(SELECT source_id, COUNT(*) AS n FROM sam_records "
+          "GROUP BY source_id) AS t ON t.source_id = a.id "
+          "ORDER BY a.id;",
+          -1, &o_stmt, NULL
+      ),
+      SQLITE_OK
+  );
+  Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+
+  std::vector<AlnFile> out;
+  int rc;
+  while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+    out.push_back ({
+        .id = sqlite3_column_int64 (o_stmt, 0),
+        .path = col_text (o_stmt, 1).value_or ("*"),
+        .hasContig = sqlite3_column_int (o_stmt, 2) != 0,
+        .nTotal = static_cast<uint64_t> (sqlite3_column_int64 (o_stmt, 3)),
+        .nQuery = 0,
+    });
+  }
+  TUI_ASSERT (rc == SQLITE_DONE, rc);
   return out;
 }
 
@@ -195,59 +228,33 @@ int set_query (const QueryFragments& query)
     TUI_ASSERT (queryRowCount >= 0);
   }
 
-  /* check which alignments have reads */
-  if (locusInfo.nAln > 1) {
-    std::vector<EmptyFile> emptyForQuery;
-    sqlite3_stmt* o_alnSelStmt = nullptr;
+  /* count reads per file in new query */
+  if (!alnFiles.empty()) {
+    for (auto& file : alnFiles) {
+      file.nQuery = 0;
+    }
+    sqlite3_stmt* o_countStmt = nullptr;
     TUI_S3_EXPECT (
         sqlite3_prepare_v2 (
             conn,
-            "SELECT a.source, a.has_contig, "
-            "EXISTS (SELECT 1 FROM sam_records AS r WHERE r.source_id = "
-            "a.id) AS has_any_reads FROM record_sources AS a LEFT JOIN "
-            "(SELECT "
-            "DISTINCT source_id FROM ordered_query) AS o ON o.source_id = "
-            "a.id "
-            "WHERE o.source_id IS NULL ORDER BY a.id;",
-            -1, &o_alnSelStmt, NULL
+            "SELECT source_id, COUNT(*) FROM ordered_query "
+            "GROUP BY source_id;",
+            -1, &o_countStmt, NULL
         ),
         SQLITE_OK
     );
-    Defer alnSelStmt_cleanup ([&o_alnSelStmt]() {
-      sqlite3_finalize (o_alnSelStmt);
+    Defer countStmt_cleanup ([&o_countStmt]() {
+      sqlite3_finalize (o_countStmt);
     });
     int rc;
-    while ((rc = sqlite3_step (o_alnSelStmt)) == SQLITE_ROW) {
-      const std::string path{
-          reinterpret_cast<const char*> (
-              sqlite3_column_text (o_alnSelStmt, 0)
-          ),
-          static_cast<size_t> (sqlite3_column_bytes (o_alnSelStmt, 0))
-      };
-      const bool hasContig =
-          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 1));
-      const bool hasAnyReads =
-          static_cast<bool> (sqlite3_column_int (o_alnSelStmt, 2));
-
-      // NOTE: any file which does not have locus reads/contig
-      // will always retain the same reason, so maybe this is
-      // suboptimal to fetch this info every query. But it will do,
-      // it's not a major cost.
-      if (hasAnyReads) {
-        emptyForQuery.emplace_back (
-            path, EmptyFileReason::noMatchingReads
-        );
-      }
-      else if (hasContig) {
-        emptyForQuery.emplace_back (path, EmptyFileReason::noReadsAtLocus);
-      }
-      else {
-        emptyForQuery.emplace_back (path, EmptyFileReason::contigAbsent);
-      }
+    while ((rc = sqlite3_step (o_countStmt)) == SQLITE_ROW) {
+      const auto id = sqlite3_column_int64 (o_countStmt, 0);
+      const auto file = std::ranges::find (alnFiles, id, &AlnFile::id);
+      TUI_ASSERT (file != alnFiles.end(), id);
+      file->nQuery =
+          static_cast<uint64_t> (sqlite3_column_int64 (o_countStmt, 1));
     }
-    TUI_ASSERT (rc == SQLITE_DONE);
-
-    queryEmptyFiles = std::move (emptyForQuery);
+    TUI_ASSERT (rc == SQLITE_DONE, rc);
   }
 
   sqlite3_stmt* br_newDisplayStmt = nullptr;
@@ -359,6 +366,8 @@ TEST_CASE ("set_query behaviour")
             },
             true
         },
+        test::TestAln{"no_reads.bam", std::nullopt, true},
+        test::TestAln{"no_contig.bam", std::nullopt, false},
     });
 #undef DEF_TEST_REC
 
@@ -419,35 +428,29 @@ TEST_CASE ("set_query behaviour")
       CHECK (g_db::nQueryRows == nRowsBefore);
       CHECK (fetch_page_qnames (0, 10) == pageBefore);
     }
+    SUBCASE ("per-file read counts")
+    {
+      g_db::alnFiles = get_aln_files (g_db::conn);
+      Defer files_cleanup ([]() { g_db::alnFiles.clear(); });
+      const auto& files = g_db::alnFiles;
+      REQUIRE (files.size() == 4);
+      CHECK (files[2].path == "no_reads.bam");
+      CHECK (files[2].hasContig);
+      CHECK_FALSE (files[3].hasContig);
+      CHECK (files[0].nTotal == 3);
+      CHECK (files[1].nTotal == 3);
+      CHECK (files[2].nTotal == 0);
+      CHECK (files[3].nTotal == 0);
+
+      REQUIRE (
+          g_db::set_query ({.where = {"qname = 'read2_f1'"}}) == SQLITE_OK
+      );
+      CHECK (files[0].nQuery == 1);
+      CHECK (files[1].nQuery == 0);
+      // 1 read, then 3 files without reads
+      CHECK (g_db::nScrollRows() == 4);
+    }
   }
-
-  // SUBCASE ("files without reads are correctly classified")
-  // {
-  //   DbFixture fx (
-  //       {{"no_reads.bam", true},
-  //        {"no_contig.bam", false},
-  //        {"has_reads.bam", true}}
-  //   );
-  //   copy_reads_to_file (4);
-
-  //   // nothing matches: all four files are empty, file 1 and 4 only by query
-  //   REQUIRE (g_db::set_query ({.where = {"qname = 'none'"}}) == SQLITE_OK);
-  //   CHECK (g_db::nQueryRows == 0);
-  //   using R = g_db::EmptyFileReason;
-  //   const auto& ef = g_db::queryEmptyFiles;
-  //   REQUIRE (ef.size() == 4);
-  //   CHECK (ef[0].path == "test.bam");
-  //   CHECK (ef[0].reason == R::noMatchingReads);
-  //   CHECK (ef[1].path == "no_reads.bam");
-  //   CHECK (ef[1].reason == R::noReadsAtLocus);
-  //   CHECK (ef[2].path == "no_contig.bam");
-  //   CHECK (ef[2].reason == R::contigAbsent);
-  //   CHECK (ef[3].reason == R::noMatchingReads);
-
-  //   // files with matching reads are not listed
-  //   REQUIRE (g_db::set_query ({}) == SQLITE_OK);
-  //   CHECK (g_db::queryEmptyFiles.size() == 2);
-  // }
 }
 
 #endif  // DOCTEST_CONFIG_DISABLE

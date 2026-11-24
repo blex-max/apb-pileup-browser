@@ -16,6 +16,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -25,6 +26,7 @@
 
 #include "ingest.hpp"
 #include "log.hpp"
+#include "tui/cmd.hpp"
 #include "tui/manual.hpp"
 #include "tui/run.hpp"
 #include "utility/apb_assert.hpp"
@@ -82,10 +84,15 @@ options:
                           The TUI will still show 1-based
                           coordinates.
                           Invalid with DB and --demo.
+  -s, --settings LIST     set display options on opening the
+                          TUI, as OPTION=on|off,..., e.g.
+                          bases=on,colour=on.
+                          See `apb --manual` for a full list
+                          of toggle options.
   --manual                Print the apb manual to stdout and exit.
   --demo                  View demo data.
                           Invalid with all other arguments
-                          except --dump and --log.
+                          except --dump, --log and --settings.
   --log PATH              Log debug info to PATH.
   -h, --help              show this help message and exit.
   -v, --version           print version information and exit.
@@ -124,6 +131,8 @@ struct cli_args_t {
   // locus, demo
   std::optional<std::filesystem::path> dumpPath = std::nullopt;
 
+  // toggle, value; applied in order on opening the TUI
+  std::vector<std::pair<bool*, bool>> settings;
   std::optional<std::filesystem::path> logPath = std::nullopt;
   // for debugging (see parse_args)
   bool autoflush = false;
@@ -131,6 +140,9 @@ struct cli_args_t {
 
 static std::expected<cli_args_t, std::string> parse_args (
     int argc, char** argv
+);
+static std::expected<void, std::string> parse_settings (
+    std::string_view list, std::vector<std::pair<bool*, bool>>& out
 );
 
 
@@ -198,6 +210,9 @@ int main (int argc, char** argv)
     return EXIT_SUCCESS;
   }
 
+  for (const auto& [toggle, value] : args.settings) {
+    *toggle = value;
+  }
   return run_tui (conn);
 }
 
@@ -272,6 +287,14 @@ static std::expected<cli_args_t, std::string> parse_args (
       }
       else if (arg == "--no-limit-mem") {
         argsOut.limitMemUsage = false;
+      }
+      else if (arg == "-s" || arg == "--settings") {
+        std::string_view list;
+        OPT_VAL_OR_EXIT ("--settings", list);
+        const auto ret = parse_settings (list, argsOut.settings);
+        if (!ret) {
+          EXIT_W_USAGE (fmt::format ("--settings: {}", ret.error()));
+        }
       }
       else if (arg.starts_with ("-")) {
         EXIT_W_USAGE (fmt::format ("unrecognized argument: {}", arg));
@@ -396,4 +419,41 @@ static std::expected<cli_args_t, std::string> parse_args (
 
   return argsOut;
 #undef EXIT_W_USAGE
+}
+
+// case-insensitive, ASCII only
+static bool iequals (std::string_view a, std::string_view b)
+{
+  return std::ranges::equal (a, b, [] (unsigned char x, unsigned char y) {
+    return std::tolower (x) == std::tolower (y);
+  });
+}
+
+// appends LIST, OPTION=on|off,..., to out as toggle, value
+static std::expected<void, std::string> parse_settings (
+    std::string_view list, std::vector<std::pair<bool*, bool>>& out
+)
+{
+  for (const auto part : std::views::split (list, ',')) {
+    const std::string_view setting{part.begin(), part.end()};
+    const auto eq = setting.find ('=');
+    if (eq == std::string_view::npos) {
+      return std::unexpected (
+          fmt::format ("expected OPTION=on|off, got \"{}\"", setting)
+      );
+    }
+    const auto toggle = find_toggle (setting.substr (0, eq));
+    if (!toggle) {
+      return std::unexpected (toggle.error());
+    }
+    const auto value = setting.substr (eq + 1);
+    const bool on = iequals (value, "on");
+    if (!on && !iequals (value, "off")) {
+      return std::unexpected (
+          fmt::format ("expected OPTION=on|off, got \"{}\"", setting)
+      );
+    }
+    out.emplace_back (*toggle, on);
+  }
+  return {};
 }

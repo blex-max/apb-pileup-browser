@@ -11,9 +11,11 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "apb_db/apb_db_schema.hpp"
@@ -173,15 +175,16 @@ bool cmd_widget_is_valid()
 
 // write path to xlim, hiding leading elements to fit, e.g.
 // …/samples/a.bam; if the name alone is too long, truncate
-// it, e.g. …/a.b…
-void write_path (
+// it, e.g. …/a.b…. Returns cells written.
+int write_path (
     e2::GlobalCell start, int xlim, std::string_view path,
     const e2::Style& style
 )
 {
   if (xlim <= start.x) {
-    return;
+    return 0;
   }
+  const int xStart = start.x;
   if (path.size() > static_cast<size_t> (xlim - start.x)) {
     // first separator leaving room for the ellipsis
     auto iSep = path.find (
@@ -198,10 +201,30 @@ void write_path (
   }
   if (path.size() > static_cast<size_t> (xlim - start.x)) {
     // name alone too long: ellipsis in last cell
-    --xlim;
-    e2::set (e2::GlobalCell{{.x = xlim, .y = start.y}}, ellipsis, style);
+    e2::set (
+        e2::GlobalCell{{.x = xlim - 1, .y = start.y}}, ellipsis, style
+    );
+    e2::write_string (start, xlim - 1, path, style);
+    return xlim - xStart;
   }
-  e2::write_string (start, xlim, path, style);
+  return start.x - xStart + e2::write_string (start, xlim, path, style);
+}
+
+// file heading: path, shortened to fit, then read counts if
+// the file has reads at the locus, e.g. a.bam: 12/300 reads
+static void file_heading (
+    e2::GlobalCell start, int xlim, const AlnFile& file
+)
+{
+  constexpr e2::Style style{.fg = TB_REVERSE};
+  const auto counts =
+      file.nTotal > 0
+          ? fmt::format (": {}/{} reads", file.nQuery, file.nTotal)
+          : std::string{};
+  start.x += write_path (
+      start, xlim - static_cast<int> (counts.size()), file.path, style
+  );
+  e2::write_string (start, xlim, counts, style);
 }
 
 // colour for a base if drawColour, e.g. A green; else default
@@ -626,9 +649,7 @@ static void clips1 (
     for (size_t i = 0; i < len; ++i) {
       const auto gBase = gStart + 1 + static_cast<int64_t> (i);
       const auto base = seq_char (readFields.seq, qStart + i);
-      auto baseStyle = dim;
-      baseStyle.fg |= base_colour (base);
-      setAtGPos (gBase, 0, base, baseStyle);
+      setAtGPos (gBase, 0, base, {.fg = base_colour (base)});
       if (qualYOffset) {
         setAtGPos (
             gBase, *qualYOffset,
@@ -663,6 +684,120 @@ static void clips1 (
   }
 }
 
+// bam_cigar_type bit masks
+constexpr uint8_t consumesQuery = 0b01;
+constexpr uint8_t consumesRef = 0b10;
+
+// An insertion, anchored on the base before it
+struct InsPlacement {
+  int64_t anchorGPos;
+  size_t iQuery;  // first inserted base
+  uint32_t len;
+  int row;  // of the insertion track
+};
+
+// Place each insertion whose anchor is on screen on the lowest
+// insertion track row where its text, ^ + bases, overlaps no
+// other. Returns the placements and the number of rows used.
+static std::pair<std::vector<InsPlacement>, int> place_ins (
+    const ReadAlnFields& readFields, const Seq1FrameArgs& fa
+)
+{
+  const int64_t rightGPos =
+      fa.writeStartXGPos + (fa.writeLimits.x - fa.writeStartX);
+  std::vector<InsPlacement> placements;
+  // per row, gpos just past the last insertion on it
+  std::vector<int64_t> rowEnds;
+  auto iGc = readFields.rStart;
+  size_t iQuery = 0;
+  for (size_t iOp = 0; iOp < readFields.nCig; iOp++) {
+    const auto op = readFields.cig_br[iOp];
+    const auto len = bam_cigar_oplen (op);
+    const auto anchorGPos = iGc - 1;
+    if (bam_cigar_op (op) == BAM_CINS &&
+        anchorGPos >= fa.writeStartXGPos && anchorGPos < rightGPos) {
+      size_t row = 0;
+      while (row < rowEnds.size() && rowEnds[row] > anchorGPos) {
+        ++row;
+      }
+      if (row == rowEnds.size()) {
+        rowEnds.push_back (0);
+      }
+      rowEnds[row] = anchorGPos + 1 + len;
+      placements.push_back (
+          {anchorGPos, iQuery, len, static_cast<int> (row)}
+      );
+    }
+    if (bam_cigar_type (bam_cigar_op (op)) & consumesQuery) {
+      iQuery += len;
+    }
+    if (bam_cigar_type (bam_cigar_op (op)) & consumesRef) {
+      iGc += len;
+    }
+  }
+  return {placements, static_cast<int> (rowEnds.size())};
+}
+
+// Draw insertions placed by place_ins: a ring over each anchor
+// base, and ^ + inserted bases on the insertion's row of the
+// insertion track, with quality beneath on the same row of the
+// insertion quality track. Tracks are drawn if offsets given.
+static void ins1 (
+    const int16_t yStart, const ReadAlnFields& readFields,
+    const Seq1FrameArgs& fa, std::span<const InsPlacement> placements,
+    const std::optional<int> insYOffset,
+    const std::optional<int> insQualYOffset, const e2::Style& qualStyle
+)
+{
+  for (const auto& ins : placements) {
+    // modify anchor base, keeping mismatch highlight/colour
+    const e2::GlobalCell anchorCell{
+        {.x = fa.writeStartX +
+              static_cast<int> (ins.anchorGPos - fa.writeStartXGPos),
+         .y = yStart}
+    };
+    e2::rm_attr (anchorCell, dim);
+    if (g_ui::drawAnchor) {
+      e2::extend (anchorCell, insRingAbove);
+    }
+
+    if (insYOffset && yStart + *insYOffset + ins.row < fa.writeLimits.y) {
+      auto writeHead = anchorCell + e2::dY (*insYOffset + ins.row);
+      e2::set (writeHead, insAt);
+      writeHead.x++;
+      for (size_t i = 0; i < ins.len && writeHead.x < fa.writeLimits.x;
+           ++i, ++writeHead.x) {
+        const auto base = seq_char (readFields.seq, ins.iQuery + i);
+        set (
+            writeHead, base,
+            readFields.seq ? e2::Style{.fg = base_colour (base)} : dim
+        );
+      }
+    }
+    else {
+      // extra highlight, as insertion not shown
+      e2::add_attr (anchorCell, {.fg = TB_UNDERLINE});
+    }
+
+    if (insQualYOffset &&
+        yStart + *insQualYOffset + ins.row < fa.writeLimits.y) {
+      auto writeHead = anchorCell + e2::dY (*insQualYOffset + ins.row);
+      e2::set (writeHead, insAt);
+      writeHead.x++;
+      for (size_t i = 0; i < ins.len && writeHead.x < fa.writeLimits.x;
+           ++i, ++writeHead.x) {
+        set (
+            writeHead,
+            qual_char (
+                readFields.qual, ins.iQuery + i, g_ui::drawSparkline
+            ),
+            qualStyle
+        );
+      }
+    }
+  }
+}
+
 static e2::Delta seq1 (
     const int16_t yStart, sqlite3_stmt* br_dbRow, const Seq1FrameArgs& fa
 )
@@ -672,9 +807,6 @@ static e2::Delta seq1 (
   const auto& ref = g_db::locusInfo.refSlice;
   const auto pileupSpanGStart = g_db::locusInfo.start;
 
-  // bit masks
-  constexpr uint8_t consumesQuery = 0b01;
-  constexpr uint8_t consumesRef = 0b10;
   // exact consumption types
   constexpr uint8_t consumesNeitherQueryOrRef = 0b00;
   constexpr uint8_t consumesQueryOnly = 0b01;
@@ -699,44 +831,18 @@ static e2::Delta seq1 (
   /* --- enable optional tracks --- */
   // get ordered offsets for optional tracks.
   // Insertions first, then qual, then insertion quality.
-  // Offsets are interdependent and depend on read content,
-  // hence calculation per record.
-  constexpr int xtraYOffsetBase = 1;
-  constexpr int trackYOffsetIns = xtraYOffsetBase;
-  const bool drawInsTrack = [&]() {
-    if (g_ui::drawInsTrack &&
-        (writeHead.y + trackYOffsetIns) < fa.writeLimits.y) {
-      // do we actually have any insertions to draw
-      // (same visibility condition as the draw loop below)
-      const int64_t rightGPos =
-          fa.writeStartXGPos + (fa.writeLimits.x - fa.writeStartX);
-      auto iGcScan = readFields.rStart;
-      for (size_t iOp = 0; iOp < readFields.nCig && iGcScan < rightGPos;
-           iOp++) {
-        const auto op = readFields.cig_br[iOp];
-        if (bam_cigar_op (op) == BAM_CINS &&
-            iGcScan > fa.writeStartXGPos) {
-          return true;
-        }
-        if (bam_cigar_type (bam_cigar_op (op)) & consumesRef) {
-          iGcScan += bam_cigar_oplen (op);
-        }
-      }
-    }
-    return false;
-  }();
-  const int trackYOffsetQual =
-      xtraYOffsetBase + static_cast<int> (drawInsTrack);
+  // Overlapping insertions take extra rows (see place_ins), so
+  // offsets depend on read content, hence calculation per record.
+  const auto [insPlacements, nInsRows] = place_ins (readFields, fa);
+  // the read, plus insertion rows if shown
+  const int nSeqRows = 1 + (g_ui::drawInsTrack ? nInsRows : 0);
+  constexpr int trackYOffsetIns = 1;
+  const int trackYOffsetQual = nSeqRows;
   const e2::Style qualStyle =
       !readFields.qual || g_ui::drawSparkline ? dim : e2::Style{};
   bool drawQualTrack = g_ui::drawQualTrack &&
                        (writeHead.y + trackYOffsetQual) < fa.writeLimits.y;
-  const int trackYOffsetInsQual = xtraYOffsetBase +
-                                  static_cast<int> (drawInsTrack) +
-                                  static_cast<int> (drawQualTrack);
-  bool drawInsQualTrack =
-      drawInsTrack && drawQualTrack &&
-      (writeHead.y + trackYOffsetInsQual) < fa.writeLimits.y;
+  const int trackYOffsetInsQual = trackYOffsetQual + 1;
   /* --- end enable optional tracks --- */
 
   clips1 (
@@ -774,61 +880,7 @@ static e2::Delta seq1 (
             : 0;
 
     if (opConsumeType == consumesQueryOnly) {
-      if (opType == BAM_CINS && iGc > fa.writeStartXGPos) {
-        // insertion
-        // where at least one base PRIOR
-        // to the insertion is visible
-
-        // modify anchor base, keeping mismatch highlight/colour
-        const auto anchorCell = writeHead - e2::dX (1);
-        e2::rm_attr (anchorCell, dim);
-        if (g_ui::drawAnchor) {
-          e2::extend (anchorCell, insRingAbove);
-        }
-
-        if (drawInsTrack) {
-          auto opInsWriteHead = anchorCell + e2::dY (trackYOffsetIns);
-          if (opInsWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsWriteHead, insAt);
-            opInsWriteHead.x++;
-          }
-          for (size_t i = 0;
-               i < opSz && opInsWriteHead.x < fa.writeLimits.x;
-               ++i, ++opInsWriteHead.x) {
-            const auto base = seq_char (readFields.seq, iQuery + i);
-            set (
-                opInsWriteHead, base,
-                readFields.seq ? e2::Style{.fg = base_colour (base)} : dim
-            );
-          }
-        }
-        else if (!g_ui::drawBases) {
-          // extra highlight if bases not unfolded
-          // (underline marks mismatches when bases on)
-          e2::add_attr (anchorCell, {.fg = TB_UNDERLINE});
-        }
-
-        if (drawInsQualTrack) {
-          auto opInsQualWriteHead =
-              anchorCell + e2::dY (trackYOffsetInsQual);
-          if (opInsQualWriteHead.x < fa.writeLimits.x) {
-            e2::set (opInsQualWriteHead, insAt);
-            opInsQualWriteHead.x++;
-          }
-          for (size_t i = 0;
-               i < opSz && opInsQualWriteHead.x < fa.writeLimits.x;
-               ++i, ++opInsQualWriteHead.x) {
-            set (
-                opInsQualWriteHead,
-                qual_char (
-                    readFields.qual, iQuery + i, g_ui::drawSparkline
-                ),
-                qualStyle
-            );
-          }
-        }
-      }
-
+      // insertion or soft clip: drawn by ins1, clips1
       iQuery += opSz;
     }
     else if (opConsumeType == consumesRefOnly) {
@@ -905,16 +957,18 @@ static e2::Delta seq1 (
       break;
     }
   }
-  writeHead.y++;  // one row always written by this point
-  if (drawInsTrack) {
-    writeHead.y++;
-  }
-  if (drawQualTrack) {
-    writeHead.y++;
-  }
-  if (drawInsQualTrack) {
-    writeHead.y++;
-  }
+  // after the main loop, as it modifies anchor bases
+  ins1 (
+      yStart, readFields, fa, insPlacements,
+      g_ui::drawInsTrack ? std::optional{trackYOffsetIns} : std::nullopt,
+      g_ui::drawInsTrack && drawQualTrack
+          ? std::optional{trackYOffsetInsQual}
+          : std::nullopt,
+      qualStyle
+  );
+
+  // sequence rows, then their quality rows
+  writeHead.y += nSeqRows * (1 + static_cast<int> (drawQualTrack));
 
   return {.dx = writeHead.x - fa.writeStartX, .dy = writeHead.y - yStart};
 }
@@ -1136,27 +1190,23 @@ void draw_main_to_buffer()
         SQLITE_OK
     );
     if (g_db::nQueryRows > 0) {
-      // file of the last header drawn on this page
-      std::string headerFile;
+      // file of the last heading drawn on this page
+      const AlnFile* headingFile = nullptr;
       int stepRc = SQLITE_DONE;
       while ((seqWriteHead.y < seqWriteLim.y) &&
              (stepRc = sqlite3_step (g_db::displayStmt)) == SQLITE_ROW) {
-        std::string rowFile;
-        if (multiAln) {
-          rowFile =
-              col_text (
-                  g_db::displayStmt, schema::UserReadViewSelect::source
-              )
-                  .value_or ("*");
-        }
-        if (rowFile != headerFile) {
-          headerFile = rowFile;
-          write_path (
-              seqWriteHead, seqWriteLim.x, headerFile, {.fg = TB_REVERSE}
-          );
+        const auto id = sqlite3_column_int64 (
+            g_db::displayStmt, schema::UserReadViewSelect::source_id
+        );
+        if (multiAln && (!headingFile || headingFile->id != id)) {
+          const auto file =
+              std::ranges::find (g_db::alnFiles, id, &AlnFile::id);
+          TUI_ASSERT (file != g_db::alnFiles.end(), id);
+          headingFile = &*file;
+          file_heading (seqWriteHead, seqWriteLim.x, *headingFile);
           seqWriteHead.y++;
           if (seqWriteHead.y >= seqWriteLim.y) {
-            // header drawn, no room for read
+            // heading drawn, no room for read
             break;
           }
         }
@@ -1174,39 +1224,32 @@ void draw_main_to_buffer()
       TUI_ASSERT (stepRc == SQLITE_DONE || stepRc == SQLITE_ROW, stepRc);
     }
 
-    // if space avail, draw empty file labels
+    // if space avail, draw files without reads in query
     {
       const auto nReads = static_cast<int64_t> (g_db::nQueryRows);
-      // get scroll position relative to file labels
-      const auto labelOffset = static_cast<size_t> (
-          std::max<int64_t> (g_db::displayScrollOffset - nReads, 0)
-      );
-      for (size_t i = labelOffset; i < g_db::queryEmptyFiles.size() &&
-                                   seqWriteHead.y < seqWriteLim.y;
-           ++i) {
-        const auto& file = g_db::queryEmptyFiles[i];
-        write_path (
-            seqWriteHead, seqWriteLim.x, file.path, {.fg = TB_REVERSE}
-        );
+      // scroll position relative to files without reads
+      const auto fileOffset =
+          std::max<int64_t> (g_db::displayScrollOffset - nReads, 0);
+      auto emptyFiles = g_db::alnFiles |
+                        std::views::filter ([] (const AlnFile& f) {
+                          return f.nQuery == 0;
+                        }) |
+                        std::views::drop (fileOffset);
+      for (const auto& file : emptyFiles) {
+        if (seqWriteHead.y >= seqWriteLim.y) {
+          break;
+        }
+        file_heading (seqWriteHead, seqWriteLim.x, file);
         seqWriteHead.y++;
         if (seqWriteHead.y >= seqWriteLim.y) {
           break;
         }
-        std::string_view reason;
-        switch (file.reason) {
-        case g_db::EmptyFileReason::contigAbsent:
-          reason = "File does not contain contig";
-          break;
-        case g_db::EmptyFileReason::noReadsAtLocus:
-          reason = "File has no reads at locus";
-          break;
-        case g_db::EmptyFileReason::noMatchingReads:
-          reason = "No reads match query";
-          break;
+        std::string_view reason = "No reads match query";
+        if (file.nTotal == 0) {
+          reason = file.hasContig ? "File has no reads at locus"
+                                  : "File does not contain contig";
         }
-        e2::write_string (
-            seqWriteHead, seqWriteLim.x, std::string (reason), dim
-        );
+        e2::write_string (seqWriteHead, seqWriteLim.x, reason, dim);
         seqWriteHead.y++;
         ++nUnitsDrawn;
       }
@@ -1363,7 +1406,7 @@ void draw_overlay_to_buffer()
   writeHead.x += e2::write_string (writeHead, xEnd, " ESC: close ", dim);
   writeHead.x += 3;
   if (lnN < std::ssize (content)) {
-    e2::write_string (writeHead, xEnd, "Up / Down: scroll", dim);
+    e2::write_string (writeHead, xEnd, "(Pg)Up/Down: scroll", dim);
     if (lnOff < maxLnOff) {
       writeHead = vertexC (frame) - e2 ::dX (7);
       writeHead.x +=

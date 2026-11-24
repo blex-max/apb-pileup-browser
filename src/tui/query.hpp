@@ -2,6 +2,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -38,6 +39,17 @@ struct PileupMetadata {
 // locus metadata is known to exist.
 PileupMetadata get_locus_data (sqlite3* conn);
 
+// An alignment file, with its read counts
+struct AlnFile {
+  int64_t id;  // record_sources id
+  std::string path;
+  bool hasContig;
+  uint64_t nTotal;  // reads at locus
+  uint64_t nQuery;  // reads in current query, set by set_query
+};
+// Get alignment files from db, in source order
+std::vector<AlnFile> get_aln_files (sqlite3* conn);
+
 namespace tui_state::db {
 
 // ALL MANAGED BY set_query()
@@ -49,28 +61,22 @@ inline constinit uint64_t nQueryRows = 0;  // rows in current query table
 inline constinit int32_t displayScrollOffset = 0;
 inline constinit uint64_t dbTotalRows = 0;
 
-// Files (multi-aln only) with no reads in the current query, and why.
-// Displayed after the reads; counted as scrollable rows.
-enum class EmptyFileReason : uint8_t {
-  contigAbsent,
-  noReadsAtLocus,
-  noMatchingReads
-};
-struct EmptyFile {
-  std::string path;
-  EmptyFileReason reason;
-};
-inline constinit std::vector<EmptyFile> queryEmptyFiles;
+// Multi-aln only, else empty. Files with no reads in the
+// current query are displayed after the reads, counted as
+// scrollable rows.
+inline constinit std::vector<AlnFile> alnFiles;
 
 // Replace the active query with `clause`.
 // On failure extra details are available from sqlite3_errmsg (conn).
 // Returns sqlite3 integer code
 [[nodiscard]] int set_query (const QueryFragments& newQuery);
 
-// total scrollable rows: reads, then empty-file labels
+// total scrollable rows: reads, then files with none in query
 inline uint64_t nScrollRows()
 {
-  return nQueryRows + static_cast<uint64_t> (queryEmptyFiles.size());
+  return nQueryRows + static_cast<uint64_t> (std::ranges::count (
+                          alnFiles, uint64_t{0}, &AlnFile::nQuery
+                      ));
 }
 
 inline constinit PileupMetadata

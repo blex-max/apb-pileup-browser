@@ -42,6 +42,8 @@ See the helptext from `apb --help` for the canonical guide to the CLI. Some addi
 
 `apb DB` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command), and does not take any other file input.
 
+`--settings` sets display options on opening the TUI, using the option names of the in-TUI `toggle` command, e.g. `apb --settings colour=on,bases=on --demo`.
+
 ## 3) TUI Usage
 
 On starting apb you will enter the TUI. The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, a ring over a base marks an insertion, displayed beneath at `^`, and soft-clipped bases are shown in brackets. The appearance of the alignment pane can be configured with the `toggle` command, for example to display `ACTG...` for bases matching reference, instead of masking with `=`.
@@ -232,6 +234,10 @@ Any and all of these approaches may be combined, and more is possible. See SQLit
 ---
 
 ## Addenda & Troubleshooting
+
+### Colour
+
+apb can optionally colour bases displayed in the TUI according as is generally accepted; A=Green, C=Blue, G=Orange, T=Red. However, apb reads these colours from your terminal palette and uses the 8 basic colours to maximise compatibility. This means that a) G is actually yellow, since orange is not amongst the basic 8 terminal colours, and b) the readibility of the colour scheme depends on your terminal configuration and is not a property of apb. Supplying a colour palette directly to apb may be a supported feature in the future.
 
 ### The `dump` Functionality
 

@@ -426,6 +426,45 @@ static constexpr Cmd clearCmd{
     }
 };
 
+std::expected<bool*, std::string> find_toggle (std::string_view name)
+{
+  // US spelling
+  if (name == "color") {
+    name = "colour";
+  }
+  static constexpr std::array<std::pair<std::string_view, bool*>, 8>
+      toggles{{
+          {"quality", &g_ui::drawQualTrack},
+          {"insertion", &g_ui::drawInsTrack},
+          {"anchor", &g_ui::drawAnchor},
+          {"table", &g_ui::drawTable},
+          {"sparkline", &g_ui::drawSparkline},
+          {"clips", &g_ui::drawClips},
+          {"bases", &g_ui::drawBases},
+          {"colour", &g_ui::drawColour},
+      }};
+  // reject ambiguous prefixes, e.g. `c`
+  std::vector<std::string_view> matches;
+  bool* toggle = nullptr;
+  for (const auto& [option, flag] : toggles) {
+    if (option.starts_with (name)) {
+      matches.push_back (option);
+      toggle = flag;
+    }
+  }
+  if (matches.empty()) {
+    return std::unexpected (fmt::format ("Unknown option: \"{}\"", name));
+  }
+  if (matches.size() > 1) {
+    return std::unexpected (
+        fmt::format (
+            "Ambiguous option: \"{}\" ({})", name, fmt::join (matches, ", ")
+        )
+    );
+  }
+  return toggle;
+}
+
 static constexpr auto toggleNames =
     std::to_array<std::string_view> ({"toggle", "tg"});
 static constexpr auto toggleDesc = std::to_array<std::string_view> ({
@@ -458,68 +497,16 @@ static constexpr Cmd toggleCmd{
       if (tokens.size() != 1) {
         return {false, CMD_FMT_MISUSE("takes a single argument", toggleCmd)};
       }
-      // get single arg; US spelling
-      const auto tok = tokens.back() == "color" ? std::string_view{"colour"}
-                                                : tokens.back();
-
-      static constexpr std::array<std::string_view, 8> opts{
-          "quality",   "insertion", "anchor", "table",
-          "sparkline", "clips",     "bases",  "colour"
-      };
-      // reject ambiguous prefixes, e.g. `c`
-      std::vector<std::string_view> matches;
-      for (const auto& opt : opts) {
-        if (tok == opt.substr (0, tok.length())) {
-          matches.push_back (opt);
-        }
+      const auto found = find_toggle (tokens.back());
+      if (!found) {
+        return {false, CMD_FMT_MISUSE (found.error(), toggleCmd)};
       }
-      if (matches.empty()) {
-        return {false, CMD_FMT_MISUSE (
-            fmt::format ("Unknown option: \"{}\"", tok), toggleCmd
-        )};
+      bool& toggle = **found;
+      if (&toggle == &g_ui::drawBases && !g_db::locusInfo.refSlice) {
+        // true to clear input; nothing to retry
+        return {true, "No reference loaded, no effect"};
       }
-      if (matches.size() > 1) {
-        return {false, CMD_FMT_MISUSE (
-            fmt::format (
-                "Ambiguous option: \"{}\" ({})", tok,
-                fmt::join (matches, ", ")
-            ),
-            toggleCmd
-        )};
-      }
-
-      const auto opt = matches.front();
-      if (opt == "quality") {
-        g_ui::drawQualTrack = !g_ui::drawQualTrack;
-      }
-      else if (opt == "insertion") {
-        g_ui::drawInsTrack = !g_ui::drawInsTrack;
-      }
-      else if (opt == "anchor") {
-        g_ui::drawAnchor = !g_ui::drawAnchor;
-      }
-      else if (opt == "table") {
-        g_ui::drawTable = !g_ui::drawTable;
-      }
-      else if (opt == "sparkline") {
-        g_ui::drawSparkline = !g_ui::drawSparkline;
-      }
-      else if (opt == "clips") {
-        g_ui::drawClips = !g_ui::drawClips;
-      }
-      else if (opt == "bases") {
-        if (!g_db::locusInfo.refSlice) {
-          // true to clear input; nothing to retry
-          return {true, "No reference loaded, no effect"};
-        }
-        g_ui::drawBases = !g_ui::drawBases;
-      }
-      else if (opt == "colour") {
-        g_ui::drawColour = !g_ui::drawColour;
-      }
-      else {
-        TUI_UNREACHABLE ("toggle command malformed, unknown opt", opt);
-      }
+      toggle = !toggle;
       return {true, CMD_GENERIC_SUCCESS};
     }
 };
@@ -726,6 +713,16 @@ TEST_CASE ("command registry has no overlapping names")
   if (dup != names.end()) {
     FAIL ("duplicate command name: ", *dup);
   }
+}
+
+TEST_CASE ("find_toggle matches option prefixes, as the toggle command")
+{
+  CHECK (find_toggle ("colour") == &g_ui::drawColour);
+  CHECK (find_toggle ("color") == &g_ui::drawColour);
+  CHECK (find_toggle ("qual") == &g_ui::drawQualTrack);
+  CHECK_FALSE (find_toggle ("c"));  // clips, colour
+  CHECK_FALSE (find_toggle ("Colour"));
+  CHECK_FALSE (find_toggle ("bogus"));
 }
 
 TEST_CASE ("command descriptions are <= 50 characters in width")
