@@ -2,8 +2,8 @@
 
 APB ONLINE MANUAL: https://blex-max.github.io/apb-pileup-browser/
 
-`apb` is a terminal genome browser and read-searcher.
-The TUI is tailored to exploratory viewing and pattern hunting at specific loci. The search syntax enables querying the locus to answer questions from the very simple to the highly complex.
+`apb` is a terminal genome browser and read-searcher.  
+The TUI is tailored to exploratory viewing and pattern hunting at loci; the search syntax enables querying the loci to answer questions from the very simple to the highly complex.
 
 **Advantages:**
 - Complete display of alignment features, including insertions, deletions and soft clips
