@@ -49,6 +49,7 @@ CREATE TABLE locus_metadata (
     ref    TEXT,
 
     -- number of record sources in db
+    -- FIXME: unneed - just count rows in sources table
     n_sources INTEGER NOT NULL CHECK (n_sources > 0),
 
     CHECK (pileup_position >= records_start AND pileup_position <= records_end),
@@ -130,7 +131,7 @@ CREATE TABLE pileup_records (
 // In the future, this schema may become more extensible
 inline constexpr std::string_view sqlCreateSAMTable =
     R"sql(
-CREATE TABLE sam_records (
+CREATE TABLE core_records (
     id        INTEGER PRIMARY KEY,
 
     -- key SAM fields for apb --
@@ -213,22 +214,6 @@ inline constexpr std::string_view sqlCreateUserView = R"sql(
     LEFT JOIN record_sources s ON s.id = r.source_id
     LEFT JOIN contigs c ON c.id = r.mtid_id;
 )sql";
-
-// TODO: for col selection from VIEW:
-// std::unordered_map<std::string, int> col_index (sqlite3_stmt* stmt)
-// {
-//   std::unordered_map<std::string, int> m;
-//   const int n = sqlite3_column_count (stmt);
-//   for (int i = 0; i < n; ++i) {
-//     m.emplace (sqlite3_column_name (stmt, i), i);
-//   }
-//   return m;
-// }
-
-// Things to be aware of:
-
-// - Name all expression columns with AS. SQLite only guarantees the result column name when there's an AS alias. For a bare column (SELECT start FROM ...) or SELECT * it uses the column name in practice. For an expression without an alias, the name is officially unspecified. The view already aliases base and basequal, so that's fine.
-// - Duplicate names could clash
 
 struct UserReadViewSelect {
   // TIED TO VIEW COLUMN ORDER

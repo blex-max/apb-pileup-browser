@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "apb_db/apb_db_schema.hpp"

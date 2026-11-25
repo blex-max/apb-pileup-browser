@@ -1,6 +1,7 @@
 #include "ingest.hpp"
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <fmt/std.h>
 #include <htslib/faidx.h>
 #include <htslib/hts.h>
@@ -13,6 +14,7 @@
 #include <expected>
 #include <filesystem>
 #include <random>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -20,9 +22,11 @@
 #include <vector>
 
 #include "apb_db/apb_db_core.hpp"
+#include "apb_db/apb_db_helpers.hpp"
 #include "apb_db/apb_db_schema.hpp"
 #include "apb_db/apb_db_transform_hts.hpp"
 #include "describe.hpp"
+#include "tui/sqlite_col.hpp"
 #include "utility/apb_assert.hpp"
 #include "utility/cleanup.hpp"
 
@@ -619,11 +623,30 @@ static std::string uri_encode_path (const std::filesystem::path& path)
   return out;
 }
 
+// The minimum required columns for the TUI to be able to view a db
+// without any other code changes are:
+// start, end, cig32, seq, qual, source_id, source
 conn_or_failmsg_t ingest_db (const std::filesystem::path& dbInputPath)
 {
+#define RET_FMT(fmt_str, ...)                                    \
+  do {                                                           \
+    return std::unexpected (fmt::format (fmt_str, __VA_ARGS__)); \
+  } while (0)
+#define RET_SQ3_FAIL(what)                                             \
+  do {                                                                 \
+    return std::unexpected (                                           \
+        fmt::format (                                                  \
+            "sqlite3 failure for database at {} while {}, reporting: " \
+            "{} ({}) - {}",                                            \
+            dbInputPath, what, sqlite3_errstr (rc), rc,                \
+            sqlite3_errmsg (conn)                                      \
+        )                                                              \
+    );                                                                 \
+  } while (0)
+
   sqlite3* conn = nullptr;
   Defer conn_cleanup ([&]() { sqlite3_close_v2 (conn); });
-  // immutable: apb never writes to DB, so skip locking, which is
+  // immutable skips locking, which is
   // unreliable on network filesystems
   const auto uri =
       "file:" + uri_encode_path (dbInputPath) + "?immutable=1";
@@ -631,16 +654,357 @@ conn_or_failmsg_t ingest_db (const std::filesystem::path& dbInputPath)
           uri.c_str(), &conn, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, NULL
       );
       rc != SQLITE_OK) {
-    return std::unexpected (
-        fmt::format (
-            "sqlite3 failure when opening database at {}, reporting: "
-            "{} ({}) - {}",
-            dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (conn)
-        )
+    RET_SQ3_FAIL ("opening");
+  }
+
+  // validate by checking available tables and columns
+  // TODO: this is to supercede apb_validate_db and schema
+  // enforcement, ultimately making apb schemaless
+  // FIXME: get rid of user version check if we're going schemaless
+  std::vector<std::string> tableNames;
+  if (const auto ret = apb_get_main_tables (conn); !ret) {
+    const auto rc = ret.error();
+    RET_SQ3_FAIL ("reading tables");
+  }
+  else {
+    tableNames = *ret;
+  }
+  // FIXME: is get_main_tables necessary? Or can we just let
+  // the select stmts fail and get an unambiguous error?
+  if (std::ranges::contains (
+          begin (tableNames), end (tableNames), "apb_metadata"
+      )) {
+    constexpr auto mandatoryNCol = 1;
+    // NOTE: if needing to select the right function
+    // based on type/nullable, could use macro if
+    // variant proves too heavy
+    // FIXME: fill out a "schema" struct which describes
+    // the loaded database for the TUI
+    struct meta_col_id_t {
+      enum id_t : uint8_t { pos = 0, refName, refSeq };
+    };
+    constexpr std::string_view schemaColNames[] = {
+        [meta_col_id_t::pos] = "pileup_position_1c",
+        [meta_col_id_t::refName] = "reference_name",
+        [meta_col_id_t::refSeq] = "reference_seq",
+    };
+    constexpr apb_col_spec_t schemaColProperties[] = {
+        // FIXME; since we're running constraints manually
+        // we **CAN** now do cross table checks. So we don't need to
+        // store span details in metadata.
+        // {"records_start_1c", apb_col_def_t::sqlite_int, false},
+        // {"records_end_1c", apb_col_def_t::sqlite_int, false},
+        // FIXME: region database or pileup database depending on
+        // available cols in metadata.
+        // XOR region_span columns (but one thing at a time)
+        [meta_col_id_t::pos] =
+            {.type = apb_col_spec_t::sqlite_int,
+             .nullable = false,
+             .optional = false},
+        // FIXME: reference info should be omittable,
+        // only enriching display
+        // NOTE: reference_name equivalent to contig
+        [meta_col_id_t::refName] =
+            {.type = apb_col_spec_t::sqlite_text,
+             .nullable = true,
+             .optional = true},
+        [meta_col_id_t::refSeq] = {
+            .type = apb_col_spec_t::sqlite_text,
+            .nullable = true,
+            .optional = true
+        }
+    };
+
+    constexpr std::string_view sqlSelectAll =
+        R"sql(SELECT * FROM apb_metdata;)sql";
+    sqlite3_stmt* o_stmt;
+    if (const auto rc = sqlite3_prepare_v2 (
+            conn, sqlSelectAll.data(), -1, &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      RET_SQ3_FAIL ("preparing statement");
+    }
+    Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+
+    /* check column presence, map */
+    std::unordered_map<meta_col_id_t::id_t, int> idToStmtIdx;
+    const auto colInfo = apb_get_columns (o_stmt);
+    for (size_t i = meta_col_id_t::pos;
+         i < std::size (schemaColProperties); i++) {
+      if (const auto it = std::find_if (
+              begin (colInfo), end (colInfo),
+              [&] (const auto& a) { return a.name == tableNames[i]; }
+          );
+          it != end (colInfo)) {
+        idToStmtIdx.emplace (
+            static_cast<meta_col_id_t::id_t> (i), it->index
+        );
+      }
+      else if (schemaColProperties[i].optional) {
+        continue;
+      }
+      else {
+        RET_FMT (
+            "mandatory column `{}` missing from table `apb_metadata`; "
+            "database malformed",
+            it->name
+        );
+      }
+    }
+
+    /* Check column types */
+    size_t rowCount = 0;
+    int rc = SQLITE_OK;
+    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+      if (rowCount >= mandatoryNCol) {
+        RET_FMT (
+            "mandatory table `apb_metadata` in database at {} has more "
+            "than a single row; database malformed",
+            dbInputPath
+        );
+      }
+      for (const auto& [id, idx] : idToStmtIdx) {
+        const auto& mc = schemaColProperties[id];
+        const auto colType = static_cast<apb_col_spec_t::type_t> (
+            sqlite3_column_type (o_stmt, idx)
+        );
+        if (colType == apb_col_spec_t::sqlite_null) {
+          if (!mc.nullable) {
+            RET_FMT (
+                "mandatory non-NULL column {} in database at {} has "
+                "NULL at row {}; not an operable apb database",
+                schemaColNames[id], dbInputPath, rowCount
+            );
+          }
+        }
+        else if (colType != mc.type) {
+          RET_FMT (
+              "mandatory column {} in database at {} with expected type "
+              "{} has unexpected type {} at row {}; not an operable apb "
+              "database",
+              schemaColNames[id], dbInputPath, to_string (mc.type),
+              to_string (colType), rowCount
+          );
+        }
+      }
+      /* check crash-preventing value constraints */
+      // NOTE: not guarding against intentional malice at this time.
+      // Should I be?
+      if (const auto pileupPos = sqlite3_column_int64 (
+              o_stmt, idToStmtIdx[meta_col_id_t::pos]
+          );
+          pileupPos < 1) {
+        RET_FMT (
+            "metadata in table `apb_metadata malformed; {} is less than 0 "
+            "({}). All coordinate data should be 1-indexed`",
+            schemaColNames[meta_col_id_t::pos], pileupPos
+        );
+      }
+      rowCount++;
+    }
+    if (rc != SQLITE_DONE) {
+      RET_SQ3_FAIL ("stepping select statement");
+    }
+    if (rowCount < mandatoryNCol) {
+      RET_FMT (
+          "table `apb_metadata` is empty! Database at {} malformed",
+          dbInputPath
+      );
+    }
+  }
+  else {
+    RET_FMT (
+        "database at {} does not contain table `apb_metadata`; not an "
+        "operable apb database",
+        dbInputPath
     );
   }
 
-  // per connection; apb_verify_schema requires it
+  if (std::ranges::contains (
+          begin (tableNames), end (tableNames), "apb_sources"
+      )) {
+    // FIXME: check cols
+    // has_contig should be an optional column which enriches display
+    struct src_col_id_t {
+      enum id_t : uint8_t { id = 0, source, has_contig };
+    };
+    constexpr std::string_view schemaColNames[] = {
+        [src_col_id_t::id] = "id",
+        [src_col_id_t::source] = "source",
+        [src_col_id_t::has_contig] = "has_contig"
+    };
+    constexpr apb_col_spec_t schemaColProperties[] = {
+        [src_col_id_t::id] =
+            {.type = apb_col_spec_t::sqlite_int,
+             .nullable = false,
+             .optional = false},
+        [src_col_id_t::source] =
+            {
+                .type = apb_col_spec_t::sqlite_text,
+                .nullable = false,
+                .optional = false
+                // FIXME: add unique constraint
+            },
+        [src_col_id_t::has_contig] = {
+            // FIXME: add bool type (int 0-1)
+            .type = apb_col_spec_t::sqlite_int,
+            .nullable = false,
+            .optional = true
+        }
+    };
+
+    constexpr std::string_view sqlSelectAll =
+        R"sql(SELECT * FROM apb_sources;)sql";
+    sqlite3_stmt* o_stmt;
+    if (const auto rc = sqlite3_prepare_v2 (
+            conn, sqlSelectAll.data(), -1, &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      RET_SQ3_FAIL ("preparing statement");
+    }
+    Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+
+    /* check column presence, map */
+    std::unordered_map<src_col_id_t::id_t, int> idToStmtIdx;
+    const auto colInfo = apb_get_columns (o_stmt);
+    for (size_t i = src_col_id_t::id; i < std::size (schemaColProperties);
+         i++) {
+      if (const auto it = std::find_if (
+              begin (colInfo), end (colInfo),
+              [&] (const auto& a) { return a.name == tableNames[i]; }
+          );
+          it != end (colInfo)) {
+        idToStmtIdx.emplace (
+            static_cast<src_col_id_t::id_t> (i), it->index
+        );
+      }
+      else if (schemaColProperties[i].optional) {
+        continue;
+      }
+      else {
+        RET_FMT (
+            "mandatory column `{}` missing from table `apb_metadata`; "
+            "database malformed",
+            it->name
+        );
+      }
+    }
+
+    /* Check column types */
+    size_t rowCount = 0;
+    int rc = SQLITE_OK;
+    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+      for (const auto& [id, idx] : idToStmtIdx) {
+        const auto& mc = schemaColProperties[id];
+        const auto colType = static_cast<apb_col_spec_t::type_t> (
+            sqlite3_column_type (o_stmt, idx)
+        );
+        if (colType == apb_col_spec_t::sqlite_null) {
+          if (!mc.nullable) {
+            RET_FMT (
+                "mandatory non-NULL column {} in database at {} has "
+                "NULL at row {}; not an operable apb database",
+                schemaColNames[id], dbInputPath, rowCount
+            );
+          }
+        }
+        else if (colType != mc.type) {
+          RET_FMT (
+              "mandatory column {} in database at {} with expected type "
+              "{} has unexpected type {} at row {}; not an operable apb "
+              "database",
+              schemaColNames[id], dbInputPath, to_string (mc.type),
+              to_string (colType), rowCount
+          );
+        }
+      }
+      rowCount++;
+    }
+    if (rc != SQLITE_DONE) {
+      RET_SQ3_FAIL ("stepping select statement");
+    }
+    // FIXME: rowCount becomes n_sources
+  }
+  else {
+    RET_FMT (
+        "database at {} does not contain table `apb_sources`; not an "
+        "operable apb database",
+        dbInputPath
+    );
+  }
+
+  if (std::ranges::contains (
+          begin (tableNames), end (tableNames), "apb_records"
+      )) {
+    // FIXME: write as metadata check above
+    constexpr auto mandatoryCols = std::to_array<apb_col_spec_t> ({
+        {0, apb_col_spec_t::sqlite_int, "id", false},
+        {1, apb_col_spec_t::sqlite_int, "start_1c", false},
+        {2, apb_col_spec_t::sqlite_blob, "cig32", false},
+        {3, apb_col_spec_t::sqlite_text, "seq", true},
+        // FIXME: qual probably not truly mandatory...
+        {4, apb_col_spec_t::sqlite_text, "qual_phred33", true},
+        // I need to check if this col is fk into apb_sources...
+        {5, apb_col_spec_t::sqlite_int, "source_id", false},
+    });
+    constexpr std::string_view sqlSelectMandatory =
+        R"sql(SELECT id, start, cig32, seq, qual, source_id FROM apb_records)sql";
+    sqlite3_stmt* o_stmt;
+    if (const auto rc = sqlite3_prepare_v2 (
+            conn, sqlSelectMandatory.data(), -1, &o_stmt, NULL
+        );
+        rc != SQLITE_OK) {
+      RET_FMT (
+          "Failure while checking mandatory columns in `apb_records` "
+          "table in database at {}, reporting: {} ({}) - {}",
+          dbInputPath, sqlite3_errstr (rc), rc, sqlite3_errmsg (conn)
+      );
+    }
+    Defer stmt_cleanup ([&o_stmt]() { sqlite3_finalize (o_stmt); });
+    /* Check types of mandatory columns */
+    size_t rowCount = 0;
+    int rc = SQLITE_OK;
+    // FIXME: must do bounds checking on seq/qual/cig32
+    while ((rc = sqlite3_step (o_stmt)) == SQLITE_ROW) {
+      for (const auto& mc : mandatoryCols) {
+        const auto colType = static_cast<apb_col_def_t::col_type_t> (
+            sqlite3_column_type (o_stmt, mc.index)
+        );
+        if (colType == apb_col_def_t::sqlite_null) {
+          if (!mc.nullable) {
+            RET_FMT (
+                "mandatory non-NULL column {} in database at {} has "
+                "NULL at row {}; not an operable apb database",
+                mc.name, dbInputPath, rowCount
+            );
+          }
+        }
+        else if (colType != mc.type) {
+          RET_FMT (
+              "mandatory column {} in database at {} with expected type "
+              "{} has unexpected type {} at row {}; not an operable apb "
+              "database",
+              mc.name, dbInputPath, to_string (mc.type),
+              to_string (colType), rowCount
+          );
+        }
+      }
+      // TODO: crash-preventing value constraints
+      rowCount++;
+    }
+    if (rc != SQLITE_DONE) {
+      RET_SQ3_FAIL ("stepping select statement");
+    }
+  }
+  else {
+    RET_FMT (
+        "database at {} does not contain table `apb_records`; not an "
+        "operable apb database",
+        dbInputPath
+    );
+  }
+
+
   if (const auto rc =
           sqlite3_exec (conn, schema::sqlSetFK.data(), NULL, NULL, NULL);
       rc != SQLITE_OK) {
@@ -697,7 +1061,8 @@ conn_or_failmsg_t ingest_db (const std::filesystem::path& dbInputPath)
   if (const auto ret = apb_validate_db (conn); !ret) {
     return std::unexpected (
         fmt::format (
-            "sqlite3 failure during database validation, reporting: {} - "
+            "sqlite3 failure during database validation, reporting: {} "
+            "- "
             "{}",
             sqlite3_errstr (ret.error()), sqlite3_errmsg (conn)
         )
