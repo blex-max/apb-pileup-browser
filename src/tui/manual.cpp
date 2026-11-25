@@ -21,7 +21,7 @@ This is the manual for apb version )md" APB_VERSION
     R"md(. This manual is generated directly from the apb binary.
 If you need a different version of the manual, please check the helptext for instructions as to how to generate the manual for your version of the tool. An HTML copy of the manual may also be hosted at https://blex-max.github.io/apb-pileup-browser/, if you prefer reading in the browser.
 
-If you are reading this manual from a file on disk (rather than the webpage hosted with the apb GitHub repo), it is recommended to read this manual using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
+If you are reading locally, the manual is best read using a markdown viewer. If you are reading on a cluster and do not have a markdown viewer, try a pager such as `less`. If you have a sufficiently recent version of less, you can use `less --wordwrap` for an improved experience.
 
 apb is subject to change pending user feedback until the 1.0 release. Some aspects of the tool are unpolished and quirky - I will continue to work on those. In the meantime please send any feedback via GitHub issues at https://github.com/blex-max/apb-pileup-browser, where you will also find the README for installation instructions, the project roadmap, and other background.
 
@@ -42,11 +42,11 @@ See the helptext from `apb --help` for the canonical guide to the CLI. Some addi
 
 `apb DB` reopens a database file previously produced by `--dump` (or the in-TUI `dump` command), and does not take any other file input.
 
-`-s/--settings` sets display options on opening the TUI, using the same option names as the in-TUI `toggle` command. For example `apb -s colour=on,mask=off` would tell apb to colour the reference display and sequence bases not matching reference (`colour=on`); and not to mask bases matching reference with `=` (`mask=off`). See the `toggle` command in Section 3.2 for the full list of options.
+`-s/--settings` sets display options on opening the TUI, using the same option names as the in-TUI `toggle` command. For example `apb -s colour=on,mask=off` would tell apb to use colour, and to turn off masking of bases matching reference with `=`. See the `toggle` command in Section 3.2 for the full list of options.
 
 ## 3) TUI Usage
 
-On starting apb you will enter the TUI. The TUI is split into 2 major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, a ring over a base marks an insertion, displayed beneath at `^`, and soft-clipped bases are shown in brackets. The appearance of the alignment pane can be configured with the `toggle` command, for example to display `ACTG...` for bases matching reference, instead of masking with `=`.
+On starting apb you will enter the TUI. The TUI is split into two major regions. At the top you have the read viewer, made up of an alignment pane on the left and a table pane of per-read data on the right. Information about the pileup locus is displayed at the top left of the read viewer. At the bottom you have a command prompt at which you can enter commands to query the reads and control the display. Commands are typed at the command prompt `>`, and return messages are displayed below at the double chevron. Queries will be displayed at the top right of the prompt, including the count of reads matching the query. In the alignment pane, `=` matches the reference, `x` is a deletion, a ring over a base marks an insertion, displayed beneath at `^`, and soft-clipped bases are shown in brackets. The appearance of the alignment pane can be configured with the `toggle` command, for example to display `ACTG...` for bases matching reference, instead of masking with `=`.
 
 ### 3.1) Basic Navigation
 
