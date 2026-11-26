@@ -87,6 +87,7 @@ add_executable(apb
   src/tui/describe.cpp
   src/apb_db/apb_db_transform_hts.cpp
   src/tui/tb2_impl.cpp
+  src/tui/sqlite_col.cpp
   src/tui/cmd.cpp
   src/tui/event.cpp
   src/tui/input.cpp
@@ -137,6 +138,7 @@ if(APB_BUILD_TESTS)
     src/tui/describe.cpp
     src/apb_db/apb_db_transform_hts.cpp
     src/apb_db/apb_db_core.cpp
+    src/tui/sqlite_col.cpp
     src/tui/cmd.cpp
     src/tui/query.cpp
     src/tui/state.cpp

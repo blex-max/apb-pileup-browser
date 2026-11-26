@@ -42,10 +42,10 @@ constexpr e2::Style dim{.fg = TB_DIM};
 constexpr e2::Style bold{.fg = TB_BOLD};
 
 // integer column as text, NULL as *
-static std::string int_or_star (sqlite3_stmt* row, int idx)
+static std::string val_or_star (sqlite3_stmt* row, int idx)
 {
-  const auto v = col_int64 (row, idx);
-  return v ? std::to_string (*v) : std::string{"*"};
+  const auto v = col_to_string (row, idx);
+  return v ? *v : "*";
 }
 
 namespace tui_state::ui {
@@ -54,19 +54,19 @@ namespace tui_state::ui {
 constinit std::array<ColMetadata, 10> tableCols{{
     {false, "qpos", 6,
      [] (sqlite3_stmt* row) {
-       return int_or_star (row, schema::UserReadViewSelect::qpos);
+       return val_or_star (row, schema::UserReadViewSelect::qpos);
      }},
     {true, "basequal", 12,
      [] (sqlite3_stmt* row) {
-       return int_or_star (row, schema::UserReadViewSelect::basequal);
+       return val_or_star (row, schema::UserReadViewSelect::basequal);
      }},
     {true, "flag", 6,
      [] (sqlite3_stmt* row) {
-       return int_or_star (row, schema::UserReadViewSelect::flag);
+       return val_or_star (row, schema::UserReadViewSelect::flag);
      }},
     {true, "mapq", 6,
      [] (sqlite3_stmt* row) {
-       return int_or_star (row, schema::UserReadViewSelect::mapq);
+       return val_or_star (row, schema::UserReadViewSelect::mapq);
      }},
     {false, "start", 14,
      [] (sqlite3_stmt* row) {
@@ -76,25 +76,22 @@ constinit std::array<ColMetadata, 10> tableCols{{
      }},
     {false, "end", 14,
      [] (sqlite3_stmt* row) {
-       return int_or_star (row, schema::UserReadViewSelect::end);
+       return val_or_star (row, schema::UserReadViewSelect::end);
      }},
     {true, "cigar", 16,
      [] (sqlite3_stmt* row) {
-       return col_text (row, schema::UserReadViewSelect::cigar)
-           .value_or ("*");
+       return val_or_star (row, schema::UserReadViewSelect::cigar);
      }},
     {false, "qname", 21,
      [] (sqlite3_stmt* row) {
-       return col_text (row, schema::UserReadViewSelect::qname)
-           .value_or ("*");
+       return val_or_star (row, schema::UserReadViewSelect::qname);
      }},
     {false, "mtid", 10,
      [] (sqlite3_stmt* row) {
-       return col_text (row, schema::UserReadViewSelect::mtid)
-           .value_or ("*");
+       return val_or_star (row, schema::UserReadViewSelect::mtid);
      }},
     {false, "mstart", 14, [] (sqlite3_stmt* row) {
-       return int_or_star (row, schema::UserReadViewSelect::mstart);
+       return val_or_star (row, schema::UserReadViewSelect::mstart);
      }},
 }};
 
@@ -1121,7 +1118,8 @@ void draw_main_to_buffer()
         const auto id = sqlite3_column_int64 (
             g_db::displayStmt, schema::UserReadViewSelect::source_id
         );
-        if (multiAln && (!headingFile || headingFile->id != id)) {
+        if (multiAln &&
+            ((headingFile == nullptr) || headingFile->id != id)) {
           const auto file =
               std::ranges::find (g_db::alnFiles, id, &AlnFile::id);
           TUI_ASSERT (file != g_db::alnFiles.end(), id);
