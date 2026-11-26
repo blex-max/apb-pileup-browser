@@ -59,6 +59,10 @@ static std::string to_string (const lex_select_err_t& err)
   return msg;
 }
 
+
+// SOURCES: sqlite3 select statement and language docs (for quoting)
+// and tokenizer.c
+// TODO: write up spec
 static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
     std::string_view apbSelect
 )
@@ -74,29 +78,35 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
     return {};
   }
 
-  enum state_t : uint8_t {
-    normal,
-    inSingleQuotes,
-    inDoubleQuotes,
-    inBackticks
-  };
-  state_t state = normal;
-
   const auto selS = apbSelect;
   tokens_t out;
+  enum state_t : uint8_t {
+    normal,
+    // These are the four ways
+    // you can "quote" a
+    // string or column identifier
+    // in sqlite.
+    inSingleQuotes,
+    inDoubleQuotes,
+    inBackticks,
+    inSquares
+  };
+  state_t state = normal;
   int parenDepth = 0;
   size_t curTokStart = 0;
   size_t i = 0;
   while (i < selS.size()) {
     const auto& ch = selS[i];
-    // all modes
     switch (ch) {
+      // shared between modes
       // TODO: control chars?
     case '\t':
     case '\n':
     case '\r':
     case '\0':
       RET_UNEXP (illegalChar, i, std::nullopt);
+    default:
+      break;
     }
     switch (state) {
     case normal:
@@ -105,8 +115,9 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
         RET_UNEXP (illegalChar, i, std::nullopt);
 
       // brackets
-      // Tracked to avoid splitting on commas
-      // within brackets
+      // We split only on top-level tokens, i.e.
+      // only when depth = 0, hence depth is
+      // tracked.
       case '(':
         parenDepth++;
         break;
@@ -123,6 +134,11 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
       case '"':
         state = inDoubleQuotes;
         break;
+      case '[':
+        state = inSquares;
+        break;
+      case ']':
+        RET_UNEXP (imbalancedQuotes, i, "]");
 
       // comments
       case '/':
@@ -190,6 +206,7 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
       default:
         break;
       }
+      break;
     case inBackticks:
       switch (ch) {
       case '`':
@@ -198,6 +215,24 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
       default:
         break;
       }
+      break;
+    case inSquares:
+      switch (ch) {
+      // sqlite does not have nesting of square brackets
+      // A column quoted like [a[b] is named `a[b`
+      // So we only check for right square.
+      // [a]b] is always invalid SQL in sqlite and is
+      // not a valid quoted identifier.
+      case ']':
+        state = normal;
+        break;
+      default:
+        break;
+      }
+      break;
+    }
+    if (parenDepth < 0) {
+      RET_UNEXP (imbalancedParens, i, ")");
     }
     i++;
   }
@@ -272,7 +307,6 @@ struct doctest::StringMaker<std::expected<tokens_t, lex_select_err_t>> {
               : StringMaker<lex_select_err_t>::convert (ex.error());
   }
 };
-
 
 #define REQUIRE_TOKS(inStr, ...)             \
   do {                                       \
