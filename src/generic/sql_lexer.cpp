@@ -1,9 +1,13 @@
-
+#include <algorithm>
+#include <cstddef>
 #include <expected>
 #include <optional>
+#include <regex>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
+#include "utility/apb_assert.hpp"
 #include "utility/stringify.hpp"
 
 #ifdef STDERR_DEBUG
@@ -13,9 +17,22 @@
 #define CERR_DEBUG(msg)
 #endif
 
-using tokens_t = std::vector<std::string_view>;
 
-struct lex_select_err_t {
+namespace {
+enum sql_fsm_state_t : uint8_t {
+  normal,
+  // These are the four ways
+  // you can "quote" a
+  // string or column identifier
+  // in sqlite.
+  inSingleQuotes,
+  inDoubleQuotes,
+  inBackticks,
+  inSquares
+};
+}
+
+struct apb_parse_sql_err_t {
   enum type_t : uint8_t {
     comment,
     imbalancedParens,
@@ -27,7 +44,7 @@ struct lex_select_err_t {
   size_t column = 0;
   std::optional<std::string> ch = std::nullopt;
 };
-static std::string to_string (const lex_select_err_t& err)
+static std::string to_string (const apb_parse_sql_err_t& err)
 {
   std::string msg = "Error in select clause at column ";
   msg += std::to_string (err.column);
@@ -40,58 +57,46 @@ static std::string to_string (const lex_select_err_t& err)
     msg += ": ";
   }
   switch (err.type) {
-  case lex_select_err_t::comment:
+  case apb_parse_sql_err_t::comment:
     msg += "comment in clause";
     break;
-  case lex_select_err_t::imbalancedParens:
+  case apb_parse_sql_err_t::imbalancedParens:
     msg += "imbalanced parentheses";
     break;
-  case lex_select_err_t::imbalancedQuotes:
+  case apb_parse_sql_err_t::imbalancedQuotes:
     msg += "imbalanced quotes";
     break;
-  case lex_select_err_t::unexpectedEoS:
+  case apb_parse_sql_err_t::unexpectedEoS:
     msg += "unexpeced end of clause";
     break;
-  case lex_select_err_t::illegalChar:
+  case apb_parse_sql_err_t::illegalChar:
     msg += "illegal character in clause";
     break;
   }
   return msg;
 }
 
-
 // SOURCES: sqlite3 select statement and language docs (for quoting)
 // and tokenizer.c
 // TODO: write up spec
-static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
-    std::string_view apbSelect
-)
+static std::expected<std::vector<std::string_view>, apb_parse_sql_err_t>
+apb_lex_select (std::string_view apbSelect)
 {
-#define RET_UNEXP(type, at, ch)                \
-  do {                                         \
-    return std::unexpected<lex_select_err_t> ( \
-        {lex_select_err_t::type, at, ch}       \
-    );                                         \
+#define RET_UNEXP(type, at, ch)                   \
+  do {                                            \
+    return std::unexpected<apb_parse_sql_err_t> ( \
+        {apb_parse_sql_err_t::type, at, ch}       \
+    );                                            \
   } while (0)
+
 
   if (apbSelect.empty()) {
     return {};
   }
 
   const auto selS = apbSelect;
-  tokens_t out;
-  enum state_t : uint8_t {
-    normal,
-    // These are the four ways
-    // you can "quote" a
-    // string or column identifier
-    // in sqlite.
-    inSingleQuotes,
-    inDoubleQuotes,
-    inBackticks,
-    inSquares
-  };
-  state_t state = normal;
+  std::vector<std::string_view> out;
+  sql_fsm_state_t state = normal;
   int parenDepth = 0;
   size_t curTokStart = 0;
   size_t i = 0;
@@ -160,6 +165,7 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
         if (selS[i + 1] == '-') {
           RET_UNEXP (comment, i, "--");
         }
+        break;
 
       // comma, for detecting complete top-level tokens
       case ',':
@@ -264,6 +270,61 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
   }
 
   return out;
+#undef RET_UNEXP
+}
+
+
+struct apb_sel_term_t {
+  std::string tok;
+  std::optional<std::string_view> colAlias;
+};
+
+// NOTE: token validity is up to the user. We're just extracting the alias
+// if the syntax is valid. If they have written bad SQL, it will fail anyway
+// so this doesn't matter so much.
+// NOTE: could attempt to prepare statement before lexing, without stepping.
+// If preparation succeeds, then we know statement is valid SQL and parsing
+// should succeed if code is well-formed.
+static std::optional<std::string_view> apb_find_alias (
+    std::string_view selectToken
+)
+{
+  APB_ASSERT (selectToken.front() != ' ', selectToken.front());
+  APB_ASSERT (selectToken.back() != ' ', selectToken.back());
+
+  // A token has a well-formed alias if it matches the following regex:
+  // This took a while to figure out!
+  static const std::regex re (
+      R"re(^(?:(?:(['`"]).*\1|\[.*\])\s*|[^'`" \[].*\s\s*)[aA][sS] *((?:(['"`]).+\3|\[.+\]| [^"'`\[]+))$)re"
+  );
+
+  std::match_results<std::string_view::const_iterator> m;
+  std::string_view out;
+  if (std::regex_match (begin (selectToken), end (selectToken), m, re)) {
+    // The second capturing group of the regex contains the alias
+    out = {m[2].first, m[2].second};
+  }
+  while (!out.empty() && out.front() == ' ') {
+    out.remove_prefix (1);
+  }
+  if (out.empty()) {
+    return std::nullopt;
+  }
+  return out;
+}
+
+// For each lexeme, search for an AS expression - if present, apb
+// will interpet the term as an aliased column. Otherwise not.
+static std::vector<apb_sel_term_t> apb_interpret_select (
+    const std::vector<std::string_view>& tokens
+)
+{
+  std::vector<apb_sel_term_t> out;
+  for (const auto tok : tokens) {
+    auto& outElem = out.emplace_back (std::string{tok}, std::nullopt);
+    outElem.colAlias = apb_find_alias (outElem.tok);
+  }
+  return out;
 }
 
 
@@ -272,8 +333,8 @@ static std::expected<tokens_t, lex_select_err_t> apb_lex_select (
 #include "doctest.h"
 
 template <>
-struct doctest::StringMaker<tokens_t> {
-  static String convert (const tokens_t& toks)
+struct doctest::StringMaker<std::vector<std::string_view>> {
+  static String convert (const std::vector<std::string_view>& toks)
   {
     std::string out = "{";
     for (size_t i = 0; i < toks.size(); i++) {
@@ -290,38 +351,40 @@ struct doctest::StringMaker<tokens_t> {
 };
 
 template <>
-struct doctest::StringMaker<lex_select_err_t> {
-  static String convert (const lex_select_err_t& err)
+struct doctest::StringMaker<apb_parse_sql_err_t> {
+  static String convert (const apb_parse_sql_err_t& err)
   {
     return to_string (err).c_str();
   }
 };
 
 template <>
-struct doctest::StringMaker<std::expected<tokens_t, lex_select_err_t>> {
+struct doctest::StringMaker<
+    std::expected<std::vector<std::string_view>, apb_parse_sql_err_t>> {
   static String convert (
-      const std::expected<tokens_t, lex_select_err_t>& ex
+      const std::expected<
+          std::vector<std::string_view>, apb_parse_sql_err_t>& ex
   )
   {
-    return ex ? StringMaker<tokens_t>::convert (*ex)
-              : StringMaker<lex_select_err_t>::convert (ex.error());
+    return ex ? StringMaker<std::vector<std::string_view>>::convert (*ex)
+              : StringMaker<apb_parse_sql_err_t>::convert (ex.error());
   }
 };
 
-#define REQUIRE_TOKS(inStr, ...)             \
-  do {                                       \
-    const auto ret = apb_lex_select (inStr); \
-    REQUIRE (ret);                           \
-    REQUIRE (*ret == tokens_t __VA_ARGS__);  \
+#define REQUIRE_TOKS(inStr, ...)                                 \
+  do {                                                           \
+    const auto ret = apb_lex_select (inStr);                     \
+    REQUIRE (ret);                                               \
+    REQUIRE (*ret == std::vector<std::string_view> __VA_ARGS__); \
   } while (0)
 
-#define REQUIRE_ERR(inStr, type, at, hint)                \
-  do {                                                    \
-    const auto ret = apb_lex_select (inStr);              \
-    REQUIRE (!ret);                                       \
-    REQUIRE (ret.error().type == lex_select_err_t::type); \
-    REQUIRE (ret.error().column == (at));                 \
-    REQUIRE (ret.error().ch == (hint));                   \
+#define REQUIRE_ERR(inStr, type, at, hint)                   \
+  do {                                                       \
+    const auto ret = apb_lex_select (inStr);                 \
+    REQUIRE (!ret);                                          \
+    REQUIRE (ret.error().type == apb_parse_sql_err_t::type); \
+    REQUIRE (ret.error().column == (at));                    \
+    REQUIRE (ret.error().ch == (hint));                      \
   } while (0)
 
 TEST_CASE (NAME_OF (lex_select_terms_sql))
@@ -383,6 +446,79 @@ TEST_CASE (NAME_OF (lex_select_terms_sql))
            "substr(d, 1, 10) GLOB 'A[GT]C'"}
       );
     }
+  }
+}
+
+template <>
+struct doctest::StringMaker<std::nullopt_t> {
+  static String convert (const std::nullopt_t&) { return "nullopt"; }
+};
+
+template <>
+struct doctest::StringMaker<std::optional<std::string_view>> {
+  static String convert (const std::optional<std::string_view>& ex)
+  {
+    return ex ? ex.value().data() : "nullopt";
+  }
+};
+
+TEST_CASE (NAME_OF (apb_find_alias))
+{
+  SUBCASE ("empty returns nullopt")
+  {
+    REQUIRE (apb_find_alias ("") == std::nullopt);
+  }
+
+  SUBCASE ("no AS alias returns nullopt")
+  {
+    REQUIRE (apb_find_alias ("a") == std::nullopt);
+    REQUIRE (apb_find_alias ("colasname") == std::nullopt);
+    REQUIRE (apb_find_alias ("'col AS weird name'") == std::nullopt);
+    REQUIRE (apb_find_alias ("col alias_without_AS") == std::nullopt);
+  }
+
+  SUBCASE ("malformed alias returns nullopt")
+  {
+    REQUIRE (apb_find_alias ("col AS") == std::nullopt);
+    REQUIRE (apb_find_alias ("[col AS x") == std::nullopt);
+    REQUIRE (apb_find_alias ("'col] AS x") == std::nullopt);
+    REQUIRE (apb_find_alias ("'col AS x") == std::nullopt);
+    REQUIRE (apb_find_alias ("col AS 'x") == std::nullopt);
+    REQUIRE (apb_find_alias ("col AS [x") == std::nullopt);
+  }
+
+  SUBCASE ("bare alias")
+  {
+    REQUIRE (apb_find_alias ("col AS x") == "x");
+    REQUIRE (apb_find_alias ("col as x") == "x");
+    REQUIRE (apb_find_alias ("col aS x") == "x");
+    REQUIRE (apb_find_alias ("col AS   x") == "x");
+  }
+
+  SUBCASE ("quoted and bracketed aliases keep delimiters")
+  {
+    REQUIRE (apb_find_alias ("col AS 'x y'") == "'x y'");
+    REQUIRE (apb_find_alias ("col AS \"x y\"") == "\"x y\"");
+    REQUIRE (apb_find_alias ("col AS `x y`") == "`x y`");
+    REQUIRE (apb_find_alias ("col AS [x y]") == "[x y]");
+    REQUIRE (apb_find_alias ("col AS'x'") == "'x'");
+    REQUIRE (apb_find_alias ("col AS[x]") == "[x]");
+  }
+
+  SUBCASE ("quoted and bracketed columns")
+  {
+    REQUIRE (apb_find_alias ("'col name' AS x") == "x");
+    REQUIRE (apb_find_alias ("\"col name\" AS x") == "x");
+    REQUIRE (apb_find_alias ("`col name` AS x") == "x");
+    REQUIRE (apb_find_alias ("[col name] AS 'x y'") == "'x y'");
+    REQUIRE (apb_find_alias ("'col'AS x") == "x");
+  }
+
+  SUBCASE ("complex expressions")
+  {
+    REQUIRE (apb_find_alias ("instr(c, 'ACTG') AS foo") == "foo");
+    REQUIRE (apb_find_alias ("count(*) AS n") == "n");
+    REQUIRE (apb_find_alias ("a AS b AS c") == "c");
   }
 }
 
