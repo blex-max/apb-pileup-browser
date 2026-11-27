@@ -4,11 +4,10 @@ This document forms the todo list and development guide for `apb`.
 
 Before merging to main/making a release, please run through [PRERELEASE.md](PRERELEASE.md).
 
-## Open Feature Work
+## Open Work
 
-See the roadmap in [README.md](README.md).
-
-## Open Non-Feature Work
+See the roadmap in [README.md](README.md) for major user-facing features.
+Other features are also listed here:
 
 <not fully up to date - more to be added>
 
@@ -21,6 +20,22 @@ See the roadmap in [README.md](README.md).
 - logs contains literal control characters, which should be escaped before entering into log.
 - Read a config toml/yaml at the CLI, indicating colour scheme, startup table columns and startup toggle/setting states.
 - tab-autocomplete for column names at command prompt
+
+## Style Guide
+
+`apb` is written in modern c++ (i.e. ~c++23) favouring a procedural style where possible.
+
+- Avoid associating methods with data.  
+- Keep structs simple and public.  
+- Macros are acceptable.  
+- Minimise the use of templates.  
+- Casing:  
+  - variables are `pascalCase`. I hate this but it's too late now.  
+  - variables may have hungarian prefixes/suffixes appended with `snake_case`.  
+  - types are `snake_case_t`.  
+  - functions are `snake_case`.  
+  - macros are `MACRO_CASE`.  
+- Code should be formatted with the repo .clang-format.  
 
 ## Development Adages
 
@@ -50,9 +65,6 @@ Things to keep in mind (for myself as much as anyone) when working on `apb`:
 
 - It's a lot easier to keep track of preconditions if you don't modularise/split
   functions unnecessarily.
-
-- Braces avoid issues with variable initialisation when jumping via goto or switch case (I forget this sometimes).
-  - default to using braces with case statements!
 
 I am almost certainly not using these reliably, but I do find them helpful.
 
