@@ -84,6 +84,7 @@ General suggestions regarding improvements to commands and navigation are also a
 - Bindings to scripting languages such as `Python` and `R` to enable querying via scripts.
 - Display of reads aligned to adjacent bases at the specified locus.
 - Accept arbitrary sqlite databases at the command line as long as they minimally conform to `apb`'s expectations.
+- Multi-language Unicode support
 
 ### Speculative Features
 

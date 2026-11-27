@@ -1,4 +1,4 @@
-#include "sql_lexer.hpp"
+#include "parse_select.hpp"
 
 #include <cstddef>
 #include <regex>
@@ -8,6 +8,9 @@
 #include "utility/stringify.hpp"
 
 namespace {
+// NOTE: how does this interact with the
+// sqlite option to disable double quotes
+// DQS_DDL and DQS_DML?
 enum sql_fsm_state_t : uint8_t {
   normal,
   // These are the four ways
@@ -19,7 +22,7 @@ enum sql_fsm_state_t : uint8_t {
   inBackticks,
   inSquares
 };
-}
+}  // namespace
 
 static std::string to_string (const apb_parse_select_err_t& err)
 {
@@ -292,7 +295,7 @@ apb_parse_select (std::string_view apbSelectClause)
   std::vector<apb_sel_term_t> out;
   for (const auto tok : tokens) {
     auto& outElem = out.emplace_back (std::string{tok}, std::nullopt);
-    outElem.colAlias = apb_find_alias (outElem.tok);
+    outElem.asAlias = apb_find_alias (outElem.tok);
   }
   return out;
 }

@@ -13,7 +13,7 @@ struct apb_sel_term_t {
   // view into `tok` of sql column alias
   // after top-level AS, if present.
   // Else nullopt.
-  std::optional<std::string_view> colAlias;
+  std::optional<std::string_view> asAlias;
 };
 struct apb_parse_select_err_t {
   enum type_t : uint8_t {

@@ -10,11 +10,12 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <unordered_set>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -24,6 +25,7 @@
 #include "log.hpp"
 #include "query.hpp"
 #include "state.hpp"
+#include "tui/parse_select.hpp"
 #include "tui_assert.hpp"
 #include "utility/cleanup.hpp"
 #include "version.hpp"
@@ -43,34 +45,45 @@ struct Cmd {
 
 // --- HELPERS --- //
 
-static std::pair<std::string_view, std::string_view>
-cmd_split_first_space (std::string_view s)
+static std::pair<std::string_view, std::string_view> cmd_split_first (
+    std::string_view s, char c
+)
 {
-  const auto start = s.find_first_not_of (' ');
-  if (start == std::string_view::npos) {
-    return {};
+  // trim leading whitespace
+  while (!s.empty() && s.front() == ' ') {
+    s.remove_prefix (1);
   }
-  s.remove_prefix (start);
-  auto pos = s.find (' ');
+  auto pos = s.find (c);
   if (pos == std::string_view::npos) {
-    return {s, {}};  // no args
+    // trim any trailing whitespace on final token only
+    while (!s.empty() && s.back() == ' ') {
+      s.remove_suffix (1);
+    }
+    return {s, {}};  // no c
   }
   return {s.substr (0, pos), s.substr (pos + 1)};
 }
 
-static std::vector<std::string_view> cmd_split_whitespace (
-    std::string_view s
-)
+static std::vector<std::string_view> cmd_split (std::string_view s, char c)
 {
   std::vector<std::string_view> out;
-  auto [f, rest] = cmd_split_first_space (s);
-  while (!f.empty()) {
-    out.push_back (f);
-    const auto tmp = cmd_split_first_space (rest);
-    f = tmp.first;
+  auto [tok, rest] = cmd_split_first (s, c);
+  while (!tok.empty()) {
+    out.push_back (tok);
+    const auto tmp = cmd_split_first (rest, c);
+    tok = tmp.first;
     rest = tmp.second;
   }
   return out;
+}
+
+static auto cmd_split_space (std::string_view s)
+{
+  return cmd_split (s, ' ');
+}
+static auto cmd_split_comma (std::string_view s)
+{
+  return cmd_split (s, ',');
 }
 
 // does s contain test
@@ -159,8 +172,6 @@ std::vector<std::string> build_cmd_ref_table()
   } while (false)
 
 // --- COMMANDS --- //
-// clang-format off
-
 // NOTE: names[0] is the canonical name, the rest are aliases
 // NOTE: usage text roughly follows docopt
 
@@ -169,8 +180,7 @@ static constexpr auto quitNames =
 static constexpr auto quitDesc =
     std::to_array<std::string_view> ({"Exit apb."});
 static constexpr Cmd quitCmd{
-    quitNames, "", quitDesc,
-    [] (std::string_view args) -> CmdResult {
+    quitNames, "", quitDesc, [] (std::string_view args) -> CmdResult {
       CMD_ARGS_EMPTY_OR_FAIL (args, quitCmd);
       tui_state::run = false;
       return {true, CMD_GENERIC_SUCCESS};
@@ -178,35 +188,75 @@ static constexpr Cmd quitCmd{
 };
 
 static constexpr auto colNames =
-    std::to_array<std::string_view> ({"col", "c"});
+    std::to_array<std::string_view> ({"select", "sel", "col"});
 static constexpr auto colDesc = std::to_array<std::string_view> ({
     "Show/hide read data columns in the",
     "table pane. For a list of available",
-    "columns, check the manual or run `? col`.",
+    "columns, check the manual or run `? select`.",
 });
-static constexpr Cmd colCmd{
+static constexpr Cmd selectCmd{
     colNames, "<field-name>...", colDesc,
     [] (std::string_view args) -> CmdResult {
-      const auto tokens = cmd_split_whitespace (args);
-      if (tokens.size() < 1) {
-        return {false, CMD_FMT_MISUSE("takes one or more arguments", colCmd)};
+      if (args.empty()) {
+        // TODO: fail? reset?
       }
 
-      // check dups
-      std::unordered_set<std::string_view> seen;
-      std::unordered_set<std::string_view> dups;
-      for (const auto& tok : tokens) {
-        if (!seen.insert (tok).second) {
-          dups.insert (tok);
+      std::remove_reference_t<decltype (*apb_parse_select (args))>
+          selTerms;
+      if (const auto ret = apb_parse_select (args); !ret) {
+        // TODO: fail
+        const auto& err = ret.error();
+        switch (err.type) {
+        case apb_parse_select_err_t::comment:
+        case apb_parse_select_err_t::imbalancedParens:
+        case apb_parse_select_err_t::imbalancedQuotes:
+        case apb_parse_select_err_t::unexpectedEoS:
+        case apb_parse_select_err_t::illegalChar:
+          break;
         }
       }
-      if (!dups.empty()) {
-        return {false, CMD_FMT_MISUSE (
-            fmt::format ("duplicated arg/s {}", fmt::join (dups, ", ")),
-            colCmd
-        )};
+      else {
+        selTerms = *ret;
       }
 
+      {
+        // check duplicated aliases
+        std::vector<std::string_view> seen{};
+        for (const auto& term : selTerms) {
+          if (term.asAlias == std::nullopt) {
+            continue;
+          }
+          const auto alias = *term.asAlias;
+          if (std::find (begin (seen), end (seen), alias) != end (seen)) {
+            return {
+                false,
+                CMD_FMT_MISUSE (
+                    fmt::format (
+                        "duplicated `AS alias` in select clause: {}", alias
+                    ),
+                    selectCmd
+                )
+            };
+          }
+          else {
+            seen.push_back (alias);
+          }
+        }
+      }
+
+      // NOTE: could check for illegal tokens (e.g. displaying seq in table view),
+      // but it's really up to the user if they want to mess up the display.
+
+      // Now for each token, if it has an `AS alias`, we want to materialise on
+      // the temp table so the custom field can be referred to by name in
+      // WHERE/ORDER BY.
+      // Otherwise we can just add to select statement unaltered.
+      // Select statement will always start with mandatory columns.
+      // Any columns in statement after that point we will try to display
+      // as a column with col_to_string
+      // TODO!
+
+      // FIXME: old code:
       auto& tableCols = g_ui::tableCols;
       std::vector<std::string> nowVisible;
       std::vector<std::string> nowHidden;
@@ -226,13 +276,15 @@ static constexpr Cmd colCmd{
           }
         }
         if (!tokMatch) {
-          return {false, CMD_FMT_FAIL (
-              fmt::format (
-                  "Column \"{}\" not known or "
-                  "unavailable for display",
-                  tok
-              )
-          )};
+          return {
+              false, CMD_FMT_FAIL (
+                         fmt::format (
+                             "Column \"{}\" not known or "
+                             "unavailable for display",
+                             tok
+                         )
+                     )
+          };
         }
       }
 
@@ -264,7 +316,7 @@ static constexpr auto whereDesc = std::to_array<std::string_view> ({
 static constexpr Cmd whereCmd{
     whereNames, "[condition]", whereDesc,
     [] (std::string_view args) -> CmdResult {
-      CMD_CLEAN_SQL(args, whereCmd);
+      CMD_CLEAN_SQL (args, whereCmd);
       // copy in case sql compile fails
       auto query = g_db::userQuery;
       query.where.clear();
@@ -280,7 +332,7 @@ static constexpr Cmd whereCmd{
         }
       }
 
-      CMD_TRY_APPLY_QUERY(query, args, CMD_GENERIC_SUCCESS);
+      CMD_TRY_APPLY_QUERY (query, args, CMD_GENERIC_SUCCESS);
     }
 };
 
@@ -296,11 +348,11 @@ static constexpr auto orderDesc = std::to_array<std::string_view> ({
 static constexpr Cmd orderCmd{
     orderNames, "[condition]", orderDesc,
     [] (std::string_view args) -> CmdResult {
-      CMD_CLEAN_SQL(args, orderCmd);
+      CMD_CLEAN_SQL (args, orderCmd);
       auto query = g_db::userQuery;
       query.orderBy = args;
 
-      CMD_TRY_APPLY_QUERY(query, args, CMD_GENERIC_SUCCESS);
+      CMD_TRY_APPLY_QUERY (query, args, CMD_GENERIC_SUCCESS);
     }
 };
 
@@ -313,21 +365,21 @@ static constexpr auto countDesc = std::to_array<std::string_view> ({
 static constexpr Cmd countCmd{
     countNames, "<condition>", countDesc,
     [] (std::string_view args) -> CmdResult {
-      CMD_CLEAN_SQL(args, countCmd);
+      CMD_CLEAN_SQL (args, countCmd);
       if (args.empty()) {
-        return {false, CMD_FMT_MISUSE (
-            "no condition given", countCmd
-        )};
+        return {false, CMD_FMT_MISUSE ("no condition given", countCmd)};
       }
       auto query = g_db::userQuery;
       const auto curWhere = query.where;
 
       std::string sqlCountQuery{"SELECT COUNT(*) FROM reads WHERE "};
       if (!curWhere.empty()) {
-        sqlCountQuery.append (fmt::format("({}) AND ({});", curWhere, args));
+        sqlCountQuery.append (
+            fmt::format ("({}) AND ({});", curWhere, args)
+        );
       }
       else {
-        sqlCountQuery.append(fmt::format("{};", args));
+        sqlCountQuery.append (fmt::format ("{};", args));
       }
 
       // only the new args can be at fault; the rest already compiled
@@ -358,27 +410,31 @@ static constexpr Cmd countCmd{
       else {
         msg.append (fmt::format (" / {}: ", curWhere));
       }
-      msg.append (fmt::format ("{}/{} reads", sqlite3_column_int64 (o_stmt, 0), g_db::nQueryRows));
+      msg.append (
+          fmt::format (
+              "{}/{} reads", sqlite3_column_int64 (o_stmt, 0),
+              g_db::nQueryRows
+          )
+      );
       return {true, msg};
     }
 };
 
 static constexpr auto countAllNames =
     std::to_array<std::string_view> ({"count all", "cta"});
-static constexpr auto countAllDesc = std::to_array<std::string_view> ({
-    "Count all reads matching <condition>"
-});
+static constexpr auto countAllDesc = std::to_array<std::string_view> (
+    {"Count all reads matching <condition>"}
+);
 static constexpr Cmd countAllCmd{
     countAllNames, "<condition>", countAllDesc,
     [] (std::string_view args) -> CmdResult {
-      CMD_CLEAN_SQL(args, countAllCmd);
+      CMD_CLEAN_SQL (args, countAllCmd);
       if (args.empty()) {
-        return {false, CMD_FMT_MISUSE (
-            "no condition given", countAllCmd
-        )};
+        return {false, CMD_FMT_MISUSE ("no condition given", countAllCmd)};
       }
 
-      std::string sqlCountQuery = fmt::format("SELECT COUNT(*) FROM reads WHERE {}\n;", args);
+      std::string sqlCountQuery =
+          fmt::format ("SELECT COUNT(*) FROM reads WHERE {}\n;", args);
 
       // only the new args can be at fault; the rest already compiled
       const auto fail_with_args = [&args]() {
@@ -401,7 +457,12 @@ static constexpr Cmd countAllCmd{
         return {false, fail_with_args()};
       }
 
-      return {true, fmt::format ("{}: {}/{} reads", args, sqlite3_column_int64 (o_stmt, 0), g_db::dbTotalRows)};
+      return {
+          true, fmt::format (
+                    "{}: {}/{} reads", args,
+                    sqlite3_column_int64 (o_stmt, 0), g_db::dbTotalRows
+                )
+      };
     }
 };
 
@@ -412,17 +473,16 @@ static constexpr auto clearDesc = std::to_array<std::string_view> ({
     "both WHERE and ORDER BY.",
 });
 static constexpr Cmd clearCmd{
-    clearNames, "", clearDesc,
-    [] (std::string_view args) -> CmdResult {
+    clearNames, "", clearDesc, [] (std::string_view args) -> CmdResult {
       if (!args.empty()) {
-          return {false, CMD_FMT_MISUSE ("expected no args", clearCmd)};
+        return {false, CMD_FMT_MISUSE ("expected no args", clearCmd)};
       }
 
       auto query = g_db::userQuery;
       query.where.clear();
       query.orderBy.clear();
 
-      CMD_TRY_APPLY_QUERY(query, args, "Reset query");
+      CMD_TRY_APPLY_QUERY (query, args, "Reset query");
     }
 };
 
@@ -458,7 +518,8 @@ std::expected<bool*, std::string> find_toggle (std::string_view name)
   if (matches.size() > 1) {
     return std::unexpected (
         fmt::format (
-            "Ambiguous option: \"{}\" ({})", name, fmt::join (matches, ", ")
+            "Ambiguous option: \"{}\" ({})", name,
+            fmt::join (matches, ", ")
         )
     );
   }
@@ -493,9 +554,11 @@ static constexpr auto toggleDesc = std::to_array<std::string_view> ({
 static constexpr Cmd toggleCmd{
     toggleNames, "<option>", toggleDesc,
     [] (std::string_view args) -> CmdResult {
-      const auto tokens = cmd_split_whitespace (args);
+      const auto tokens = cmd_split_space (args);
       if (tokens.size() != 1) {
-        return {false, CMD_FMT_MISUSE("takes a single argument", toggleCmd)};
+        return {
+            false, CMD_FMT_MISUSE ("takes a single argument", toggleCmd)
+        };
       }
       const auto found = find_toggle (tokens.back());
       if (!found) {
@@ -519,18 +582,23 @@ static constexpr auto dumpDesc = std::to_array<std::string_view> (
 static constexpr Cmd dumpCmd{
     dumpNames, "<path>", dumpDesc,
     [] (std::string_view args) -> CmdResult {
-      const auto tokens = cmd_split_whitespace (args);
+      const auto tokens = cmd_split_space (args);
       if (tokens.size() != 1) {
-        return {false, CMD_FMT_MISUSE("takes a single argument", dumpCmd)};
+        return {
+            false, CMD_FMT_MISUSE ("takes a single argument", dumpCmd)
+        };
       }
 
       const std::filesystem::path path{tokens[0]};
       if (std::error_code ec; std::filesystem::exists (
               std::filesystem::symlink_status (path, ec)
           )) {
-        return {false, fmt::format (
-            "{} already exists; refusing to overwrite", path.string()
-        )};
+        return {
+            false,
+            fmt::format (
+                "{} already exists; refusing to overwrite", path.string()
+            )
+        };
       }
 
       sqlite3* o_dest = nullptr;
@@ -544,16 +612,21 @@ static constexpr Cmd dumpCmd{
       });
       if (const auto rc = sqlite3_open (path.c_str(), &o_dest);
           rc != SQLITE_OK) {
-        return {false, apb_describe_sqlite_failure (
-            "Failed to dump database to disk", rc, sqlite3_errmsg (o_dest)
-        )};
+        return {
+            false, apb_describe_sqlite_failure (
+                       "Failed to dump database to disk", rc,
+                       sqlite3_errmsg (o_dest)
+                   )
+        };
       }
       // dest errmsg is unreliable once the copy has finished
       if (const auto rc = apb_copy_db (g_db::conn, o_dest);
           rc != SQLITE_OK) {
-        return {false, apb_describe_sqlite_failure (
-            "Failed to dump database to disk", rc, std::nullopt
-        )};
+        return {
+            false, apb_describe_sqlite_failure (
+                       "Failed to dump database to disk", rc, std::nullopt
+                   )
+        };
       }
       success = true;
       return {true, fmt::format ("Dumped database to {}", path.string())};
@@ -577,9 +650,9 @@ static constexpr auto helpDesc = std::to_array<std::string_view> ({
 static constexpr Cmd helpCmd{
     helpNames, "[(nav|cmd|col)]", helpDesc,
     [] (std::string_view args) -> CmdResult {
-      const auto tokens = cmd_split_whitespace (args);
+      const auto tokens = cmd_split_space (args);
       if (tokens.size() > 1) {
-        return {false, CMD_FMT_MISUSE("too many args", helpCmd)};
+        return {false, CMD_FMT_MISUSE ("too many args", helpCmd)};
       }
 
       helpblocks::TextBlockRef content;
@@ -612,15 +685,19 @@ static constexpr Cmd helpCmd{
         }
       }
       else {
-        return {false, CMD_FMT_MISUSE (
-            fmt::format ("unknown topic {}", tokens[0]), helpCmd
-        )};
+        return {
+            false, CMD_FMT_MISUSE (
+                       fmt::format ("unknown topic {}", tokens[0]), helpCmd
+                   )
+        };
       }
 
       if (!size_and_set_overlay_widget (content)) {
-        return {false, CMD_FMT_FAIL ("terminal too small to display help pane")};
+        return {
+            false, CMD_FMT_FAIL ("terminal too small to display help pane")
+        };
       }
-      apb_log::log_push("focusing overlay");
+      apb_log::log_push ("focusing overlay");
       tui_state::focus = tui_state::focus_mode_t::overlayMode;
       return {true, CMD_GENERIC_SUCCESS};
     }
@@ -639,7 +716,7 @@ static constexpr std::span<const Cmd* const> get_cmd_registry()
       &countCmd,
       &countAllCmd,
       &clearCmd,
-      &colCmd,
+      &selectCmd,
       &toggleCmd,
       &dumpCmd,
   });
