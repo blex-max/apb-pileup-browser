@@ -4,15 +4,8 @@
 #include <regex>
 
 #include "utility/apb_assert.hpp"
+#include "utility/debug.hpp"
 #include "utility/stringify.hpp"
-
-#ifdef STDERR_DEBUG
-#include <iostream>
-#define CERR_DEBUG(msg) std::cerr << msg << std::endl;
-#else
-#define CERR_DEBUG(msg)
-#endif
-
 
 namespace {
 enum sql_fsm_state_t : uint8_t {
@@ -348,6 +341,8 @@ struct doctest::StringMaker<
   }
 };
 
+TEST_CASE (NAME_OF (lex_select_terms_sql))
+{
 #define REQUIRE_TOKS(inStr, ...)                                 \
   do {                                                           \
     const auto ret = lex_select (inStr);                         \
@@ -364,8 +359,6 @@ struct doctest::StringMaker<
     REQUIRE (ret.error().ch == (hint));                         \
   } while (0)
 
-TEST_CASE (NAME_OF (lex_select_terms_sql))
-{
   SUBCASE ("empty returns empty") { REQUIRE_TOKS ("", {}); }
 
   SUBCASE ("Illegal char is error")
@@ -424,6 +417,8 @@ TEST_CASE (NAME_OF (lex_select_terms_sql))
       );
     }
   }
+#undef REQUIRE_TOKS
+#undef REQUIRE_ERR
 }
 
 template <>
