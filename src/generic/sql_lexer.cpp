@@ -1,11 +1,7 @@
-#include <algorithm>
+#include "sql_lexer.hpp"
+
 #include <cstddef>
-#include <expected>
-#include <optional>
 #include <regex>
-#include <string_view>
-#include <unordered_set>
-#include <vector>
 
 #include "utility/apb_assert.hpp"
 #include "utility/stringify.hpp"
@@ -32,19 +28,7 @@ enum sql_fsm_state_t : uint8_t {
 };
 }
 
-struct apb_parse_sql_err_t {
-  enum type_t : uint8_t {
-    comment,
-    imbalancedParens,
-    imbalancedQuotes,
-    unexpectedEoS,
-    illegalChar
-  };
-  type_t type;
-  size_t column = 0;
-  std::optional<std::string> ch = std::nullopt;
-};
-static std::string to_string (const apb_parse_sql_err_t& err)
+static std::string to_string (const apb_parse_select_err_t& err)
 {
   std::string msg = "Error in select clause at column ";
   msg += std::to_string (err.column);
@@ -57,19 +41,19 @@ static std::string to_string (const apb_parse_sql_err_t& err)
     msg += ": ";
   }
   switch (err.type) {
-  case apb_parse_sql_err_t::comment:
+  case apb_parse_select_err_t::comment:
     msg += "comment in clause";
     break;
-  case apb_parse_sql_err_t::imbalancedParens:
+  case apb_parse_select_err_t::imbalancedParens:
     msg += "imbalanced parentheses";
     break;
-  case apb_parse_sql_err_t::imbalancedQuotes:
+  case apb_parse_select_err_t::imbalancedQuotes:
     msg += "imbalanced quotes";
     break;
-  case apb_parse_sql_err_t::unexpectedEoS:
+  case apb_parse_select_err_t::unexpectedEoS:
     msg += "unexpeced end of clause";
     break;
-  case apb_parse_sql_err_t::illegalChar:
+  case apb_parse_select_err_t::illegalChar:
     msg += "illegal character in clause";
     break;
   }
@@ -79,14 +63,14 @@ static std::string to_string (const apb_parse_sql_err_t& err)
 // SOURCES: sqlite3 select statement and language docs (for quoting)
 // and tokenizer.c
 // TODO: write up spec
-static std::expected<std::vector<std::string_view>, apb_parse_sql_err_t>
-apb_lex_select (std::string_view apbSelect)
+static std::expected<std::vector<std::string_view>, apb_parse_select_err_t>
+lex_select (std::string_view apbSelect)
 {
-#define RET_UNEXP(type, at, ch)                   \
-  do {                                            \
-    return std::unexpected<apb_parse_sql_err_t> ( \
-        {apb_parse_sql_err_t::type, at, ch}       \
-    );                                            \
+#define RET_UNEXP(type, at, ch)                      \
+  do {                                               \
+    return std::unexpected<apb_parse_select_err_t> ( \
+        {apb_parse_select_err_t::type, at, ch}       \
+    );                                               \
   } while (0)
 
 
@@ -273,18 +257,6 @@ apb_lex_select (std::string_view apbSelect)
 #undef RET_UNEXP
 }
 
-
-struct apb_sel_term_t {
-  std::string tok;
-  std::optional<std::string_view> colAlias;
-};
-
-// NOTE: token validity is up to the user. We're just extracting the alias
-// if the syntax is valid. If they have written bad SQL, it will fail anyway
-// so this doesn't matter so much.
-// NOTE: could attempt to prepare statement before lexing, without stepping.
-// If preparation succeeds, then we know statement is valid SQL and parsing
-// should succeed if code is well-formed.
 static std::optional<std::string_view> apb_find_alias (
     std::string_view selectToken
 )
@@ -313,12 +285,17 @@ static std::optional<std::string_view> apb_find_alias (
   return out;
 }
 
-// For each lexeme, search for an AS expression - if present, apb
-// will interpet the term as an aliased column. Otherwise not.
-static std::vector<apb_sel_term_t> apb_interpret_select (
-    const std::vector<std::string_view>& tokens
-)
+std::expected<std::vector<apb_sel_term_t>, apb_parse_select_err_t>
+apb_parse_select (std::string_view apbSelectClause)
 {
+  std::vector<std::string_view> tokens;
+  if (const auto ret = lex_select (apbSelectClause); !ret) {
+    return std::unexpected (ret.error());
+  }
+  else {
+    tokens = *ret;
+  }
+
   std::vector<apb_sel_term_t> out;
   for (const auto tok : tokens) {
     auto& outElem = out.emplace_back (std::string{tok}, std::nullopt);
@@ -351,8 +328,8 @@ struct doctest::StringMaker<std::vector<std::string_view>> {
 };
 
 template <>
-struct doctest::StringMaker<apb_parse_sql_err_t> {
-  static String convert (const apb_parse_sql_err_t& err)
+struct doctest::StringMaker<apb_parse_select_err_t> {
+  static String convert (const apb_parse_select_err_t& err)
   {
     return to_string (err).c_str();
   }
@@ -360,31 +337,31 @@ struct doctest::StringMaker<apb_parse_sql_err_t> {
 
 template <>
 struct doctest::StringMaker<
-    std::expected<std::vector<std::string_view>, apb_parse_sql_err_t>> {
+    std::expected<std::vector<std::string_view>, apb_parse_select_err_t>> {
   static String convert (
       const std::expected<
-          std::vector<std::string_view>, apb_parse_sql_err_t>& ex
+          std::vector<std::string_view>, apb_parse_select_err_t>& ex
   )
   {
     return ex ? StringMaker<std::vector<std::string_view>>::convert (*ex)
-              : StringMaker<apb_parse_sql_err_t>::convert (ex.error());
+              : StringMaker<apb_parse_select_err_t>::convert (ex.error());
   }
 };
 
 #define REQUIRE_TOKS(inStr, ...)                                 \
   do {                                                           \
-    const auto ret = apb_lex_select (inStr);                     \
+    const auto ret = lex_select (inStr);                         \
     REQUIRE (ret);                                               \
     REQUIRE (*ret == std::vector<std::string_view> __VA_ARGS__); \
   } while (0)
 
-#define REQUIRE_ERR(inStr, type, at, hint)                   \
-  do {                                                       \
-    const auto ret = apb_lex_select (inStr);                 \
-    REQUIRE (!ret);                                          \
-    REQUIRE (ret.error().type == apb_parse_sql_err_t::type); \
-    REQUIRE (ret.error().column == (at));                    \
-    REQUIRE (ret.error().ch == (hint));                      \
+#define REQUIRE_ERR(inStr, type, at, hint)                      \
+  do {                                                          \
+    const auto ret = lex_select (inStr);                        \
+    REQUIRE (!ret);                                             \
+    REQUIRE (ret.error().type == apb_parse_select_err_t::type); \
+    REQUIRE (ret.error().column == (at));                       \
+    REQUIRE (ret.error().ch == (hint));                         \
   } while (0)
 
 TEST_CASE (NAME_OF (lex_select_terms_sql))
